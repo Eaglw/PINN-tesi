@@ -396,7 +396,7 @@ if goal == objectives[2]:
     plt.show()
 
     print("Training complete.")
-
+    exit()
 
 if goal == objectives[3]:
     torch.manual_seed(123)
@@ -511,6 +511,7 @@ if goal == objectives[3]:
                 'k_history': k_history
             }, r'models/inverse_model_intermediate_{}.pth'.format(i+1)
             )
+    exit()
 
     a = 0
 
