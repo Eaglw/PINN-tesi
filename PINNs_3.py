@@ -147,7 +147,7 @@ if goal == objectives[0]:
             else:
                 plt.close("all")
 
-    save_gif_PIL("nn_entire_domain_longer.gif", files, fps=20, loop=0)
+    #save_gif_PIL("nn_entire_domain_longer.gif", files, fps=20, loop=0)
     exit()
 
 a = 0
@@ -228,7 +228,7 @@ if goal == objectives[1]:
             else:
                 plt.close("all")
 
-    save_gif_PIL("pinn_no_data.gif", files, fps=20, loop=0)
+    #save_gif_PIL("pinn_no_data.gif", files, fps=20, loop=0)
     exit()
 
 """
@@ -356,7 +356,7 @@ if goal == objectives[2]:
 
 
 
-    save_gif_PIL("pinn_inverse.gif", files, fps=20, loop=0)
+    #save_gif_PIL("pinn_inverse.gif", files, fps=20, loop=0)
 
     '''
     torch.save({
