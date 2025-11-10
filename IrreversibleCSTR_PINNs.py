@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import os
+from tqdm import tqdm
 
 step=10000
 
@@ -95,7 +96,7 @@ torch.manual_seed(123)
 model = FCN(1,1,32,3)
 optimizer = torch.optim.Adam(model.parameters(),lr=1e-3)
 files = []
-for i in range(step):
+for i in tqdm(range(step), desc="Training NN"):
     optimizer.zero_grad()
     yh = model(x_data)
     loss = torch.mean((yh-y_data)**2)# use mean squared error
@@ -104,7 +105,7 @@ for i in range(step):
     
     
     # plot the result as training progresses
-    if (i+1) % 10 == 0: 
+    if (i+1) % 100 == 0: 
         
         yh = model(x).detach()
         
@@ -129,7 +130,7 @@ torch.manual_seed(123)
 model = FCN(1,1,32,3)
 optimizer = torch.optim.Adam(model.parameters(),lr=1e-4)
 files = []
-for i in range(step):
+for i in tqdm(range(step), desc="Training PINN"):
     optimizer.zero_grad()
     
     # compute the "data loss"
@@ -150,7 +151,7 @@ for i in range(step):
     
     
     # plot the result as training progresses
-    if (i+1) % 10 == 0: 
+    if (i+1) % step/100 == 0: 
         
         yh = model(x).detach()
         xp = x_physics.detach()
