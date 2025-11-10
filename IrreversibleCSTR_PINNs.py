@@ -151,7 +151,7 @@ for i in tqdm(range(step), desc="Training PINN"):
     
     
     # plot the result as training progresses
-    if (i+1) % step/100 == 0: 
+    if (i+1) % 100 == 0: 
         
         yh = model(x).detach()
         xp = x_physics.detach()
