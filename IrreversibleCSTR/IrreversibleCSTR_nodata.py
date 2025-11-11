@@ -2,7 +2,8 @@
 in this case I want to solve the problem without training data, but using only the equation
 and the boundary condition
 """
-
+# pylint: disable=unused-import
+# flake8: noqa
 
 # train physics informed neural network (PINN)  
 x_physics = torch.linspace(0,5,50).view(-1,1).requires_grad_(True)# sample locations over the problem domain
