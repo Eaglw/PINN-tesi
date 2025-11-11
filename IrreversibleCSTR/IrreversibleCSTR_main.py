@@ -5,21 +5,14 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
+import sys
 
-step=10000
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from func.graphic_func import save_gif_PIL, plot_result
 
 
 
-def save_gif_PIL(outfile, files, fps=5, loop=0, delete_files=False):
-    "Helper function for saving GIFs, modificata per rimuovere i file"
-    imgs = [Image.open(file) for file in files]
-    imgs[0].save(fp=outfile, format='GIF', append_images=imgs[1:], save_all=True, duration=int(1000/fps), loop=loop)
-    if delete_files:
-        for file in files:
-            try:
-                os.remove(file)
-            except Exception as e:
-                print(f"Warning: unable to delete file {file}. Error: {e}")
+step=100
 
 class FCN(nn.Module):
     "Defines a connected network"
@@ -70,26 +63,6 @@ plt.scatter(x_data, y_data, color="tab:orange", label="Training data")
 plt.legend()
 plt.show()
 
-
-
-
-
-def plot_result(x,y,x_data,y_data,yh,xp=None):
-    "Pretty plot training results"
-    plt.figure(figsize=(8,4))
-    plt.plot(x,y, color="grey", linewidth=2, alpha=0.8, label="Exact solution")
-    plt.plot(x,yh, color="tab:blue", linewidth=4, alpha=0.8, label="Neural network prediction")
-    plt.scatter(x_data, y_data, s=60, color="tab:orange", alpha=0.4, label='Training data')
-    if xp is not None:
-        plt.scatter(xp, -0*torch.ones_like(xp), s=60, color="tab:green", alpha=0.4, 
-                    label='Physics loss training locations')
-    l = plt.legend(loc=(1.01,0.34), frameon=False, fontsize="large")
-    plt.setp(l.get_texts(), color="k")
-    #plt.xlim(-0.05, 1.05)
-    #plt.ylim(-1.1, 1.1)
-    plt.text(1.065,0.7,"Training step: %i"%(i+1),fontsize="xx-large",color="k")
-    plt.axis("off")
-    
     
 # train standard neural network to fit training data
 torch.manual_seed(123)
@@ -109,7 +82,7 @@ for i in tqdm(range(step), desc="Training NN"):
         
         yh = model(x).detach()
         
-        plot_result(x,y,x_data,y_data,yh)
+        plot_result(i,x,y,x_data,y_data,yh)
         
         file = "plots/CSTRnn_%.8i.png"%(i+1)
         plt.savefig(file, bbox_inches='tight', pad_inches=0.1, dpi=100, facecolor="white")
@@ -118,7 +91,7 @@ for i in tqdm(range(step), desc="Training NN"):
         if (i+1) % 5000 == 0: plt.show()# cambiato per non vedere sempre
         else: plt.close("all")
             
-save_gif_PIL("CSTRnn.gif", files, fps=20, loop=0,delete_files=True)
+save_gif_PIL("IrreversibleCSTR/CSTRnn.gif", files, fps=20, loop=0,delete_files=True)
 
 
 
@@ -140,7 +113,7 @@ for i in tqdm(range(step), desc="Training PINN"):
     # compute the "physics loss"
     yhp = model(x_physics)
     dx  = torch.autograd.grad(yhp, x_physics, torch.ones_like(yhp), create_graph=True)[0]# computes dy/dx
-    physics = dx + k*yhp - F*(cAin-yhp)/V# computes the residual of the 1D harmonic oscillator differential equation
+    physics = dx + k*yhp - F*(cAin-yhp)/V# computes the residual of the CSTR irreversible mass balance equation
     loss2 = (1e-4)*torch.mean(physics**2)
     # penso che qua sotto yhp è cA(t), dx sarebbe dcA/dt
     
@@ -156,7 +129,7 @@ for i in tqdm(range(step), desc="Training PINN"):
         yh = model(x).detach()
         xp = x_physics.detach()
         
-        plot_result(x,y,x_data,y_data,yh,xp)
+        plot_result(i,x,y,x_data,y_data,yh,xp)
         
         file = "plots/CSTRpinn_%.8i.png"%(i+1)
         plt.savefig(file, bbox_inches='tight', pad_inches=0.1, dpi=100, facecolor="white")
@@ -165,4 +138,4 @@ for i in tqdm(range(step), desc="Training PINN"):
         if (i+1) % 4500 == 0: plt.show()
         else: plt.close("all")
             
-save_gif_PIL("CSTRpinn.gif", files, fps=20, loop=0)
+save_gif_PIL("IrreversibleCSTR/CSTRpinn.gif", files, fps=20, loop=0)
