@@ -2,6 +2,9 @@
 .plots
 .models
 .tesi
+tesi/
+plots/
+models/
 
 #file mie
 *.gif
