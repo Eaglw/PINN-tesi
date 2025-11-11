@@ -10,7 +10,15 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from func.graphic_func import save_gif_PIL, plot_result
 
-step=20000
+step=2000 #step di training condivisi tra i try per comparare 
+"""
+Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
+0. NN classica e PINN con dati e fisica
+1. Solo fisica e BC
+2. Problema inverso
+"""
+goal = [0,1]
+
 
 class FCN(nn.Module):
     "Defines a connected network"
@@ -61,7 +69,10 @@ plt.scatter(x_data, y_data, color="tab:orange", label="Training data")
 plt.legend()
 plt.show()
 
-if False:
+
+
+if 0 in goal:
     exec(open("IrreversibleCSTR/IrreversibleCSTR_nn_pinn.py").read())
-if True:
+if 1 in goal:
     exec(open("IrreversibleCSTR/IrreversibleCSTR_nodata.py").read())
+#if 2 in goal:
