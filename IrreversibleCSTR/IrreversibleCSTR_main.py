@@ -10,14 +10,17 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from func.graphic_func import save_gif_PIL, plot_result
 
-step=2000 #step di training condivisi tra i try per comparare 
+step=1000 #step di training condivisi tra i try per comparare 
 """
 Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 0. NN classica e PINN con dati e fisica
 1. Solo fisica e BC
 2. Problema inverso
 """
-goal = [0,1]
+goal = [2]
+
+#parametri fisici del problema
+F, V, cAin, k, cA0 = 400, 2000, 10, 1, 10
 
 
 class FCN(nn.Module):
@@ -51,8 +54,6 @@ def CSTR(F, V, cAin, k, cA0,  x):
     return y
 
 
-F, V, cAin, k, cA0 = 400, 2000, 10, 1, 10
-
 # get the analytical solution over the full domain
 x = torch.linspace(0,5,500).view(-1,1)
 y = CSTR(F, V, cAin, k, cA0,  x).view(-1,1)
@@ -75,4 +76,5 @@ if 0 in goal:
     exec(open("IrreversibleCSTR/IrreversibleCSTR_nn_pinn.py").read())
 if 1 in goal:
     exec(open("IrreversibleCSTR/IrreversibleCSTR_nodata.py").read())
-#if 2 in goal:
+if 2 in goal:
+    exec(open("IrreversibleCSTR/IrreversibleCSTR_inverse.py").read())

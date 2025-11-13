@@ -23,6 +23,7 @@ for i in tqdm(range(step), desc="Training nodata"):
     # now I need to add boundary and initial conditions (in some points)
     # since it is  1d problem I just need 1 colocation points (at time t=0)!
     single_point = x[0].unsqueeze(1)
+    #questo single point non andrebbe fuori dal loop?
     # questo step a quanto pare è necessario!
     single_point.requires_grad = True
     bc1 = model(single_point)
