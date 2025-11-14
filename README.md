@@ -5,13 +5,12 @@ This project focuses on using Physics-Informed Neural Networks (PINNs) for thesi
 ## Recent Changes
 
 Here is a summary of the latest commits:
-
-*   `5592934`: Added CSTR nodata training
-*   `4261943`: Defined functions in a separate, easily importable file
-*   `4a5304d`: Better understanding and usage of `.gitignore`
-*   `40e8e3e`: `.gitignore` update
-*   `efc938d`: Added requirements to `requirements.txt`
+* 28ebb48: Improve readability
+* 854ae31: CSTR inverso: Impostato l'addestramento per trovare i parametri fisici
+* 7a326c9: draft non funzionante
+* c00db69: Implementato la logica per scegliere goal
+* 7ab133d: Created gemini.md file to track progress
 
 ## Next Steps
 
-The next major task is to implement the training process to find the physical parameters of the system.
+The next major task is to try varying hyperparameters and optimizations to improve results.
