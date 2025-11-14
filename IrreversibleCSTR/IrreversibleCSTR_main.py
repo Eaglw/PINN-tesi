@@ -63,7 +63,6 @@ print(x.shape, y.shape)
 x_data = x[0:150:10]
 y_data = y[0:150:10]
 print(x_data.shape, y_data.shape)
-
 plt.figure()
 plt.plot(x, y, label="Exact solution")
 plt.scatter(x_data, y_data, color="tab:orange", label="Training data")
@@ -74,7 +73,10 @@ plt.show()
 
 if 0 in goal:
     exec(open("IrreversibleCSTR/IrreversibleCSTR_nn_pinn.py").read())
+    print("0. NN classica e PINN con dati e fisica")
 if 1 in goal:
     exec(open("IrreversibleCSTR/IrreversibleCSTR_nodata.py").read())
+    print("1. Solo fisica e BC")
 if 2 in goal:
     exec(open("IrreversibleCSTR/IrreversibleCSTR_inverse.py").read())
+    print("2. Problema inverso")
