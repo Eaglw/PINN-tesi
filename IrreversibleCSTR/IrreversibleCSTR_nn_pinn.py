@@ -3,7 +3,7 @@ torch.manual_seed(123)
 model = FCN(1,1,32,3)
 optimizer = torch.optim.Adam(model.parameters(),lr=1e-3)
 files = []
-for i in tqdm(range(step), desc="Training NN"):
+for i in tqdm(range(step*2), desc="Training NN"):
     optimizer.zero_grad()
     yh = model(x_data)
     loss = torch.mean((yh-y_data)**2)# use mean squared error
@@ -28,7 +28,7 @@ torch.manual_seed(123)
 model = FCN(1,1,32,3)
 optimizer = torch.optim.Adam(model.parameters(),lr=1e-4)
 files = []
-for i in tqdm(range(step), desc="Training PINN"):
+for i in tqdm(range(step*2), desc="Training PINN"):
     optimizer.zero_grad()
     # compute the "data loss"
     yh = model(x_data)

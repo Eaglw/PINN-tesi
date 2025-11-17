@@ -5,8 +5,8 @@ Non so se è necessario ma sto raddoppiando la dimensione della rete, e anche st
 In questo caso voglio stimare k reaction rate e tau=F/V residence time.
 """
 # I am picking data on the entire domain
-x_data_new = x[::2]
-y_data_new = y[::2]
+x_data_new = x[::10]
+y_data_new = y[::10]
 # Aumento i punti della fisica rispetto ai casi precedenti
 x_physics = torch.linspace(0,5,100).view(-1,1).requires_grad_(True)# sample locations over the problem domain
 #creo gli oggetti torch per i parametri fisici, con valore iniziale
