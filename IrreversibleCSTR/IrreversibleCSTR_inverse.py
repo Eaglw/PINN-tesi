@@ -43,7 +43,7 @@ optimizer_full = torch.optim.Adam([
     {'params': [tau_train, k_train], 'lr': 1e-2}  # Higher learning rate for parameters
 ])
 # train per i parametri
-for i in tqdm(range(step*5), desc="Train for parameters"):
+for i in tqdm(range(int(step/2)), desc="Train for parameters"):
     optimizer_full.zero_grad()
     loss1 = torch.mean((model(x_data_new) - y_data_new) ** 2)
     # compute the "physics loss"
@@ -62,7 +62,7 @@ for i in tqdm(range(step*5), desc="Train for parameters"):
     tau_history.append(tau_train.item())
     k_history.append(k_train.item())
     # plot the result as training progresses
-    if (i + 1) % 2000 == 0:
+    if (i + 1) % 200 == 0:
         yh = model(x).detach()
         xp = x_physics.detach()
         plot_result(i, x, y, x_data_new, y_data_new, yh)
@@ -73,7 +73,7 @@ for i in tqdm(range(step*5), desc="Train for parameters"):
             plt.show()
         else:
             plt.close("all")
-save_gif_PIL("CSTRpinn_inverse.gif", files, fps=20, loop=0)
+save_gif_PIL("IrreversibleCSTR/CSTRpinn_inverse.gif", files, fps=20, loop=0)
 # Plot parameter evolution
 plt.figure(figsize=(10, 4))
 plt.subplot(1, 2, 1)
@@ -91,6 +91,12 @@ plt.ylabel("k_train")
 plt.legend()
 
 plt.tight_layout()
-plt.show()
+# Save combined figure (both tau and k) in IrreversibleCSTR
+combined_file = os.path.join("IrreversibleCSTR", "k_tau_history.png")
+plt.savefig(combined_file, bbox_inches='tight', pad_inches=0.1, dpi=200)
+
+# Print final values of learned parameters to terminal
+print(f"Final tau_train: {tau_train.item()}")
+print(f"Final k_train: {k_train.item()}")
 
 print("Training complete.")

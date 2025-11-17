@@ -10,7 +10,7 @@ for i in tqdm(range(step), desc="Training NN"):
     loss.backward()
     optimizer.step()
     # plot the result as training progresses
-    if (i+1) % 100 == 0: 
+    if (i+1) % 200 == 0: 
         yh = model(x).detach()
         plot_result(i,x,y,x_data,y_data,yh)
         file = "plots/CSTRnn_%.8i.png"%(i+1)
@@ -43,13 +43,13 @@ for i in tqdm(range(step), desc="Training PINN"):
     loss.backward()
     optimizer.step()
     # plot the result as training progresses
-    if (i+1) % 100 == 0: 
+    if (i+1) % 200 == 0: 
         yh = model(x).detach()
         xp = x_physics.detach()
         plot_result(i,x,y,x_data,y_data,yh,xp)
         file = "plots/CSTRpinn_%.8i.png"%(i+1)
         plt.savefig(file, bbox_inches='tight', pad_inches=0.1, dpi=100, facecolor="white")
         files.append(file)
-        if (i+1) % 4500 == 0: plt.show()
+        if (i+1) % 5000 == 0: plt.show()
         else: plt.close("all")  
 save_gif_PIL("IrreversibleCSTR/CSTRpinn.gif", files, fps=20, loop=0)

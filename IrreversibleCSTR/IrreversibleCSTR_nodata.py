@@ -8,7 +8,7 @@ torch.manual_seed(123)
 model = FCN(1,1,32,3)
 optimizer = torch.optim.Adam(model.parameters(),lr=1e-4)
 files = []
-for i in tqdm(range(step), desc="Training nodata"):
+for i in tqdm(range(step*2), desc="Training nodata"):
     optimizer.zero_grad()
     # compute the "physics loss"
     yhp = model(x_physics)
@@ -29,7 +29,7 @@ for i in tqdm(range(step), desc="Training nodata"):
     x_data=[]
     y_data=[]
     # plot the result as training progresses
-    if (i+1) % 2000 == 0: 
+    if (i+1) % 200 == 0: 
         #print("Iteration: {}  | Physics Loss: {} | Dirichlet Loss: {}".format(i,loss2,loss3))
         yh = model(x).detach()
         xp = x_physics.detach()
