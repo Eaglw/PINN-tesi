@@ -2,16 +2,7 @@
 
 This project focuses on using Physics-Informed Neural Networks (PINNs) for thesis work.
 
-## Recent Changes
-
-Here is a summary of the latest commits:
-* ddfb546: Ulteriore modifica agli step e al campionamento di punti per il problema inverso
-* 53e4a1f: Ottimizzato gli step di training e il salvataggio di grafici
-* fe0cec6: readme update
-* 28ebb48: Improve readability
-* 854ae31: CSTR inverso: Impostato l'addestramento per trovare i parametri fisici
-
-### Domande 
+## Domande 
 
 - Il caso ancora più semplificato di ODE è comunque rappresentativo o ha intrinsecamente dei problemi o limiti? Nel rappresentare casi più complessi o conndimensionalità diverse?
 - Aggiungendo anche bilancio di energia come sarebbe cambiata l'analisi?
@@ -27,4 +18,11 @@ Here is a summary of the latest commits:
 - Funzioni di attivazione e ottimizzatori
 - Come bilanciare dinamicamente i pesi delle varie loss
 
+## Recent Changes
 
+Here is a summary of the latest commits:
+* ddfb546: Ulteriore modifica agli step e al campionamento di punti per il problema inverso
+* 53e4a1f: Ottimizzato gli step di training e il salvataggio di grafici
+* fe0cec6: readme update
+* 28ebb48: Improve readability
+* 854ae31: CSTR inverso: Impostato l'addestramento per trovare i parametri fisici
