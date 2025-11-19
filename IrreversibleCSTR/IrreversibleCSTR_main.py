@@ -83,4 +83,4 @@ if 2 in goal:
     exec(open("IrreversibleCSTR/IrreversibleCSTR_inverse.py").read())
 if 3 in goal:
     print("3. Analisi ottimizzatori e funzioni di attivazione")
-    exec(open("IrreversibleCSTR/IrreversibleCSTR_inverse_optim.py").read())
+    exec(open("IrreversibleCSTR/IrreversibleCSTR_pinn_optim.py").read())

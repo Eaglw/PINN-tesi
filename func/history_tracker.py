@@ -34,7 +34,10 @@ class TrainingHistory:
         plt.figure(figsize=(8, 4))
         ax = plt.gca()
         for name, values in self.losses.items():
-            plt.plot(self.epochs, values, label=name)
+            if name == "total_loss":
+                plt.plot(self.epochs, values, linewidth=4, label=name)
+            else:
+                plt.plot(self.epochs, values, label=name)
         
         plt.title(f'Andamento Loss - {experiment_name}', y=0.85)
         plt.xlabel('Epoch')
