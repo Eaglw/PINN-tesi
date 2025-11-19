@@ -26,3 +26,39 @@ Here is a summary of the latest commits:
 * fe0cec6: readme update
 * 28ebb48: Improve readability
 * 854ae31: CSTR inverso: Impostato l'addestramento per trovare i parametri fisici
+
+## Virtual environment (Python)
+
+Per creare e usare un virtual environment Python con `venv` su macOS (shell `zsh`):
+
+- Creare l'ambiente virtuale:
+
+```
+python3 -m venv .venv
+```
+
+- Attivare l'ambiente (zsh):
+
+```
+source .venv/bin/activate
+```
+
+- Aggiornare `pip` (opzionale ma consigliato):
+
+```
+pip install --upgrade pip
+```
+
+- Installare i requirements del progetto:
+
+```
+pip install -r requirements.txt
+```
+
+Per disattivare l'ambiente virtuale, eseguire:
+
+```
+deactivate
+```
+
+Nota: se preferisci creare l'ambiente con un nome diverso, sostituisci `.venv` con il nome scelto. Se usi un'altra shell (ad es. `bash`), il comando di attivazione è analogo: `source <env>/bin/activate`.
