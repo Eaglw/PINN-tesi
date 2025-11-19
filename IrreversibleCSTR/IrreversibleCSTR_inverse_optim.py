@@ -17,17 +17,19 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from func.history_tracker import TrainingHistory
 from func.graphic_func import plot_result
 
+x_physics = torch.linspace(0, 5, 30).view(-1, 1).requires_grad_(True)
 
 # --- CONFIGURAZIONE DEGLI ESPERIMENTI ---
 experiments_to_run = [
-    {'name': 'Adam_Tanh_10k', 'optimizer': 'Adam', 'activation': 'Tanh', 'learning_rate': 1e-3, 'epochs': 10000},
-    {'name': 'Adam_GELU_10k', 'optimizer': 'Adam', 'activation': 'GELU', 'learning_rate': 1e-3, 'epochs': 10000},
-    {'name': 'LBFGS_Tanh_500iter', 'optimizer': 'LBFGS', 'activation': 'Tanh', 'learning_rate': 1.0, 'epochs': 1}, # Per LBFGS, le "epoche" sono gestite da max_iter
+    #{'name': 'Adam_Tanh_10k', 'optimizer': 'Adam', 'activation': 'Tanh', 'learning_rate': 1e-3, 'epochs': 10000},
+    #{'name': 'Adam_GELU_10k', 'optimizer': 'Adam', 'activation': 'GELU', 'learning_rate': 1e-3, 'epochs': 10000},
+    {'name': 'LBFGS_Tanh_1500iter', 'optimizer': 'LBFGS', 'activation': 'Tanh', 'learning_rate': 1.0, 'epochs': 1},
+    {'name': 'LBFGS_GELU_1500iter', 'optimizer': 'LBFGS', 'activation': 'GELU', 'learning_rate': 1.0, 'epochs': 1},
+    {'name': 'Adam_then_LBFGS_Tanh', 'optimizer': 'Adam_then_LBFGS', 'activation': 'Tanh', 'learning_rate': 1e-3, 'epochs': 20000},
+    {'name': 'Adam_then_LBFGS_GELU', 'optimizer': 'Adam_then_LBFGS', 'activation': 'GELU', 'learning_rate': 1e-3, 'epochs': 20000},
 ]
 
-# --- PARAMETRI E DEFINIZIONI DEL MODELLO ---
-
-x_physics = torch.linspace(0, 5, 30).view(-1, 1).requires_grad_(True)
+# --- DEFINIZIONI DEL MODELLO ---
 
 # Mappatura delle funzioni di attivazione
 activation_functions = {
@@ -53,10 +55,6 @@ class FCN(nn.Module):
         x = self.fce(x)
         return x
 
-
-
-
-
 # --- CICLO PRINCIPALE DEGLI ESPERIMENTI ---
 for experiment in experiments_to_run:
     exp_name = experiment['name']
@@ -67,75 +65,160 @@ for experiment in experiments_to_run:
     
     print(f"\n--- Avvio Esperimento: {exp_name} ---")
 
-    # Inizializza l'oggetto per tracciare le loss
     history = TrainingHistory()
-    
-    # Seleziona la funzione di attivazione e inizializza il modello
     activation_fn = activation_functions.get(activation_name, nn.Tanh)
     pinn = FCN(1, 1, 32, 5, activation_fn=activation_fn)
     
-    # Inizializza l'ottimizzatore
-    if optimizer_name == 'LBFGS':
-        # LBFGS è un caso speciale, epochs=1 ma l'ottimizzazione avviene negli 'max_iter' interni
-        optimizer = torch.optim.LBFGS(pinn.parameters(), lr=lr, max_iter=500, history_size=50, line_search_fn="strong_wolfe")
-        loop_range = range(epochs)
-    else: # Adam
+    # --- LOGICA DI TRAINING ---
+    
+    if optimizer_name == 'Adam_then_LBFGS':
+        print("Fase 1: Training con Adam...")
         optimizer = torch.optim.Adam(pinn.parameters(), lr=lr)
-        loop_range = tqdm(range(epochs), desc=f"Training {exp_name}")
+        loss_history_for_switch = []
+        plateau_window = 1000
+        plateau_threshold = 0.01
 
-    # --- CICLO DI TRAINING ---
-    for i in loop_range:
+        adam_epochs = epochs
+        last_epoch = 0
+
+        with tqdm(total=adam_epochs, desc=f"Training Adam") as pbar:
+            for i in range(adam_epochs):
+                last_epoch = i
+                optimizer.zero_grad()
+                
+                y_pred_data = pinn(x_data)
+                loss_data = torch.mean((y_pred_data - y_data)**2)
+                y_pinn_physics = pinn(x_physics)
+                dy_pinn = torch.autograd.grad(y_pinn_physics, x_physics, torch.ones_like(y_pinn_physics), create_graph=True)[0]
+                loss_pde = torch.mean(((V/F) * dy_pinn + y_pinn_physics - cAin + (V*k/F) * y_pinn_physics)**2)
+                x_ic = torch.tensor([0.0]).view(-1, 1)
+                y_ic_pred = pinn(x_ic)
+                loss_ic = torch.mean((y_ic_pred - cA0)**2)
+                loss = loss_data + loss_pde + loss_ic
+                
+                loss.backward()
+                optimizer.step()
+                pbar.set_postfix({'loss': loss.item()})
+                pbar.update(1)
+
+                if i % 100 == 0:
+                    history.update(i, {'total_loss': loss, 'data_loss': loss_data, 'pde_loss': loss_pde, 'ic_loss': loss_ic})
+
+                current_loss_val = loss.item()
+                loss_history_for_switch.append(current_loss_val)
+                if i > plateau_window:
+                    past_loss = loss_history_for_switch[i - plateau_window]
+                    relative_improvement = (past_loss - current_loss_val) / past_loss if past_loss > 0 else 0
+                    if relative_improvement < plateau_threshold:
+                        print(f"\nLoss plateaued at epoch {i}. Improvement in last {plateau_window} epochs: {relative_improvement*100:.4f}%")
+                        break
         
-        def closure():
-            optimizer.zero_grad() 
-            
-            # 1. Data loss
+        print("\nFase 2: Fine-tuning con LBFGS...")
+        optimizer = torch.optim.LBFGS(pinn.parameters(), lr=1.0, max_iter=1500, history_size=50, line_search_fn="strong_wolfe")
+        
+        lbfgs_iter_wrapper = [0]
+        def lbfgs_closure():
+            optimizer.zero_grad()
             y_pred_data = pinn(x_data)
             loss_data = torch.mean((y_pred_data - y_data)**2)
-            
-            # 2. Physics loss (PDE)
             y_pinn_physics = pinn(x_physics)
             dy_pinn = torch.autograd.grad(y_pinn_physics, x_physics, torch.ones_like(y_pinn_physics), create_graph=True)[0]
             loss_pde = torch.mean(((V/F) * dy_pinn + y_pinn_physics - cAin + (V*k/F) * y_pinn_physics)**2)
-
-            # 3. Initial Condition loss
             x_ic = torch.tensor([0.0]).view(-1, 1)
             y_ic_pred = pinn(x_ic)
             loss_ic = torch.mean((y_ic_pred - cA0)**2)
-            
-            # Loss totale
             loss = loss_data + loss_pde + loss_ic
             loss.backward()
 
-            # Aggiorna l'history (ogni 10 step per LBFGS, ogni 100 per Adam)
-            log_freq = 10 if optimizer_name == 'LBFGS' else 100
-            if i % log_freq == 0:
-                history.update(i, {
-                    'total_loss': loss, 'data_loss': loss_data,
-                    'pde_loss': loss_pde, 'ic_loss': loss_ic
-                })
+            # Log at each iteration
+            history.update(last_epoch + lbfgs_iter_wrapper[0], {
+                'total_loss': loss.detach(), 
+                'data_loss': loss_data.detach(), 
+                'pde_loss': loss_pde.detach(), 
+                'ic_loss': loss_ic.detach()
+            })
+            lbfgs_iter_wrapper[0] += 1
+            if lbfgs_iter_wrapper[0] % 100 == 0:
+                print(f'LBFGS iter {lbfgs_iter_wrapper[0]}, Loss: {loss.item()}')
+            
             return loss
 
-        # Esegui lo step di ottimizzazione
-        optimizer.step(closure)
+        optimizer.step(lbfgs_closure)
+
+    else:
+        if optimizer_name == 'LBFGS':
+            optimizer = torch.optim.LBFGS(pinn.parameters(), lr=lr, max_iter=1500, history_size=50, line_search_fn="strong_wolfe")
+            print(f"Training con LBFGS (max_iter=1500)...")
+            
+            lbfgs_iter_wrapper = [0]
+            def lbfgs_closure():
+                optimizer.zero_grad()
+                y_pred_data = pinn(x_data)
+                loss_data = torch.mean((y_pred_data - y_data)**2)
+                y_pinn_physics = pinn(x_physics)
+                dy_pinn = torch.autograd.grad(y_pinn_physics, x_physics, torch.ones_like(y_pinn_physics), create_graph=True)[0]
+                loss_pde = torch.mean(((V/F) * dy_pinn + y_pinn_physics - cAin + (V*k/F) * y_pinn_physics)**2)
+                x_ic = torch.tensor([0.0]).view(-1, 1)
+                y_ic_pred = pinn(x_ic)
+                loss_ic = torch.mean((y_ic_pred - cA0)**2)
+                loss = loss_data + loss_pde + loss_ic
+                loss.backward()
+
+                # Log at each iteration
+                history.update(lbfgs_iter_wrapper[0], {
+                    'total_loss': loss.detach(), 
+                    'data_loss': loss_data.detach(), 
+                    'pde_loss': loss_pde.detach(), 
+                    'ic_loss': loss_ic.detach()
+                })
+                lbfgs_iter_wrapper[0] += 1
+                if lbfgs_iter_wrapper[0] % 100 == 0:
+                    print(f'LBFGS iter {lbfgs_iter_wrapper[0]}, Loss: {loss.item()}')
+                
+                return loss
+            
+            optimizer.step(lbfgs_closure)
+
+        else: # Adam
+            optimizer = torch.optim.Adam(pinn.parameters(), lr=lr)
+            
+            def closure(current_epoch=0, log_freq=100):
+                optimizer.zero_grad()
+                y_pred_data = pinn(x_data)
+                loss_data = torch.mean((y_pred_data - y_data)**2)
+                y_pinn_physics = pinn(x_physics)
+                dy_pinn = torch.autograd.grad(y_pinn_physics, x_physics, torch.ones_like(y_pinn_physics), create_graph=True)[0]
+                loss_pde = torch.mean(((V/F) * dy_pinn + y_pinn_physics - cAin + (V*k/F) * y_pinn_physics)**2)
+                x_ic = torch.tensor([0.0]).view(-1, 1)
+                y_ic_pred = pinn(x_ic)
+                loss_ic = torch.mean((y_ic_pred - cA0)**2)
+                loss = loss_data + loss_pde + loss_ic
+                loss.backward()
+                if current_epoch % log_freq == 0:
+                    history.update(current_epoch, {'total_loss': loss, 'data_loss': loss_data, 'pde_loss': loss_pde, 'ic_loss': loss_ic})
+                return loss
+
+            with tqdm(total=epochs, desc=f"Training {exp_name}") as pbar:
+                for i in range(epochs):
+                    loss = closure(current_epoch=i)
+                    optimizer.step()
+                    pbar.set_postfix({'loss': loss.item()})
+                    pbar.update(1)
 
     # --- SALVATAGGIO RISULTATI A FINE ESPERIMENTO ---
     print("Training completato. Salvataggio dei risultati...")
-
-    # 1. Grafico andamento delle loss
+    
     loss_plot_path = f"plots/CSTR/{exp_name}_loss_trends.png"
     history.plot_losses(save_path=loss_plot_path, experiment_name=exp_name)
     
-    # 2. Grafico del risultato finale
     pinn.eval()
     with torch.no_grad():
         y_pred_full = pinn(x)
     
     result_plot_path = f"plots/CSTR/{exp_name}_final_prediction.png"
     
-    # Usa la funzione di plot standardizzata e poi salva
-    plot_result(i, x, y, x_data, y_data, y_pred_full, xp=x_physics.detach())
-    plt.title(f'Risultato Finale - {exp_name}', y=0.85) # Aggiunge titolo e lo sposta
+    plot_result(epochs, x, y, x_data, y_data, y_pred_full, xp=x_physics.detach())
+    plt.title(f'Risultato Finale - {exp_name}', y=0.85)
     os.makedirs(os.path.dirname(result_plot_path), exist_ok=True)
     plt.savefig(result_plot_path, bbox_inches='tight')
     plt.close()
