@@ -10,14 +10,14 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from func.graphic_func import save_gif_PIL, plot_result
 
-step=10000 #step di training condivisi tra i try per comparare 
+step=4000 #step di training condivisi tra i try per comparare 
 """
 Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 0. NN classica e PINN con dati e fisica
 1. Solo fisica e BC
 2. Problema inverso
 """
-goal = [0,1,2]
+goal = [4]
 
 #parametri fisici del problema
 F, V, cAin, k, cA0 = 400, 2000, 10, 1, 10
@@ -80,3 +80,6 @@ if 1 in goal:
 if 2 in goal:
     print("2. Problema inverso")
     exec(open("IrreversibleCSTR/IrreversibleCSTR_inverse.py").read())
+if 4 in goal:
+    print("4. Analisi ottimizzatori e funzioni di attivazione")
+    exec(open("IrreversibleCSTR/IrreversibleCSTR_inverse_optim.py").read())
