@@ -17,7 +17,7 @@ Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 1. Solo fisica e BC
 2. Problema inverso
 """
-goal = [2]
+goal = [0,1,2]
 
 #parametri fisici del problema
 F, V, cAin, k, cA0 = 400, 2000, 10, 1, 10

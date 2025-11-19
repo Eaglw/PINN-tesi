@@ -37,6 +37,6 @@ for i in tqdm(range(step*2), desc="Training nodata"):
         file = "plots/CSTRpinn_nodata%.8i.png"%(i+1)
         plt.savefig(file, bbox_inches='tight', pad_inches=0.1, dpi=100, facecolor="white")
         files.append(file)
-        if (i+1) % 500 == 0: plt.show()
+        if (i+1) % 5000 == 0: plt.show()
         else: plt.close("all")
 save_gif_PIL("IrreversibleCSTR/CSTRpinn_nodata.gif", files, fps=20, loop=0)
