@@ -1,23 +1,6 @@
 # PINN Tesi Project
 
 This project focuses on using Physics-Informed Neural Networks (PINNs) for thesis work.
-
-## Domande 
-
-- Il caso ancora più semplificato di ODE è comunque rappresentativo o ha intrinsecamente dei problemi o limiti? Nel rappresentare casi più complessi o conndimensionalità diverse?
-- Aggiungendo anche bilancio di energia come sarebbe cambiata l'analisi?
-
-- Trend del caso no data, la BC è corretta?
-- Perchè abbiamo ingrandito la rete nel problema inverso?
-- Normale che solo con loss fisica sia decisamente più lento?
-- "single_point = x[0].unsqueeze(1) single_point.requires_grad = True" va dentro o fuori dal loop? (no data vs inverse)
-- Nell inverse pretraining serve BC?
-
-- Campionamento dei punti analitici sia in posizione che in densità come potrebbe influenzare?
-- Incertezza su parametri fisici?
-- Funzioni di attivazione e ottimizzatori
-- Come bilanciare dinamicamente i pesi delle varie loss
-
 ## Recent Changes
 
 Here is a summary of the latest commits:
@@ -29,36 +12,15 @@ Here is a summary of the latest commits:
 
 ## Virtual environment (Python)
 
-Per creare e usare un virtual environment Python con `venv` su macOS (shell `zsh`):
+Per creare e usare un virtual environment Python con `venv` su macOS (shell `zsh`), puoi seguire questi passaggi consolidati:
 
-- Creare l'ambiente virtuale:
-
-```
-python3 -m venv .venv
-```
-
-- Attivare l'ambiente (zsh):
-
-```
-source .venv/bin/activate
+```bash
+python3 -m venv .venv              # Crea l'ambiente virtuale chiamato '.venv'
+source .venv/bin/activate         # Attiva l'ambiente virtuale (per zsh/bash)
+pip install --upgrade pip         # Aggiorna pip alla versione più recente (opzionale ma consigliato)
+pip install -r requirements.txt   # Installa tutte le dipendenze del progetto
+# ... (lavora nel tuo ambiente virtuale) ...
+deactivate                        # Disattiva l'ambiente virtuale
 ```
 
-- Aggiornare `pip` (opzionale ma consigliato):
-
-```
-pip install --upgrade pip
-```
-
-- Installare i requirements del progetto:
-
-```
-pip install -r requirements.txt
-```
-
-Per disattivare l'ambiente virtuale, eseguire:
-
-```
-deactivate
-```
-
-Nota: se preferisci creare l'ambiente con un nome diverso, sostituisci `.venv` con il nome scelto. Se usi un'altra shell (ad es. `bash`), il comando di attivazione è analogo: `source <env>/bin/activate`.
+Nota: se preferisci creare l'ambiente con un nome diverso, sostituisci `.venv` con il nome scelto. Se usi un'altra shell, il comando di attivazione rimane `source <env>/bin/activate`.
