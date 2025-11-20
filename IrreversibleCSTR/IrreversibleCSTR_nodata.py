@@ -39,4 +39,4 @@ for i in tqdm(range(step*2), desc="Training nodata"):
         files.append(file)
         if (i+1) % 5000 == 0: plt.show()
         else: plt.close("all")
-save_gif_PIL("IrreversibleCSTR/CSTRpinn_nodata.gif", files, fps=20, loop=0)
+save_gif_PIL("IrreversibleCSTR/Results/CSTRpinn_nodata.gif", files, fps=20, loop=0)

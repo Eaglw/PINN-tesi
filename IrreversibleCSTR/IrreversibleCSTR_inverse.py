@@ -73,7 +73,7 @@ for i in tqdm(range(int(step/2)), desc="Train for parameters"):
             plt.show()
         else:
             plt.close("all")
-save_gif_PIL("IrreversibleCSTR/CSTRpinn_inverse.gif", files, fps=20, loop=0)
+save_gif_PIL("IrreversibleCSTR/Results/CSTRpinn_inverse.gif", files, fps=20, loop=0)
 # Plot parameter evolution
 plt.figure(figsize=(10, 4))
 plt.subplot(1, 2, 1)

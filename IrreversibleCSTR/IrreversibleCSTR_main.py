@@ -18,7 +18,7 @@ Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 2. Problema inverso
 3. PINN che confronta l'andamento di diversi optimizer e activation function
 """
-goal = [3]
+goal = [0,1,2,3]
 
 #parametri fisici del problema
 F, V, cAin, k, cA0 = 400, 2000, 10, 1, 10
