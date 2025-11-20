@@ -33,15 +33,17 @@ class FCN(nn.Module):
     """Rete Neurale a Connessioni Complete (Fully Connected Network)"""
     def __init__(self, N_INPUT, N_OUTPUT, N_HIDDEN, N_LAYERS, activation_fn=nn.Tanh):
         super().__init__()
-        self.fcs = nn.Sequential(nn.Linear(N_INPUT, N_HIDDEN), activation_fn())
-        self.fch = nn.Sequential(*[
-            nn.Sequential(nn.Linear(N_HIDDEN, N_HIDDEN), activation_fn()) for _ in range(N_LAYERS - 1)
-        ])
+        self.activation = activation_fn()
+        self.fcs = nn.Linear(N_INPUT, N_HIDDEN)
+        self.fch = nn.ModuleList([nn.Linear(N_HIDDEN, N_HIDDEN) for _ in range(N_LAYERS - 1)])
         self.fce = nn.Linear(N_HIDDEN, N_OUTPUT)
         
     def forward(self, x):
         x = self.fcs(x)
-        x = self.fch(x)
+        x = self.activation(x)
+        for layer in self.fch:
+            x = layer(x)
+            x = self.activation(x)
         x = self.fce(x)
         return x
 
@@ -132,10 +134,10 @@ def train_lbfgs(pinn, optimizer, history, x_data, y_data, x_physics, epoch_offse
 
 # --- CONFIGURAZIONE DEGLI ESPERIMENTI ---
 experiments_to_run = [
-    #{'name': 'Adam_Tanh_10k', 'optimizer': 'Adam', 'activation': 'Tanh', 'learning_rate': 1e-3, 'epochs': 10000},
-    #{'name': 'Adam_GELU_10k', 'optimizer': 'Adam', 'activation': 'GELU', 'learning_rate': 1e-3, 'epochs': 10000},
-    #{'name': 'LBFGS_Tanh_1500iter', 'optimizer': 'LBFGS', 'activation': 'Tanh', 'learning_rate': 1.0, 'max_iter': 1500},
-    #{'name': 'LBFGS_GELU_1500iter', 'optimizer': 'LBFGS', 'activation': 'GELU', 'learning_rate': 1.0, 'max_iter': 1500},
+    {'name': 'Adam_Tanh_10k', 'optimizer': 'Adam', 'activation': 'Tanh', 'learning_rate': 1e-3, 'epochs': 10000},
+    {'name': 'Adam_GELU_10k', 'optimizer': 'Adam', 'activation': 'GELU', 'learning_rate': 1e-3, 'epochs': 10000},
+    {'name': 'LBFGS_Tanh_1500iter', 'optimizer': 'LBFGS', 'activation': 'Tanh', 'learning_rate': 1.0, 'max_iter': 1500},
+    {'name': 'LBFGS_GELU_1500iter', 'optimizer': 'LBFGS', 'activation': 'GELU', 'learning_rate': 1.0, 'max_iter': 1500},
     {'name': 'Adam_then_LBFGS_Tanh', 'optimizer': 'Adam_then_LBFGS', 'activation': 'Tanh', 'learning_rate': 1e-3, 'epochs': 20000, 'max_iter_lbfgs': 1500},
     {'name': 'Adam_then_LBFGS_GELU', 'optimizer': 'Adam_then_LBFGS', 'activation': 'GELU', 'learning_rate': 1e-3, 'epochs': 20000, 'max_iter_lbfgs': 1500},
 ]
@@ -194,7 +196,7 @@ for experiment in experiments_to_run:
     # --- SALVATAGGIO RISULTATI A FINE ESPERIMENTO ---
     print("Training completato. Salvataggio dei risultati...")
     
-    plot_dir = f"plots/CSTR/{exp_name}"
+    plot_dir = f"IrreversibleCSTR/Results/{exp_name}"
     os.makedirs(plot_dir, exist_ok=True)
     
     loss_plot_path = os.path.join(plot_dir, "loss_trends.png")
