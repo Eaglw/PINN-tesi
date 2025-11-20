@@ -72,13 +72,14 @@ def compute_loss(pinn, x_data, y_data, x_physics):
     }
     return total_loss, loss_dict
 
-def train_adam(pinn, optimizer, history, epochs, x_data, y_data, x_physics, pbar_desc, detect_plateau=False):
-    """Ciclo di training per l'ottimizzatore Adam."""
-    loss_history_for_switch = []
-    plateau_window = 1000
-    plateau_threshold = 0.01
+def train_adam(pinn, optimizer, history, epochs, x_data, y_data, x_physics, pbar_desc, use_patience=False, patience_epochs=500):
+    """Ciclo di training per l'ottimizzatore Adam con early stopping basato sulla pazienza."""
     last_epoch = 0
     
+    # Variabili per la logica di 'patience'
+    best_loss = float('inf')
+    patience_counter = 0
+
     with tqdm(total=epochs, desc=pbar_desc) as pbar:
         for i in range(epochs):
             last_epoch = i
@@ -94,15 +95,18 @@ def train_adam(pinn, optimizer, history, epochs, x_data, y_data, x_physics, pbar
             if i % 100 == 0:
                 history.update(i, {k: v.detach() for k, v in loss_dict.items()})
 
-            if detect_plateau:
+            # Logica di Early Stopping basata sulla 'pazienza'
+            if use_patience:
                 current_loss_val = loss.item()
-                loss_history_for_switch.append(current_loss_val)
-                if i > plateau_window:
-                    past_loss = loss_history_for_switch[i - plateau_window]
-                    relative_improvement = (past_loss - current_loss_val) / past_loss if past_loss > 0 else 0
-                    if relative_improvement < plateau_threshold:
-                        print(f"\nLoss plateaued at epoch {i}. Improvement in last {plateau_window} epochs: {relative_improvement*100:.4f}%")
-                        break
+                if current_loss_val < best_loss:
+                    best_loss = current_loss_val
+                    patience_counter = 0
+                else:
+                    patience_counter += 1
+                
+                if patience_counter >= patience_epochs:
+                    print(f"\nEarly stopping all'epoca {i} per mancanza di miglioramento nelle ultime {patience_epochs} epoche.")
+                    break # Interrompe il training
     return last_epoch
 
 def train_lbfgs(pinn, optimizer, history, x_data, y_data, x_physics, epoch_offset=0):
@@ -128,10 +132,10 @@ def train_lbfgs(pinn, optimizer, history, x_data, y_data, x_physics, epoch_offse
 
 # --- CONFIGURAZIONE DEGLI ESPERIMENTI ---
 experiments_to_run = [
-    {'name': 'Adam_Tanh_10k', 'optimizer': 'Adam', 'activation': 'Tanh', 'learning_rate': 1e-3, 'epochs': 10000},
-    {'name': 'Adam_GELU_10k', 'optimizer': 'Adam', 'activation': 'GELU', 'learning_rate': 1e-3, 'epochs': 10000},
-    {'name': 'LBFGS_Tanh_1500iter', 'optimizer': 'LBFGS', 'activation': 'Tanh', 'learning_rate': 1.0, 'max_iter': 1500},
-    {'name': 'LBFGS_GELU_1500iter', 'optimizer': 'LBFGS', 'activation': 'GELU', 'learning_rate': 1.0, 'max_iter': 1500},
+    #{'name': 'Adam_Tanh_10k', 'optimizer': 'Adam', 'activation': 'Tanh', 'learning_rate': 1e-3, 'epochs': 10000},
+    #{'name': 'Adam_GELU_10k', 'optimizer': 'Adam', 'activation': 'GELU', 'learning_rate': 1e-3, 'epochs': 10000},
+    #{'name': 'LBFGS_Tanh_1500iter', 'optimizer': 'LBFGS', 'activation': 'Tanh', 'learning_rate': 1.0, 'max_iter': 1500},
+    #{'name': 'LBFGS_GELU_1500iter', 'optimizer': 'LBFGS', 'activation': 'GELU', 'learning_rate': 1.0, 'max_iter': 1500},
     {'name': 'Adam_then_LBFGS_Tanh', 'optimizer': 'Adam_then_LBFGS', 'activation': 'Tanh', 'learning_rate': 1e-3, 'epochs': 20000, 'max_iter_lbfgs': 1500},
     {'name': 'Adam_then_LBFGS_GELU', 'optimizer': 'Adam_then_LBFGS', 'activation': 'GELU', 'learning_rate': 1e-3, 'epochs': 20000, 'max_iter_lbfgs': 1500},
 ]
@@ -148,7 +152,7 @@ for experiment in experiments_to_run:
     history = TrainingHistory()
     activation_fn = activation_functions.get(activation_name, nn.Tanh)
     pinn = FCN(1, 1, 32, 5, activation_fn=activation_fn)
-    
+    last_adam_epoch = 0
     # --- LOGICA DI TRAINING ---
     if optimizer_name == 'Adam_then_LBFGS':
         print("Fase 1: Training con Adam...")
@@ -157,7 +161,7 @@ for experiment in experiments_to_run:
         
         last_adam_epoch = train_adam(
             pinn, adam_optimizer, history, adam_epochs, x_data, y_data, x_physics,
-            pbar_desc="Training Adam", detect_plateau=True
+            pbar_desc="Training Adam", use_patience=True
         )
         
         print("\nFase 2: Fine-tuning con LBFGS...")
@@ -194,8 +198,9 @@ for experiment in experiments_to_run:
     os.makedirs(plot_dir, exist_ok=True)
     
     loss_plot_path = os.path.join(plot_dir, "loss_trends.png")
-    history.plot_losses(save_path=loss_plot_path, experiment_name=exp_name)
-    
+    history.plot_losses(last_adam_epoch,save_path=loss_plot_path, experiment_name=exp_name,)
+   
+
     pinn.eval()
     with torch.no_grad():
         y_pred_full = pinn(x)

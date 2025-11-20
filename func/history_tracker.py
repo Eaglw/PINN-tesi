@@ -27,7 +27,7 @@ class TrainingHistory:
                 self.losses[name] = []
             self.losses[name].append(val)
 
-    def plot_losses(self, save_path=None, experiment_name=""):
+    def plot_losses(self,last_adam_epoch, save_path=None, experiment_name=""):
         """
         Genera un grafico con l'andamento di tutte le loss registrate.
         """
@@ -44,7 +44,8 @@ class TrainingHistory:
         plt.ylabel('Loss Value')
         plt.yscale('log')
         plt.grid(True, which="both", ls="--", alpha=0.5)
-        
+        if last_adam_epoch != 0:
+            plt.axvline(last_adam_epoch, color="r", linestyle="--", label="Last adam epoch")
         # Stile coerente con plot_result
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
