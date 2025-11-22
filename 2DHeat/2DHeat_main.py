@@ -1,8 +1,14 @@
+from PIL import Image
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 import matplotlib.pyplot as plt
 import os
+from tqdm import tqdm
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from func.graphic_func import save_gif_PIL, plot_result
 
 def soluzione_analitica(x, y, Lx, Ly, Nx=50):
     """
@@ -67,7 +73,91 @@ plt.colorbar(cp)
 plt.scatter(x_data.numpy(), y_data.numpy(), c='cyan', s=21, edgecolor='k', label='Dati estratti')
 plt.xlabel('x [m]')
 plt.ylabel('y [m]')
-plt.title('Soluzione analitica e punti dati estratti (PyTorch)')
+plt.title('Soluzione analitica e punti dati estratti')
 plt.legend()
-plt.savefig(os.path.join(results_dir, 'soluzione_analitica.png'))
+plt.savefig(os.path.join(results_dir, 'analytic_sol.png'))
 plt.show()
+
+
+# Training di NN normale
+torch.manual_seed(42)
+model = FCN(2, 1, 32, 4).to(torch.float64)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+loss_fn = nn.MSELoss()
+
+# Prepara i dati per il training
+xy_data = torch.stack([x_data, y_data], dim=1)
+T_data_reshaped = T_data.unsqueeze(1) # Aggiunge una dimensione per il target
+
+# Prepara la griglia per la visualizzazione
+xy_grid = torch.stack([X.flatten(), Y.flatten()], dim=1)
+
+epochs = 5000
+pbar = tqdm(range(epochs), desc='Training NN')
+
+# Directory per i plot dell'errore durante il training
+error_plot_dir = os.path.join(results_dir, 'training_error')
+if not os.path.exists(error_plot_dir):
+    os.makedirs(error_plot_dir)
+
+for epoch in pbar:
+    model.train()
+    # Forward pass
+    T_pred = model(xy_data)
+    loss = loss_fn(T_pred, T_data_reshaped)
+    # Backward and optimize
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    if (epoch + 1) % 100 == 0:
+        pbar.set_postfix({'Loss': f'{loss.item():.4e}'})
+        
+        # Plotting dell'errore relativo
+        model.eval()
+        with torch.no_grad():
+            T_pred_grid = model(xy_grid).reshape(Nx_dom, Ny_dom)
+        
+        # Calcolo errore relativo percentuale
+        relative_error = 100 * torch.abs(T_pred_grid - T_grid) / (torch.abs(T_grid) + 1e-8)
+        
+        plt.figure(figsize=(8, 6))
+        # vmin=0, vmax=100 mappa l'intervallo [0, 100] (0%-100%) sulla colormap
+        cp = plt.contourf(X.numpy(), Y.numpy(), relative_error.numpy(), 50, cmap='coolwarm')#, vmin=0, vmax=100)
+        cbar = plt.colorbar(cp, label='Errore Relativo Percentuale')
+        cbar.set_ticks(np.linspace(0, 100, 11))
+        cbar.set_ticklabels([f'{i:.0f}%' for i in np.linspace(0, 100, 11)])
+        plt.xlabel('x [m]')
+        plt.ylabel('y [m]')
+        plt.title(f'Errore Relativo Percentuale - Epoch {epoch + 1}')
+        plt.savefig(os.path.join(error_plot_dir, f'relative_error_epoch_{epoch+1}.png'))
+        plt.close() # Chiude la figura per non mostrarla a schermo
+
+# Plot finale dopo il training
+model.eval()
+with torch.no_grad():
+    T_pred_final = model(xy_grid).reshape(Nx_dom, Ny_dom)
+
+# Plot della soluzione appresa
+plt.figure(figsize=(10, 7))
+cp = plt.contourf(X.numpy(), Y.numpy(), T_pred_final.numpy(), 50, cmap='inferno')
+plt.colorbar(cp, label='Temperatura')
+plt.xlabel('x [m]')
+plt.ylabel('y [m]')
+plt.title('Soluzione Appresa dalla Rete Neurale')
+plt.savefig(os.path.join(results_dir, 'learned_solution.png'))
+plt.show()
+
+# Plot dell'errore relativo finale
+relative_error_final = 100*torch.abs(T_pred_final - T_grid) / (torch.abs(T_grid) + 1e-8)
+plt.figure(figsize=(10, 7))
+cp = plt.contourf(X.numpy(), Y.numpy(), relative_error_final.numpy(), 100, cmap='coolwarm', vmin=0, vmax=100)
+cbar = plt.colorbar(cp, label='Errore Relativo Percentuale')
+cbar.set_ticks(np.linspace(0, 100, 11))
+cbar.set_ticklabels([f'{i:.0f}%' for i in np.linspace(0, 100, 11)])
+plt.xlabel('x [m]')
+plt.ylabel('y [m]')
+plt.title('Errore Relativo Percentuale Finale vs Soluzione Analitica')
+plt.savefig(os.path.join(results_dir, 'final_relative_error.png'))
+plt.show()
+
+
