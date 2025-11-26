@@ -6,9 +6,16 @@ import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
 import sys
-
+# Import function for GIF
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from func.graphic_func import save_gif_PIL, plot_result
+from func.graphic_func import save_gif_PIL
+
+"""
+# Configurazione dispositivo e precisione non implementata per ora
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+torch.set_default_dtype(torch.float64)
+"""
+
 
 def soluzione_analitica(x, y, Lx, Ly, Nx=50):
     """

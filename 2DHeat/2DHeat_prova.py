@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 # Import function for GIF
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from func.graphic_func import save_gif_PIL
+from func.graphic_func import save_gif_PIL, DHeat_plot_comparison
 
 # Configurazione dispositivo e precisione
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -32,72 +32,161 @@ def soluzione_analitica(x, y, Lx=1.0, Ly=1.0, Nx=50):
 
 # --- 2. DEFINIZIONE DELLA RETE NEURALE ---
 class FCN(nn.Module):
-    def __init__(self, layers=[2, 64, 64, 64, 64, 64, 1]):
+    """Rete Neurale a Connessioni Complete (Fully Connected Network)"""
+    def __init__(self, N_INPUT, N_OUTPUT, N_HIDDEN, N_LAYERS, activation_fn=nn.Tanh):
         super().__init__()
-        self.activation = nn.Tanh()
-        self.loss_fn = nn.MSELoss()
-        
-        # Creazione dinamica dei layer
-        module_list = []
-        for i in range(len(layers) - 1):
-            module_list.append(nn.Linear(layers[i], layers[i+1]))
-        self.layers = nn.ModuleList(module_list)
+        self.activation = activation_fn()
+        self.fcs = nn.Linear(N_INPUT, N_HIDDEN)
+        self.fch = nn.ModuleList([nn.Linear(N_HIDDEN, N_HIDDEN) for _ in range(N_LAYERS - 1)])
+        self.fce = nn.Linear(N_HIDDEN, N_OUTPUT)
         
     def forward(self, x):
-        for i, layer in enumerate(self.layers):
+        x = self.fcs(x)
+        x = self.activation(x)
+        for layer in self.fch:
             x = layer(x)
-            if i < len(self.layers) - 1: # Attivazione su tutti tranne l'ultimo
-                x = self.activation(x)
+            x = self.activation(x)
+        x = self.fce(x)
         return x
-
+    
 # --- 3. FUNZIONI UTILITY PER PLOTTING ---
-def plot_comparison(X, Y, T_true, T_pred, epoch, save_path):
-    """Genera grafici side-by-side: Predizione, Errore Assoluto, Errore Relativo."""
-    
-    # Calcolo Errori
-    abs_error = torch.abs(T_pred - T_true)
-    
-    # Errore Relativo (Gestione della divisione per zero)
-    # Calcoliamo l'errore relativo solo dove T_true è significativo (> 0.01)
-    mask = torch.abs(T_true) > 0.01
-    rel_error = torch.zeros_like(T_true)
-    rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
-    
-    # Setup plot
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
-    
-    # 1. Soluzione Predetta
-    ax = axes[0]
-    c1 = ax.contourf(X_np, Y_np, T_pred.detach().cpu().numpy(), levels=50, cmap='inferno')
-    plt.colorbar(c1, ax=ax, label='Temp')
-    ax.set_title(f'Predizione NN (Epoch {epoch})')
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
+# La funzione plot_comparison è stata spostata in func.graphic_func come 2DHeat_plot_comparison
 
-    # 2. Errore Assoluto (Più robusto)
-    ax = axes[1]
-    c2 = ax.contourf(X_np, Y_np, abs_error.detach().cpu().numpy(), levels=50, cmap='magma')
-    plt.colorbar(c2, ax=ax, label='Errore Assoluto')
-    ax.set_title('Errore Assoluto |T_pred - T_true|')
-    ax.set_xlabel('x')
 
-    # 3. Errore Relativo (Mascherato)
-    ax = axes[2]
-    # Usiamo vmin/vmax per evitare saturazione da outlier
-    c3 = ax.contourf(X_np, Y_np, rel_error.detach().cpu().numpy(), levels=50, cmap='jet', vmin=0, vmax=10) 
-    cbar = plt.colorbar(c3, ax=ax, label='% Errore')
-    # Coloriamo di grigio le zone escluse (dove T_true ~ 0)
-    ax.set_facecolor('lightgray') 
-    ax.set_title('Errore Relativo % (dove T_true > 0.01)')
-    ax.set_xlabel('x')
 
-    plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path)
-        plt.close()
-    else:
-        plt.show()
+
+# --- intro mio --- 
+
+# Directory Output
+plots_dir = 'plots'
+os.makedirs(plots_dir, exist_ok=True)
+final_dir = '2DHeat/Results'
+os.makedirs(final_dir, exist_ok=True)
+ 
+# Parametri 
+epochs = 5000
+Lx, Ly = 1.0, 1.0
+Nx_fourier = 50  # termini serie
+
+# Griglia dominio per visualizzazione
+Nx_dom, Ny_dom = 100, 100
+x_grid = torch.linspace(0, Lx, Nx_dom, dtype=torch.float64)
+y_grid = torch.linspace(0, Ly, Ny_dom, dtype=torch.float64)
+X, Y = torch.meshgrid(x_grid, y_grid, indexing='xy')
+
+T_grid = soluzione_analitica(X, Y, Lx, Ly, Nx=Nx_fourier)
+
+# Estrazione dati randomici ma uniformi
+num_data = 200  # cambia a piacere
+torch.manual_seed(0)
+
+x_data = torch.rand(num_data, dtype=torch.float64) * Lx
+y_data = torch.rand(num_data, dtype=torch.float64) * Ly
+T_data = soluzione_analitica(x_data, y_data, Lx, Ly, Nx=Nx_fourier)
+
+# Plot
+results_dir = '2DHeat/Results'
+if not os.path.exists(results_dir):
+    os.makedirs(results_dir)
+
+plt.figure(figsize=(8,6))
+cp = plt.contourf(X.numpy(), Y.numpy(), T_grid.numpy(), 50, cmap='inferno')
+plt.colorbar(cp)
+plt.scatter(x_data.numpy(), y_data.numpy(), c='cyan', s=21, edgecolor='k', label='Dati estratti')
+plt.xlabel('x [m]')
+plt.ylabel('y [m]')
+plt.title('Soluzione analitica e punti dati estratti')
+plt.legend()
+plt.savefig(os.path.join(results_dir, 'analytic_sol.png'))
+plt.show()
+
+# Training di NN normale
+torch.manual_seed(42)
+model = FCN(2, 1, 32, 4).to(torch.float64)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+loss_fn = nn.MSELoss()
+
+# Prepara i dati per il training
+xy_data = torch.stack([x_data, y_data], dim=1)
+T_data_reshaped = T_data.unsqueeze(1) # Aggiunge una dimensione per il target
+
+# Prepara la griglia per la visualizzazione
+xy_grid = torch.stack([X.flatten(), Y.flatten()], dim=1)
+
+
+
+# Directory per i plot dell'errore durante il training
+error_plot_dir = os.path.join(results_dir, 'training_error')
+if not os.path.exists(error_plot_dir):
+    os.makedirs(error_plot_dir)
+
+pbar = tqdm(range(epochs), desc='Training NN')
+for epoch in pbar:
+    model.train()
+    # Forward pass
+    T_pred = model(xy_data)
+    loss = loss_fn(T_pred, T_data_reshaped)
+    # Backward and optimize
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    if (epoch + 1) % 100 == 0:
+        pbar.set_postfix({'Loss': f'{loss.item():.4e}'})
+        
+        # Plotting dell'errore relativo
+        model.eval()
+        with torch.no_grad():
+            T_pred_grid = model(xy_grid).reshape(Nx_dom, Ny_dom)
+        
+        # Calcolo errore relativo percentuale
+        relative_error = 100 * torch.abs(T_pred_grid - T_grid) / (torch.abs(T_grid) + 1e-8)
+        
+        plt.figure(figsize=(8, 6))
+        # vmin=0, vmax=100 mappa l'intervallo [0, 100] (0%-100%) sulla colormap
+        cp = plt.contourf(X.numpy(), Y.numpy(), relative_error.numpy(), 50, cmap='coolwarm')#, vmin=0, vmax=100)
+        cbar = plt.colorbar(cp, label='Errore Relativo Percentuale')
+        cbar.set_ticks(np.linspace(0, 100, 11))
+        cbar.set_ticklabels([f'{i:.0f}%' for i in np.linspace(0, 100, 11)])
+        plt.xlabel('x [m]')
+        plt.ylabel('y [m]')
+        plt.title(f'Errore Relativo Percentuale - Epoch {epoch + 1}')
+        plt.savefig(os.path.join(error_plot_dir, f'relative_error_epoch_{epoch+1}.png'))
+        plt.close() # Chiude la figura per non mostrarla a schermo
+
+# Plot finale dopo il training
+model.eval()
+with torch.no_grad():
+    T_pred_final = model(xy_grid).reshape(Nx_dom, Ny_dom)
+
+# Plot della soluzione appresa
+plt.figure(figsize=(10, 7))
+cp = plt.contourf(X.numpy(), Y.numpy(), T_pred_final.numpy(), 50, cmap='inferno')
+plt.colorbar(cp, label='Temperatura')
+plt.xlabel('x [m]')
+plt.ylabel('y [m]')
+plt.title('Soluzione Appresa dalla Rete Neurale')
+plt.savefig(os.path.join(results_dir, 'learned_solution.png'))
+plt.show()
+
+# Plot dell'errore relativo finale
+relative_error_final = 100*torch.abs(T_pred_final - T_grid) / (torch.abs(T_grid) + 1e-8)
+plt.figure(figsize=(10, 7))
+cp = plt.contourf(X.numpy(), Y.numpy(), relative_error_final.numpy(), 100, cmap='coolwarm', vmin=0, vmax=100)
+cbar = plt.colorbar(cp, label='Errore Relativo Percentuale')
+cbar.set_ticks(np.linspace(0, 100, 11))
+cbar.set_ticklabels([f'{i:.0f}%' for i in np.linspace(0, 100, 11)])
+plt.xlabel('x [m]')
+plt.ylabel('y [m]')
+plt.title('Errore Relativo Percentuale Finale vs Soluzione Analitica')
+plt.savefig(os.path.join(results_dir, 'final_relative_error.png'))
+plt.show()
+
+final_path = os.path.join(final_dir, 'final_result.png')
+DHeat_plot_comparison(X, Y, T_grid, T_pred_final, epochs, save_path=final_path)
+
+
+
+
 
 # --- 4. MAIN SCRIPT ---
 if __name__ == "__main__":
@@ -157,7 +246,7 @@ if __name__ == "__main__":
                 T_pred_grid = model(xy_grid).reshape(Nx_dom, Ny_dom)
                 
             plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
-            plot_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path)
+            DHeat_plot_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path)
             plot_files.append(plot_path)
 
     # Plot Finale Interattivo
@@ -168,7 +257,7 @@ if __name__ == "__main__":
     
     # Salvataggio ultimo plot (Results)
     final_path = os.path.join(final_dir, 'final_result.png')
-    plot_comparison(X, Y, T_exact_grid, T_final, epochs, save_path=final_path)
+    DHeat_plot_comparison(X, Y, T_exact_grid, T_final, epochs, save_path=final_path)
     
     # Generazione GIF
     print(f"Creazione GIF con {len(plot_files)} frames...")
