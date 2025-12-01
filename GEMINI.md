@@ -1,62 +1,72 @@
-# Project Overview
+# PINN Tesi Project
 
-This project is a collection of Python scripts and Jupyter notebooks for exploring and applying Physics-Informed Neural Networks (PINNs). The primary focus is on solving differential equations that model physical systems. The project demonstrates the use of PINNs for both direct and inverse problems.
+This project focuses on the research and application of Physics-Informed Neural Networks (PINNs) to solve differential equations modeling physical systems. It supports both direct problems (finding the solution) and inverse problems (parameter identification).
 
-The main technologies used are:
-- Python
-- PyTorch
-- NumPy
-- Matplotlib
+## Project Structure
 
-The project is structured around two main examples:
-1.  **Damped Harmonic Oscillator:** Explored in `PINNs_maurizio.py` and `Harmonic oscillator PINN.ipynb`. These files cover various aspects of PINNs, including:
-    - Training a standard neural network.
-    - Solving the direct problem (finding the solution given the parameters).
-    - Solving the inverse problem (finding the physical parameters of the system).
-    - Experimenting with different optimizers (Adam, LBFGS) and activation functions (Tanh, GELU).
-2.  **Irreversible Continuous Stirred-Tank Reactor (CSTR):** Implemented in the `IrreversibleCSTR` module. This example demonstrates how to apply PINNs to a chemical engineering problem, both with and without training data.
+- **`PINNs_maurizio.py`**: Main script for the Damped Harmonic Oscillator problem.
+- **`Harmonic oscillator PINN.ipynb`**: Jupyter notebook for the Harmonic Oscillator.
+- **`IrreversibleCSTR/`**: Module for the Irreversible Continuous Stirred-Tank Reactor problem.
+    - `IrreversibleCSTR_main.py`: Entry point for CSTR experiments.
+    - `IrreversibleCSTR_inverse.py`: Focused on the inverse problem (parameter estimation).
+- **`2DHeat/`**: Module for 2D Heat Transfer (Laplace equation).
+    - `2DHeat_main.py`: Main script for 2D Heat experiments.
+    - `2DHeat_prova.py`: Experimental/testing script for 2D Heat.
+- **`func/`**: Shared utility functions.
+    - `graphic_func.py`: Plotting and GIF generation.
+    - `history_tracker.py`: Loss history tracking and visualization.
+- **`models/`**: Directory for saving trained models.
+- **`plots/`** & **`Results/`**: Directories where generated plots and training artifacts are saved.
 
-The `func` directory contains helper functions, such as `graphic_func.py` for plotting results and generating GIFs of the training process.
+## Setup & Installation
 
-# Building and Running
+### Virtual Environment
+It is highly recommended to use a virtual environment.
+- **MacOS/Linux**: Use the environment name `tesi` or `.venv`.
+    ```bash
+    python3 -m venv tesi
+    source tesi/bin/activate
+    ```
+- **Windows**: Use `venv`.
+    ```bash
+    python -m venv venv
+    .\venv\Scripts\activate
+    ```
 
-## Dependencies
-
-The project's dependencies are listed in `requirements.txt`. It is recommended to use a virtual environment.
-
-To install the dependencies, run:
+### Dependencies
+Install the required Python packages:
 ```bash
 pip install -r requirements.txt
 ```
+Key dependencies: `torch`, `numpy`, `matplotlib`, `tqdm`, `Pillow`.
 
-## Running the Scripts
+## Running the Experiments
 
-The Python scripts can be run directly from the command line. For example:
-
+### 1. Damped Harmonic Oscillator
+Run the main script to train the PINN for the harmonic oscillator:
 ```bash
 python PINNs_maurizio.py
 ```
-
-or
-
-```bash
-python IrreversibleCSTR/IrreversibleCSTR_main.py
-```
-
-The scripts are configured to run specific experiments based on the `goal` variable inside the script. You may need to edit the script to choose which experiment to run.
-
-## Running the Jupyter Notebook
-
-The `Harmonic oscillator PINN.ipynb` notebook can be run using a Jupyter server:
-
+Or explore the notebook:
 ```bash
 jupyter notebook "Harmonic oscillator PINN.ipynb"
 ```
 
-# Development Conventions
+### 2. Irreversible CSTR
+Run the CSTR simulation/inversion:
+```bash
+python IrreversibleCSTR/IrreversibleCSTR_main.py
+```
 
-- The code is organized into a combination of standalone scripts and modules.
-- Helper functions, especially for plotting, are kept in the `func` directory.
-- The scripts and notebooks save plots and GIFs to the `plots` directory to visualize the results and the training progress.
-- The code is well-commented, with explanations of the different PINN concepts and implementation details.
-- The project uses a `.gitignore` file to exclude common Python artifacts and environment directories from version control.
+### 3. 2D Heat Transfer
+Run the 2D Heat transfer simulation:
+```bash
+python 2DHeat/2DHeat_main.py
+```
+
+## Development Conventions
+
+- **Precision**: The project generally sets `torch.set_default_dtype(torch.float64)` for higher precision in scientific calculations.
+- **Visualization**: Plotting functions are centralized in `func/graphic_func.py` to maintain consistent styling.
+- **Output**: Scripts should check for and create necessary output directories (e.g., `Results/`, `plots/`) before saving files.
+- **Device**: Code is typically set up to use `cuda` if available, falling back to `cpu`.

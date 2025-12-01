@@ -31,7 +31,7 @@ def plot_result(i,x,y,x_data,y_data,yh,xp=None):
     plt.text(1.065,0.7,"Training step: %i"%(i+1),fontsize="xx-large",color="k")
     plt.axis("off")
 
-def DHeat_plot_comparison(X, Y, T_true, T_pred, epoch, save_path):
+def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path):
     """Genera grafici side-by-side: Predizione, Errore Assoluto, Errore Relativo.
     Rinominata da plot_comparison per uso generale."""
     

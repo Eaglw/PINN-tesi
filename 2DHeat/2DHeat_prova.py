@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 # Import function for GIF
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from func.graphic_func import save_gif_PIL, DHeat_plot_comparison
+from func.graphic_func import save_gif_PIL, plot2D_comparison
 
 # Configurazione dispositivo e precisione
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -182,7 +182,7 @@ plt.savefig(os.path.join(results_dir, 'final_relative_error.png'))
 plt.show()
 
 final_path = os.path.join(final_dir, 'final_result.png')
-DHeat_plot_comparison(X, Y, T_grid, T_pred_final, epochs, save_path=final_path)
+plot2D_comparison(X, Y, T_grid, T_pred_final, epochs, save_path=final_path)
 
 
 
@@ -246,7 +246,7 @@ if __name__ == "__main__":
                 T_pred_grid = model(xy_grid).reshape(Nx_dom, Ny_dom)
                 
             plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
-            DHeat_plot_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path)
+            plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path)
             plot_files.append(plot_path)
 
     # Plot Finale Interattivo
@@ -257,7 +257,7 @@ if __name__ == "__main__":
     
     # Salvataggio ultimo plot (Results)
     final_path = os.path.join(final_dir, 'final_result.png')
-    DHeat_plot_comparison(X, Y, T_exact_grid, T_final, epochs, save_path=final_path)
+    plot2D_comparison(X, Y, T_exact_grid, T_final, epochs, save_path=final_path)
     
     # Generazione GIF
     print(f"Creazione GIF con {len(plot_files)} frames...")

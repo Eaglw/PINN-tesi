@@ -10,6 +10,9 @@ Here is a summary of the latest commits:
 * 28ebb48: Improve readability
 * 854ae31: CSTR inverso: Impostato l'addestramento per trovare i parametri fisici
 
+## Next steps
+1. Implementare una seconda rete nel caso del CSTR per lo scambio di energia
+
 ## Virtual environment (Python)
 
 Per creare e usare un virtual environment Python con `venv` su macOS (shell `zsh`), puoi seguire questi passaggi consolidati:
