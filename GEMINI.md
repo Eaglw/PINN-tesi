@@ -9,9 +9,9 @@ This project focuses on the research and application of Physics-Informed Neural 
 - **`IrreversibleCSTR/`**: Module for the Irreversible Continuous Stirred-Tank Reactor problem.
     - `IrreversibleCSTR_main.py`: Entry point for CSTR experiments.
     - `IrreversibleCSTR_inverse.py`: Focused on the inverse problem (parameter estimation).
-- **`2DHeat/`**: Module for 2D Heat Transfer (Laplace equation).
-    - `2DHeat_main.py`: Main script for 2D Heat experiments.
-    - `2DHeat_prova.py`: Experimental/testing script for 2D Heat.
+- **`Heat2D/`**: Module for 2D Heat Transfer (Laplace equation).
+    - `Heat2D_main.py`: Main script for 2D Heat experiments.
+    - `Heat2D_prova.py`: Experimental/testing script for 2D Heat.
 - **`func/`**: Shared utility functions.
     - `graphic_func.py`: Plotting and GIF generation.
     - `history_tracker.py`: Loss history tracking and visualization.
@@ -61,7 +61,7 @@ python IrreversibleCSTR/IrreversibleCSTR_main.py
 ### 3. 2D Heat Transfer
 Run the 2D Heat transfer simulation:
 ```bash
-python 2DHeat/2DHeat_main.py
+python Heat2D/Heat2D_main.py
 ```
 
 ## Development Conventions
