@@ -83,13 +83,13 @@ def train_modelNN(
         T_final = model(xy_grid).reshape(Nx_dom, Ny_dom)
     
     # Salvataggio ultimo plot (Results)
-    final_path = os.path.join(final_dir, 'final_result.png')
+    final_path = os.path.join(final_dir, 'NNfinal_result.png')
     plot2D_comparison(X, Y, T_exact_grid, T_final, epochs, save_path=final_path)
     
     # Generazione GIF
     print(f"Creazione GIF con {len(plot_files)} frames...")
     if plot_files:
-        gif_path = os.path.join(final_dir, 'training_evolution.gif')
+        gif_path = os.path.join(final_dir, 'NNtraining_evolution.gif')
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
     # Plot Loss History

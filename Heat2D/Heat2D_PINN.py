@@ -73,12 +73,12 @@ def train_modelPINN(
     
     plot_files = []
     
-    # Generazione punti di collocazione fissi (o dinamici nel loop)
-    # Per ora usiamo 2000 punti casuali nel dominio
-    num_physics = 2000
-    xy_physics = torch.rand(num_physics, 2, device=device)
-    xy_physics[:, 0] = xy_physics[:, 0] * Lx
-    xy_physics[:, 1] = xy_physics[:, 1] * Ly
+    # Generazione punti di collocazione: griglia regolare
+    Nx_phys, Ny_phys = 30, 30 # Numero di punti per dimensione
+    x_phys_line = torch.linspace(0, Lx, Nx_phys, device=device)
+    y_phys_line = torch.linspace(0, Ly, Ny_phys, device=device)
+    X_phys, Y_phys = torch.meshgrid(x_phys_line, y_phys_line, indexing='xy')
+    xy_physics = torch.stack([X_phys.flatten(), Y_phys.flatten()], dim=1)
     xy_physics.requires_grad_(True)
     
     # Training Loop
@@ -114,7 +114,7 @@ def train_modelPINN(
                 T_pred_grid = model(xy_grid).reshape(Nx_dom, Ny_dom)
                 
             plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
-            plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path)
+            plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path, physics_points=xy_physics)
             plot_files.append(plot_path)
 
     # Plot Finale Interattivo
@@ -125,7 +125,7 @@ def train_modelPINN(
     
     # Salvataggio ultimo plot (Results)
     final_path = os.path.join(final_dir, 'PINNfinal_result.png')
-    plot2D_comparison(X, Y, T_exact_grid, T_final, epochs, save_path=final_path)
+    plot2D_comparison(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, physics_points=xy_physics)
     
     # Generazione GIF
     print(f"Creazione GIF con {len(plot_files)} frames...")

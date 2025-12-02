@@ -31,9 +31,10 @@ def plot_result(i,x,y,x_data,y_data,yh,xp=None):
     plt.text(1.065,0.7,"Training step: %i"%(i+1),fontsize="xx-large",color="k")
     plt.axis("off")
 
-def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path):
+def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=None):
     """Genera grafici side-by-side: Predizione, Errore Assoluto, Errore Relativo.
-    Rinominata da plot_comparison per uso generale."""
+    Rinominata da plot_comparison per uso generale.
+    Aggiunge la visualizzazione dei punti di collocazione della fisica se forniti."""
     
     # Calcolo Errori
     abs_error = torch.abs(T_pred - T_true)
@@ -52,9 +53,15 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path):
     ax = axes[0]
     c1 = ax.contourf(X_np, Y_np, T_pred.detach().cpu().numpy(), levels=50, cmap='inferno')
     plt.colorbar(c1, ax=ax, label='Temp')
-    ax.set_title(f'Predizione NN (Epoch {epoch})')
+    ax.set_title(f'Predizione (Epoch {epoch})')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
+    
+    # Aggiungi i punti della fisica
+    if physics_points is not None:
+        xy_physics_np = physics_points.detach().cpu().numpy()
+        ax.scatter(xy_physics_np[:, 0], xy_physics_np[:, 1], s=5, color='cyan', alpha=0.6, label='Punti Fisica')
+        ax.legend(loc='upper right')
 
     # 2. Errore Assoluto (Più robusto)
     ax = axes[1]
@@ -75,6 +82,7 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path):
 
     plt.tight_layout()
     if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True) # Ensure directory exists
         plt.savefig(save_path)
         plt.close()
     else:
