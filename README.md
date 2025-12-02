@@ -12,6 +12,10 @@ Here is a summary of the latest commits:
 
 ## Next steps
 1. Implementare una seconda rete nel caso del CSTR per lo scambio di energia
+2. Implementare il caso 2D PINN fisica e dati
+3. Implementare il caso 2D PINN solo fisica e BC
+
+
 
 ## Virtual environment (Python)
 
