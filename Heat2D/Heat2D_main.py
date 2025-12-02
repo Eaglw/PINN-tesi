@@ -16,12 +16,32 @@ torch.set_default_dtype(torch.float64)
 
 """
 Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
-0. NN classica e PINN con dati e fisica
-1. Solo fisica e BC
-2. Problema inverso
-3. PINN che confronta l'andamento di diversi optimizer e activation function
+0. NN classica
+1. PINN con dati e fisica
+2. Solo fisica e BC
+3. Problema inverso
+4. PINN che confronta l'andamento di diversi optimizer e activation function
 """
 goal = [0]
+
+# Directory Output
+base_dir = os.path.dirname(os.path.abspath(__file__))
+results_dir = os.path.join(base_dir, 'Results')
+os.makedirs(results_dir, exist_ok=True)
+
+final_dir = results_dir
+plots_dir = os.path.join(results_dir, 'plots')
+os.makedirs(plots_dir, exist_ok=True)
+ 
+# Parametri 
+epochs = 5000
+Lx, Ly = 1.0, 1.0
+Nx_fourier = 50  # termini serie
+
+# --- Setup comune Training ---
+# Definizione layer modello: [Input, Hidden..., Output]
+# Corrisponde a: Input=2, Hidden=32 (3 layer), Output=1
+layers_config = [2, 32, 32, 32, 1]
 
 # --- 1. DEFINIZIONE DEL PROBLEMA E SOLUZIONE ANALITICA ---
 def soluzione_analitica(x, y, Lx=1.0, Ly=1.0, Nx=50):
@@ -59,16 +79,7 @@ class FCN(nn.Module):
     def loss_fn(self, pred, target):
         return nn.MSELoss()(pred, target)
 
-# Directory Output
-plots_dir = 'plots'
-os.makedirs(plots_dir, exist_ok=True)
-final_dir = 'Heat2D/Results'
-os.makedirs(final_dir, exist_ok=True)
- 
-# Parametri 
-epochs = 5000
-Lx, Ly = 1.0, 1.0
-Nx_fourier = 50  # termini serie
+
 
 # Griglia dominio per visualizzazione (Validazione)
 Nx_dom, Ny_dom = 100, 100
@@ -95,11 +106,6 @@ T_data = soluzione_analitica(x_data, y_data, Lx, Ly, Nx=Nx_fourier)
 # Concatenazione input training
 xy_train = torch.cat([x_data, y_data], dim=1)
 
-# Plot Dati Iniziali
-results_dir = 'Heat2D/Results'
-if not os.path.exists(results_dir):
-    os.makedirs(results_dir)
-
 plt.figure(figsize=(8,6))
 cp = plt.contourf(X.cpu().numpy(), Y.cpu().numpy(), T_grid.cpu().numpy(), 50, cmap='inferno')
 plt.colorbar(cp)
@@ -111,18 +117,13 @@ plt.legend()
 plt.savefig(os.path.join(results_dir, 'analytic_sol.png'))
 plt.show()
 
-# --- Setup comune Training ---
-# Definizione layer modello: [Input, Hidden..., Output]
-# Corrisponde a: Input=2, Hidden=32 (3 layer), Output=1
-layers_config = [2, 32, 32, 32, 1]
-
 # Setup Tuple Dati per train_model
 training_data_tuple = (xy_train, T_data)
 # Passiamo T_grid (la griglia 2D completa) perché plot2D_comparison se l'aspetta
 validation_grid_tuple = (xy_grid_flat, T_grid, X, Y) 
 
 if 0 in goal:
-    print("0. NN classica e PINN con dati e fisica")
+    print("0. NN classica")
     from Heat2D_NN import train_modelNN
     # Inizializzazione Modello e Optimizer per questo caso
     model_0 = FCN(layers=layers_config).to(device)

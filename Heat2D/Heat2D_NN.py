@@ -14,7 +14,7 @@ from func.graphic_func import save_gif_PIL, plot2D_comparison
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.float64)
 
-# --- 3. TRAINING FUNCTION ---
+# --- TRAINING FUNCTION ---
 def train_modelNN(
     model,
     optimizer,
@@ -25,7 +25,7 @@ def train_modelNN(
     final_dir='Heat2D/Results'
 ):
     """
-    Esegue il training della PINN.
+    Esegue il training della NN.
     
     Args:
         model: Istanza del modello FCN.
