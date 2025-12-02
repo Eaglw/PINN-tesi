@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import os
+import torch
+import torch.nn as nn
 
 class TrainingHistory:
     """
@@ -27,7 +29,7 @@ class TrainingHistory:
                 self.losses[name] = []
             self.losses[name].append(val)
 
-    def plot_losses(self,last_adam_epoch, save_path=None, experiment_name=""):
+    def plot_losses(self, last_adam_epoch=0, save_path=None, experiment_name=""):
         """
         Genera un grafico con l'andamento di tutte le loss registrate.
         """
@@ -58,3 +60,56 @@ class TrainingHistory:
             print(f"Grafico delle loss salvato in: {save_path}")
         
         plt.close() # Chiude la figura per liberare memoria
+
+
+def compute_pinn_loss(model, x_data, y_data, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, **kwargs):
+    """
+    Calcola le componenti della loss per una PINN in modo generico.
+    
+    Args:
+        model: Il modello PyTorch.
+        x_data: Input dei dati di training (supervisionato).
+        y_data: Target dei dati di training.
+        physics_loss_fn: Funzione che accetta (model, x_physics) e restituisce la loss sulla PDE.
+        x_physics: Punti di collocazione per la loss fisica.
+        ic_loss_fn: Funzione opzionale per condizioni iniziali/al contorno, accetta (model).
+        **kwargs: Argomenti extra da passare alle funzioni di loss custom.
+        
+    Returns:
+        total_loss: Somma delle loss.
+        loss_dict: Dizionario con i dettagli {'total_loss': ..., 'data_loss': ..., ...}.
+    """
+    loss_dict = {}
+    total_loss = 0.0
+    
+    # 1. Data Loss (MSE Standard)
+    if x_data is not None and y_data is not None:
+        y_pred = model(x_data)
+        data_loss = nn.MSELoss()(y_pred, y_data)
+        loss_dict['data_loss'] = data_loss
+        total_loss += data_loss
+    
+    # 2. Physics Loss (PDE)
+    if physics_loss_fn is not None:
+        if x_physics is not None:
+            # Se x_physics richiede gradiente per differenziazione automatica
+            if not x_physics.requires_grad:
+                x_physics.requires_grad_(True)
+            pde_loss = physics_loss_fn(model, x_physics, **kwargs)
+        else:
+            # Alcune loss fisiche potrebbero non richiedere x_physics esplicito o gestirlo internamente
+            pde_loss = physics_loss_fn(model, **kwargs)
+            
+        loss_dict['pde_loss'] = pde_loss
+        total_loss += pde_loss
+        
+    # 3. IC/BC Loss
+    if ic_loss_fn is not None:
+        ic_loss = ic_loss_fn(model, **kwargs)
+        loss_dict['ic_loss'] = ic_loss
+        total_loss += ic_loss
+        
+    loss_dict['total_loss'] = total_loss
+    
+    return total_loss, loss_dict
+

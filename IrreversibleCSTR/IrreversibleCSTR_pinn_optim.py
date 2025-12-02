@@ -13,7 +13,7 @@ import sys
 
 # Assicura che i moduli nella cartella 'func' siano importabili
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from func.history_tracker import TrainingHistory
+from func.history_tracker import TrainingHistory, compute_pinn_loss
 from func.graphic_func import plot_result
 
 # Punti per la loss sulla fisica (collocation points)
@@ -48,31 +48,40 @@ class FCN(nn.Module):
         return x
 
 # --- FUNZIONI DI TRAINING REFACTORING ---
-#molto bella questa funzione loss, la devo aggiornare e implementare
-def compute_loss(pinn, x_data, y_data, x_physics):
-    """Calcola le componenti della loss: dati, fisica (PDE) e condizione iniziale (IC)."""
-    # Loss sui dati
-    y_pred_data = pinn(x_data)
-    loss_data = torch.mean((y_pred_data - y_data)**2)
+
+def cstr_physics_loss(model, x_physics):
+    """Calcola il residuo della PDE per il CSTR."""
+    # Nota: V, F, k, cAin devono essere definiti nel contesto globale o passati
+    # Qui assumiamo siano globali come nel codice originale
+    y_pinn = model(x_physics)
+    dy_pinn = torch.autograd.grad(y_pinn, x_physics, torch.ones_like(y_pinn), create_graph=True)[0]
     
-    # Loss sulla fisica (PDE)
-    y_pinn_physics = pinn(x_physics)
-    dy_pinn = torch.autograd.grad(y_pinn_physics, x_physics, torch.ones_like(y_pinn_physics), create_graph=True)[0]
-    loss_pde = torch.mean(((V/F) * dy_pinn + y_pinn_physics - cAin + (V*k/F) * y_pinn_physics)**2)
-    
-    # Loss sulla condizione iniziale
+    # Equazione differenziale: (V/F)*dCa/dt + Ca - Cain + (V*k/F)*Ca = 0
+    residual = (V/F) * dy_pinn + y_pinn - cAin + (V*k/F) * y_pinn
+    return torch.mean(residual**2)
+
+def cstr_ic_loss(model):
+    """Calcola la loss sulla condizione iniziale."""
+    # Nota: cA0 deve essere globale
     x_ic = torch.tensor([0.0]).view(-1, 1)
-    y_ic_pred = pinn(x_ic)
-    loss_ic = torch.mean((y_ic_pred - cA0)**2)
-    
-    total_loss = loss_data + loss_pde + loss_ic
-    loss_dict = {
-        'total_loss': total_loss,
-        'data_loss': loss_data,
-        'pde_loss': loss_pde,
-        'ic_loss': loss_ic
-    }
-    return total_loss, loss_dict
+    if next(model.parameters()).is_cuda:
+         x_ic = x_ic.cuda()
+    y_ic_pred = model(x_ic)
+    return torch.mean((y_ic_pred - cA0)**2)
+
+def compute_loss(pinn, x_data, y_data, x_physics):
+    """
+    Wrapper per compute_pinn_loss specifico per questo problema.
+    Mantiene la firma originale per compatibilità con le funzioni di training esistenti.
+    """
+    return compute_pinn_loss(
+        model=pinn, 
+        x_data=x_data, 
+        y_data=y_data, 
+        physics_loss_fn=cstr_physics_loss, 
+        x_physics=x_physics, 
+        ic_loss_fn=cstr_ic_loss
+    )
 
 def train_adam(pinn, optimizer, history, epochs, x_data, y_data, x_physics, pbar_desc, use_patience=False, patience_epochs=500):
     """Ciclo di training per l'ottimizzatore Adam con early stopping basato sulla pazienza."""

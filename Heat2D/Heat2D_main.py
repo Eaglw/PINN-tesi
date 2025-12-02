@@ -22,7 +22,7 @@ Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 3. Problema inverso
 4. PINN che confronta l'andamento di diversi optimizer e activation function
 """
-goal = [0]
+goal = [1]
 
 # Directory Output
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -140,8 +140,21 @@ if 0 in goal:
     )
 
 if 1 in goal:
-    print("1. Solo fisica e BC")
-    pass
+    print("1. PINN con dati e fisica")
+    from Heat2D_PINN import train_modelPINN
+    # Inizializzazione Modello e Optimizer per questo caso
+    model_0 = FCN(layers=layers_config).to(device)
+    optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=1e-3)
+    
+    train_modelPINN(
+        model=model_0,
+        optimizer=optimizer_0,
+        training_data=training_data_tuple,
+        validation_grid=validation_grid_tuple,
+        epochs=epochs,
+        plots_dir=plots_dir,
+        final_dir=final_dir
+    )
 
 if 2 in goal:
     print("2. Problema inverso")
