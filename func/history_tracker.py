@@ -29,7 +29,7 @@ class TrainingHistory:
                 self.losses[name] = []
             self.losses[name].append(val)
 
-    def plot_losses(self, last_adam_epoch=0, save_path=None, experiment_name=""):
+    def plot_losses(self, last_adam_epoch=0, save_path=None, experiment_name="", show_plot=True):
         """
         Genera un grafico con l'andamento di tutte le loss registrate.
         """
@@ -59,10 +59,13 @@ class TrainingHistory:
             plt.savefig(save_path, bbox_inches='tight')
             print(f"Grafico delle loss salvato in: {save_path}")
         
+        if show_plot:
+            plt.show()
+        
         plt.close() # Chiude la figura per liberare memoria
 
 
-def compute_pinn_loss(model, x_data, y_data, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, **kwargs):
+def compute_pinn_loss(model, x_data, y_data, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, lambda_data=1.0, lambda_physics=1.0, **kwargs):
     """
     Calcola le componenti della loss per una PINN in modo generico.
     
@@ -73,6 +76,8 @@ def compute_pinn_loss(model, x_data, y_data, physics_loss_fn=None, x_physics=Non
         physics_loss_fn: Funzione che accetta (model, x_physics) e restituisce la loss sulla PDE.
         x_physics: Punti di collocazione per la loss fisica.
         ic_loss_fn: Funzione opzionale per condizioni iniziali/al contorno, accetta (model).
+        lambda_data: Peso per la data loss.
+        lambda_physics: Peso per la physics loss.
         **kwargs: Argomenti extra da passare alle funzioni di loss custom.
         
     Returns:
@@ -87,7 +92,7 @@ def compute_pinn_loss(model, x_data, y_data, physics_loss_fn=None, x_physics=Non
         y_pred = model(x_data)
         data_loss = nn.MSELoss()(y_pred, y_data)
         loss_dict['data_loss'] = data_loss
-        total_loss += data_loss
+        total_loss += lambda_data * data_loss
     
     # 2. Physics Loss (PDE)
     if physics_loss_fn is not None:
@@ -101,7 +106,7 @@ def compute_pinn_loss(model, x_data, y_data, physics_loss_fn=None, x_physics=Non
             pde_loss = physics_loss_fn(model, **kwargs)
             
         loss_dict['pde_loss'] = pde_loss
-        total_loss += pde_loss
+        total_loss += lambda_physics * pde_loss
         
     # 3. IC/BC Loss
     if ic_loss_fn is not None:

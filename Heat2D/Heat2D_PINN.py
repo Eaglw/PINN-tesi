@@ -10,12 +10,13 @@ from tqdm import tqdm
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
 from func.history_tracker import TrainingHistory, compute_pinn_loss
-"""
+
+
 # Configurazione dispositivo e precisione
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.float64)
-"""
-# --- 3. DEFINIZIONE DELLA LOSS FISICA ---
+
+# ---  DEFINIZIONE DELLA LOSS FISICA ---
 def heat2d_physics_loss(model, xy_p):
     """
     Calcola il residuo dell'equazione di Laplace 2D: d2T/dx2 + d2T/dy2 = 0
@@ -47,7 +48,8 @@ def train_modelPINN(
     validation_grid,
     epochs=20000,
     plots_dir='plots',
-    final_dir='Heat2D/Results'
+    final_dir='Heat2D/Results',
+    show_plots_interactively=True
 ):
     """
     Esegue il training della PINN.
@@ -86,19 +88,26 @@ def train_modelPINN(
     # Training Loop
     pbar = tqdm(range(epochs), desc="Training PINN")
     loss_history = TrainingHistory()
+    
+    # Pesi per bilanciare le componenti della loss
+    # Ridurre il peso della fisica aiuta spesso la convergenza iniziale
+    lambda_data = 1.0
+    lambda_physics = 0.1 
 
     for epoch in pbar:
         
         model.train()
         optimizer.zero_grad()
         
-        # Calcolo loss usando la funzione generica
+        # Calcolo loss usando la funzione generica con i pesi
         loss, loss_dict = compute_pinn_loss(
             model, 
             xy_train, 
             T_train, 
             physics_loss_fn=heat2d_physics_loss, 
-            x_physics=xy_physics
+            x_physics=xy_physics,
+            lambda_data=lambda_data,
+            lambda_physics=lambda_physics
         )
         
         loss.backward()
@@ -136,5 +145,5 @@ def train_modelPINN(
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
     # Plot Loss History
-    loss_history.plot_losses(save_path=os.path.join(final_dir, 'PINNloss_history.png'), experiment_name="Heat2D PINN")
+    loss_history.plot_losses(save_path=os.path.join(final_dir, 'PINNloss_history.png'), experiment_name="Heat2D PINN",show_plot=show_plots_interactively)
     plt.show()

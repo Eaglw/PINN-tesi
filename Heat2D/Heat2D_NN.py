@@ -9,6 +9,7 @@ from tqdm import tqdm
 # Import function for GIF
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
+from func.history_tracker import TrainingHistory # Added import
 
 """# Configurazione dispositivo e precisione
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -22,7 +23,8 @@ def train_modelNN(
     validation_grid,
     epochs=20000,
     plots_dir='plots',
-    final_dir='Heat2D/Results'
+    final_dir='Heat2D/Results',
+    show_plots_interactively=True
 ):
     """
     Esegue il training della NN.
@@ -33,6 +35,7 @@ def train_modelNN(
         training_data: Tupla (xy_train, T_train).
         validation_grid: Tupla (xy_grid, T_exact_grid, X, Y).
                          X e Y servono per i plot e contengono la shape della griglia.
+        show_plots_interactively: Booleano per controllare la visualizzazione interattiva dei plot.
     """
     
     # Unpack dei dati
@@ -49,8 +52,8 @@ def train_modelNN(
     plot_files = []
     
     # Training Loop
-    pbar = tqdm(range(epochs), desc="Training")
-    loss_history = []
+    pbar = tqdm(range(epochs), desc="Training NN")
+    loss_history = TrainingHistory() # Changed to TrainingHistory
 
     for epoch in pbar:
         model.train()
@@ -62,7 +65,7 @@ def train_modelNN(
         loss.backward()
         optimizer.step()
         
-        loss_history.append(loss.item())
+        loss_history.update(epoch, {'total_loss': loss.item()}) # Changed to update method
         
         # Monitoraggio e Plotting periodico
         if (epoch + 1) % 500 == 0:
@@ -93,10 +96,4 @@ def train_modelNN(
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
     # Plot Loss History
-    plt.figure(figsize=(6,4))
-    plt.semilogy(loss_history)
-    plt.title("Loss History")
-    plt.xlabel("Epoch")
-    plt.ylabel("MSE Loss")
-    plt.grid(True, which="both", ls="-")
-    plt.show()
+    loss_history.plot_losses(save_path=os.path.join(final_dir, 'NNloss_history.png'), experiment_name="Heat2D NN", show_plot=show_plots_interactively) # Updated plot_losses call
