@@ -36,13 +36,13 @@ final_dir = results_dir
 plots_dir = os.path.join(results_dir, 'plots')
 os.makedirs(plots_dir, exist_ok=True)
 # Parametri 
-epochs = 3000
+epochs = 30000
 Lx, Ly = 1.0, 1.0
 Nx_fourier = 50  # termini serie
 # --- Setup comune Training ---
 # Definizione layer modello: [Input, Hidden..., Output]
-# Corrisponde a: Input=2, Hidden=64 (5 layer), Output=1
-layers_config = [2, 64, 64, 64, 64, 64, 1]
+# Corrisponde a: Input=2, Hidden=32 (3 layer), Output=1
+layers_config = [2, 32, 32, 32, 1]
 # --- 1. DEFINIZIONE DEL PROBLEMA E SOLUZIONE ANALITICA ---
 def soluzione_analitica(x, y, Lx=1.0, Ly=1.0, Nx=50):
     """
@@ -89,7 +89,7 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 T_grid_flat = T_grid # T_grid serve anche flattened per il confronto, ma lo gestisce plot2D
 
 # Estrazione dati randomici ma uniformi (Training Data)
-num_data = 200  # cambia a piacere
+num_data = 300  # cambia a piacere
 torch.manual_seed(1)
 x_data = torch.rand(num_data, 1, device=device) * Lx
 y_data = torch.rand(num_data, 1, device=device) * Ly
@@ -121,7 +121,8 @@ if 0 in goal:
     from Heat2D_NN import train_modelNN
     # Inizializzazione Modello e Optimizer per questo caso
     model_0 = FCN(layers=layers_config).to(device)
-    optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=1e-4)
+    optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=1e-3)
+    
     train_modelNN(
         model=model_0,
         optimizer=optimizer_0,
@@ -130,14 +131,16 @@ if 0 in goal:
         epochs=epochs,
         plots_dir=plots_dir,
         final_dir=final_dir,
-        show_plots_interactively=show_plots_interactively # Passed the flag
+        show_plots_interactively=show_plots_interactively 
     )
+
 if 1 in goal:
     print("1. PINN con dati e fisica")
     from Heat2D_PINN import train_modelPINN
     # Inizializzazione Modello e Optimizer per questo caso
     model_0 = FCN(layers=layers_config).to(device)
-    optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=1e-4)
+    optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=1e-3)
+    
     train_modelPINN(
         model=model_0,
         optimizer=optimizer_0,
@@ -146,7 +149,7 @@ if 1 in goal:
         epochs=epochs,
         plots_dir=plots_dir,
         final_dir=final_dir,
-        show_plots_interactively=show_plots_interactively # Passed the flag
+        show_plots_interactively=show_plots_interactively 
     )
 if 2 in goal:
     print("2. Problema inverso")

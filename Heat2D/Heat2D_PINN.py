@@ -93,6 +93,10 @@ def train_modelPINN(
     # Ridurre il peso della fisica aiuta spesso la convergenza iniziale
     lambda_data = 1.0
     lambda_physics = 0.1 
+    
+    # Scheduler per il Learning Rate
+    # Decadimento lr ogni 6000 epoche con gamma=0.4
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6000, gamma=0.4)
 
     for epoch in pbar:
         
@@ -113,12 +117,16 @@ def train_modelPINN(
         loss.backward()
         optimizer.step()
         
+        # Step dello scheduler
+        scheduler.step()
+        
         # Aggiornamento history
         loss_history.update(epoch, loss_dict)
         
         # Monitoraggio e Plotting periodico
         if (epoch + 1) % 500 == 0:
-            pbar.set_postfix({'Loss': f"{loss.item():.2e}"})
+            current_lr = scheduler.get_last_lr()[0]
+            pbar.set_postfix({'Loss': f"{loss.item():.2e}", 'LR': f"{current_lr:.1e}"})
             
             model.eval()
             with torch.no_grad():
@@ -145,5 +153,8 @@ def train_modelPINN(
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
     # Plot Loss History
-    loss_history.plot_losses(save_path=os.path.join(final_dir, 'PINNloss_history.png'), experiment_name="Heat2D PINN",show_plot=show_plots_interactively)
-    plt.show()
+    loss_history.plot_losses(save_path=os.path.join(final_dir, 'PINNloss_history.png'), experiment_name="Heat2D PINN", show_plot=show_plots_interactively)
+    if show_plots_interactively:
+        plt.show()
+    else:
+        plt.close("all")

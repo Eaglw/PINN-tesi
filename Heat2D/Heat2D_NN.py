@@ -54,6 +54,11 @@ def train_modelNN(
     # Training Loop
     pbar = tqdm(range(epochs), desc="Training NN")
     loss_history = TrainingHistory() # Changed to TrainingHistory
+    
+    # Scheduler per il Learning Rate
+    # Decadimento lr ogni 6000 epoche con gamma=0.4
+    # Da 1e-3 -> 4e-4 -> 1.6e-4 -> 6.4e-5 -> 2.5e-5 -> 1e-5
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6000, gamma=0.4)
 
     for epoch in pbar:
         model.train()
@@ -65,11 +70,15 @@ def train_modelNN(
         loss.backward()
         optimizer.step()
         
+        # Step dello scheduler
+        scheduler.step()
+        
         loss_history.update(epoch, {'total_loss': loss.item()}) # Changed to update method
         
         # Monitoraggio e Plotting periodico
         if (epoch + 1) % 500 == 0:
-            pbar.set_postfix({'Loss': f"{loss.item():.2e}"})
+            current_lr = scheduler.get_last_lr()[0]
+            pbar.set_postfix({'Loss': f"{loss.item():.2e}", 'LR': f"{current_lr:.1e}"})
             
             model.eval()
             with torch.no_grad():
