@@ -11,8 +11,18 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
 
 # Configurazione dispositivo e precisione
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-torch.set_default_dtype(torch.float64)
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    torch.set_default_dtype(torch.float64)
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+    torch.set_default_dtype(torch.float32)
+    print("Warning: MPS detected, forcing float32 precision (MPS does not support float64).")
+else:
+    device = torch.device("cpu")
+    torch.set_default_dtype(torch.float64)
+print(f"Using device: {device} with default dtype: {torch.get_default_dtype()}")
+
 
 """
 Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
@@ -22,7 +32,7 @@ Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 3. Problema inverso
 4. PINN che confronta l'andamento di diversi optimizer e activation function
 """
-goal = [1]
+goal = [0,1]
 
 # Directory Output
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -34,14 +44,14 @@ plots_dir = os.path.join(results_dir, 'plots')
 os.makedirs(plots_dir, exist_ok=True)
  
 # Parametri 
-epochs = 5000
+epochs = 30000
 Lx, Ly = 1.0, 1.0
 Nx_fourier = 50  # termini serie
 
 # --- Setup comune Training ---
 # Definizione layer modello: [Input, Hidden..., Output]
-# Corrisponde a: Input=2, Hidden=32 (3 layer), Output=1
-layers_config = [2, 32, 32, 32, 1]
+# Corrisponde a: Input=2, Hidden=64 (5 layer), Output=1
+layers_config = [2, 64, 64, 64, 64, 64, 1]
 
 # --- 1. DEFINIZIONE DEL PROBLEMA E SOLUZIONE ANALITICA ---
 def soluzione_analitica(x, y, Lx=1.0, Ly=1.0, Nx=50):
@@ -78,9 +88,7 @@ class FCN(nn.Module):
     
     def loss_fn(self, pred, target):
         return nn.MSELoss()(pred, target)
-
-
-
+    
 # Griglia dominio per visualizzazione (Validazione)
 Nx_dom, Ny_dom = 100, 100
 x_grid = torch.linspace(0, Lx, Nx_dom, device=device)
@@ -96,7 +104,7 @@ T_grid_flat = T_grid # T_grid serve anche flattened per il confronto, ma lo gest
 
 # Estrazione dati randomici ma uniformi (Training Data)
 num_data = 200  # cambia a piacere
-torch.manual_seed(0)
+torch.manual_seed(1)
 
 x_data = torch.rand(num_data, 1, device=device) * Lx
 y_data = torch.rand(num_data, 1, device=device) * Ly

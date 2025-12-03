@@ -10,10 +10,10 @@ from tqdm import tqdm
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
 
-# Configurazione dispositivo e precisione
+"""# Configurazione dispositivo e precisione
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.float64)
-
+"""
 # --- TRAINING FUNCTION ---
 def train_modelNN(
     model,

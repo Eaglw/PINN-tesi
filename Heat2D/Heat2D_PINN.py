@@ -10,10 +10,12 @@ from tqdm import tqdm
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
 from func.history_tracker import TrainingHistory, compute_pinn_loss
+"""
 # Configurazione dispositivo e precisione
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.float64)
-
+"""
+# --- 3. DEFINIZIONE DELLA LOSS FISICA ---
 def heat2d_physics_loss(model, xy_p):
     """
     Calcola il residuo dell'equazione di Laplace 2D: d2T/dx2 + d2T/dy2 = 0
@@ -74,7 +76,7 @@ def train_modelPINN(
     plot_files = []
     
     # Generazione punti di collocazione: griglia regolare
-    Nx_phys, Ny_phys = 30, 30 # Numero di punti per dimensione
+    Nx_phys, Ny_phys = 50, 50 # Numero di punti per dimensione
     x_phys_line = torch.linspace(0, Lx, Nx_phys, device=device)
     y_phys_line = torch.linspace(0, Ly, Ny_phys, device=device)
     X_phys, Y_phys = torch.meshgrid(x_phys_line, y_phys_line, indexing='xy')

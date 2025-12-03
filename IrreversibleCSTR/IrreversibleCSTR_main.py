@@ -10,6 +10,25 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from func.graphic_func import save_gif_PIL, plot_result
 
+# Configurazione dispositivo
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    torch.set_default_dtype(torch.float64)
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+    torch.set_default_dtype(torch.float32)
+    print("Warning: MPS detected, forcing float32 precision (MPS does not support float64).")
+else:
+    device = torch.device("cpu")
+    torch.set_default_dtype(torch.float64)
+print(f"Using device: {device} with default dtype: {torch.get_default_dtype()}")
+
+# Imposta il device di default (opzionale, ma utile se gli script chiamati non gestiscono esplicitamente il device)
+try:
+    torch.set_default_device(device)
+except AttributeError:
+    pass # Versioni vecchie di pytorch
+
 step=4000 #step di training condivisi tra i try per comparare 
 """
 Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
