@@ -44,7 +44,8 @@ def heat2d_physics_loss(model, xy_p):
 def train_modelPINN(
     model,
     optimizer,
-    training_data,
+    data_internal,
+    data_boundary,
     validation_grid,
     epochs=20000,
     plots_dir='plots',
@@ -57,13 +58,14 @@ def train_modelPINN(
     Args:
         model: Istanza del modello FCN.
         optimizer: Istanza dell'ottimizzatore.
-        training_data: Tupla (xy_train, T_train).
+        data_internal: Tupla (xy_int, T_int).
+        data_boundary: Tupla (xy_bc, T_bc).
         validation_grid: Tupla (xy_grid, T_exact_grid, X, Y).
-                         X e Y servono per i plot e contengono la shape della griglia.
     """
     
     # Unpack dei dati
-    xy_train, T_train = training_data
+    xy_int, T_int = data_internal
+    xy_bc, T_bc = data_boundary
     xy_grid, T_exact_grid, X, Y = validation_grid
     
     # Ricavo dimensioni griglia per reshape e limiti dominio
@@ -83,19 +85,23 @@ def train_modelPINN(
     y_phys_line = torch.linspace(0, Ly, Ny_phys, device=device)
     X_phys, Y_phys = torch.meshgrid(x_phys_line, y_phys_line, indexing='xy')
     xy_physics = torch.stack([X_phys.flatten(), Y_phys.flatten()], dim=1)
+    # Non impostiamo requires_grad=True qui, lo gestisce compute_pinn_loss se necessario,
+    # ma per sicurezza lo mettiamo, anche se nel warmup non verrà usato.
     xy_physics.requires_grad_(True)
     
-    # Training Loop
-    pbar = tqdm(range(epochs), desc="Training PINN")
+    # Training Loop (Adam)
+    pbar = tqdm(range(epochs), desc="Training PINN (Adam)")
     loss_history = TrainingHistory()
     
-    # Pesi per bilanciare le componenti della loss
-    # Ridurre il peso della fisica aiuta spesso la convergenza iniziale
+    # Pesi Loss
     lambda_data = 1.0
-    lambda_physics = 0.1 
+    lambda_bc = 1.0
+    target_lambda_physics = 0.05
+    
+    # Warmup setup: 1/3 delle epoche totali
+    warmup_epochs = epochs // 3
     
     # Scheduler per il Learning Rate
-    # Decadimento lr ogni 6000 epoche con gamma=0.4
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6000, gamma=0.4)
 
     for epoch in pbar:
@@ -103,14 +109,29 @@ def train_modelPINN(
         model.train()
         optimizer.zero_grad()
         
-        # Calcolo loss usando la funzione generica con i pesi
+        # Gestione Warmup e Fisica
+        if epoch < warmup_epochs:
+            # Fase 1: Solo Dati (Interni + BC). Niente calcolo gradienti fisici.
+            current_physics_fn = None
+            lambda_physics = 0.0
+            phase_desc = "Warmup (Data Only)"
+        else:
+            # Fase 2: Dati + Fisica
+            current_physics_fn = heat2d_physics_loss
+            lambda_physics = target_lambda_physics
+            phase_desc = "Physics Refinement"
+
+        # Calcolo loss
         loss, loss_dict = compute_pinn_loss(
             model, 
-            xy_train, 
-            T_train, 
-            physics_loss_fn=heat2d_physics_loss, 
+            x_data=xy_int, 
+            y_data=T_int,
+            x_bc=xy_bc,
+            y_bc=T_bc,
+            physics_loss_fn=current_physics_fn, 
             x_physics=xy_physics,
             lambda_data=lambda_data,
+            lambda_bc=lambda_bc,
             lambda_physics=lambda_physics
         )
         
@@ -126,7 +147,12 @@ def train_modelPINN(
         # Monitoraggio e Plotting periodico
         if (epoch + 1) % 500 == 0:
             current_lr = scheduler.get_last_lr()[0]
-            pbar.set_postfix({'Loss': f"{loss.item():.2e}", 'LR': f"{current_lr:.1e}"})
+            pbar.set_postfix({
+                'Phase': phase_desc,
+                'Loss': f"{loss.item():.2e}", 
+                'BC_L': f"{loss_dict.get('bc_loss', 0):.2e}",
+                'LR': f"{current_lr:.1e}"
+            })
             
             model.eval()
             with torch.no_grad():
@@ -135,6 +161,55 @@ def train_modelPINN(
             plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
             plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path, physics_points=xy_physics)
             plot_files.append(plot_path)
+
+    # --- L-BFGS Optimization Phase ---
+    print("\nInizio fase di raffinamento con L-BFGS...")
+    optimizer_lbfgs = torch.optim.LBFGS(
+        model.parameters(), 
+        lr=1.0, 
+        max_iter=2000, 
+        max_eval=2000, 
+        tolerance_grad=1e-7, 
+        tolerance_change=1e-9,
+        history_size=100,
+        line_search_fn="strong_wolfe"
+    )
+
+    # Closure function richiesta da L-BFGS
+    def closure():
+        optimizer_lbfgs.zero_grad()
+        loss, loss_dict = compute_pinn_loss(
+            model, 
+            x_data=xy_int, 
+            y_data=T_int,
+            x_bc=xy_bc,
+            y_bc=T_bc,
+            physics_loss_fn=heat2d_physics_loss, # Fisica sempre attiva qui
+            x_physics=xy_physics,
+            lambda_data=lambda_data,
+            lambda_bc=lambda_bc,
+            lambda_physics=target_lambda_physics
+        )
+        loss.backward()
+        return loss
+
+    optimizer_lbfgs.step(closure)
+    
+    # Calcolo loss finale dopo L-BFGS per aggiornare history
+    final_loss, final_loss_dict = compute_pinn_loss(
+            model, 
+            x_data=xy_int, 
+            y_data=T_int,
+            x_bc=xy_bc,
+            y_bc=T_bc,
+            physics_loss_fn=heat2d_physics_loss, 
+            x_physics=xy_physics,
+            lambda_data=lambda_data,
+            lambda_bc=lambda_bc,
+            lambda_physics=target_lambda_physics
+    )
+    loss_history.update(epochs + 1, final_loss_dict) 
+    print(f"Loss finale dopo L-BFGS: {final_loss.item():.2e}")
 
     # Plot Finale Interattivo
     print("Training completato. Generazione plot finale...")
@@ -152,8 +227,8 @@ def train_modelPINN(
         gif_path = os.path.join(final_dir, 'PINNtraining_evolution.gif')
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
-    # Plot Loss History
-    loss_history.plot_losses(save_path=os.path.join(final_dir, 'PINNloss_history.png'), experiment_name="Heat2D PINN", show_plot=show_plots_interactively)
+    # Plot Loss History con linea verticale per fine warmup
+    loss_history.plot_losses(last_adam_epoch=warmup_epochs, save_path=os.path.join(final_dir, 'PINNloss_history.png'), experiment_name="Heat2D PINN", show_plot=show_plots_interactively)
     if show_plots_interactively:
         plt.show()
     else:

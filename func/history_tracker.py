@@ -65,18 +65,21 @@ class TrainingHistory:
         plt.close() # Chiude la figura per liberare memoria
 
 
-def compute_pinn_loss(model, x_data, y_data, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, lambda_data=1.0, lambda_physics=1.0, **kwargs):
+def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, **kwargs):
     """
     Calcola le componenti della loss per una PINN in modo generico.
     
     Args:
         model: Il modello PyTorch.
-        x_data: Input dei dati di training (supervisionato).
+        x_data: Input dei dati di training (punti interni / supervisionati).
         y_data: Target dei dati di training.
+        x_bc: Input dei dati al contorno (Boundary Conditions).
+        y_bc: Target dei dati al contorno.
         physics_loss_fn: Funzione che accetta (model, x_physics) e restituisce la loss sulla PDE.
         x_physics: Punti di collocazione per la loss fisica.
-        ic_loss_fn: Funzione opzionale per condizioni iniziali/al contorno, accetta (model).
-        lambda_data: Peso per la data loss.
+        ic_loss_fn: Funzione opzionale per condizioni iniziali, accetta (model).
+        lambda_data: Peso per la data loss (interna).
+        lambda_bc: Peso per la boundary loss.
         lambda_physics: Peso per la physics loss.
         **kwargs: Argomenti extra da passare alle funzioni di loss custom.
         
@@ -86,15 +89,23 @@ def compute_pinn_loss(model, x_data, y_data, physics_loss_fn=None, x_physics=Non
     """
     loss_dict = {}
     total_loss = 0.0
+    mse_loss = nn.MSELoss()
     
-    # 1. Data Loss (MSE Standard)
+    # 1. Data Loss (Internal Points)
     if x_data is not None and y_data is not None:
         y_pred = model(x_data)
-        data_loss = nn.MSELoss()(y_pred, y_data)
+        data_loss = mse_loss(y_pred, y_data)
         loss_dict['data_loss'] = data_loss
         total_loss += lambda_data * data_loss
+
+    # 2. BC Loss (Boundary Points) - Explicitly separated
+    if x_bc is not None and y_bc is not None:
+        bc_pred = model(x_bc)
+        bc_loss_val = mse_loss(bc_pred, y_bc)
+        loss_dict['bc_loss'] = bc_loss_val
+        total_loss += lambda_bc * bc_loss_val
     
-    # 2. Physics Loss (PDE)
+    # 3. Physics Loss (PDE)
     if physics_loss_fn is not None:
         if x_physics is not None:
             # Se x_physics richiede gradiente per differenziazione automatica
@@ -108,7 +119,7 @@ def compute_pinn_loss(model, x_data, y_data, physics_loss_fn=None, x_physics=Non
         loss_dict['pde_loss'] = pde_loss
         total_loss += lambda_physics * pde_loss
         
-    # 3. IC/BC Loss
+    # 4. IC Loss (Initial Conditions - optional/legacy)
     if ic_loss_fn is not None:
         ic_loss = ic_loss_fn(model, **kwargs)
         loss_dict['ic_loss'] = ic_loss

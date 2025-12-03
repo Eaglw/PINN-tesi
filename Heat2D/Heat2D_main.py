@@ -41,8 +41,8 @@ Lx, Ly = 1.0, 1.0
 Nx_fourier = 50  # termini serie
 # --- Setup comune Training ---
 # Definizione layer modello: [Input, Hidden..., Output]
-# Corrisponde a: Input=2, Hidden=32 (3 layer), Output=1
-layers_config = [2, 32, 32, 32, 1]
+# Aumentiamo la capacità della rete: 4 hidden layers da 50 neuroni
+layers_config = [2, 50, 50, 50, 50, 1]
 # --- 1. DEFINIZIONE DEL PROBLEMA E SOLUZIONE ANALITICA ---
 def soluzione_analitica(x, y, Lx=1.0, Ly=1.0, Nx=50):
     """
@@ -60,7 +60,7 @@ def soluzione_analitica(x, y, Lx=1.0, Ly=1.0, Nx=50):
 # --- 2. DEFINIZIONE DELLA RETE NEURALE ---
 class FCN(nn.Module):
     """Rete Neurale a Connessioni Complete (Fully Connected Network)"""
-    def __init__(self, layers, activation_fn=nn.GELU):
+    def __init__(self, layers, activation_fn=nn.Tanh):
         super().__init__()
         self.activation = activation_fn()
         self.fcs = nn.ModuleList()
@@ -89,20 +89,54 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 T_grid_flat = T_grid # T_grid serve anche flattened per il confronto, ma lo gestisce plot2D
 
 # Estrazione dati randomici ma uniformi (Training Data)
-num_data = 300  # cambia a piacere
-torch.manual_seed(1)
-x_data = torch.rand(num_data, 1, device=device) * Lx
-y_data = torch.rand(num_data, 1, device=device) * Ly
+num_data_internal = 1000  # Punti interni
+num_data_boundary = 50    # Punti per ogni lato del bordo
 
-# Calcolo target training
+torch.manual_seed(123)
+
+# 1. Punti Interni
+x_int = torch.rand(num_data_internal, 1, device=device) * Lx
+y_int = torch.rand(num_data_internal, 1, device=device) * Ly
+
+# 2. Punti al Bordo (Boundary Conditions)
+# Lato Sinistro (x=0)
+x_b_left = torch.zeros(num_data_boundary, 1, device=device)
+y_b_left = torch.rand(num_data_boundary, 1, device=device) * Ly
+
+# Lato Destro (x=Lx)
+x_b_right = torch.ones(num_data_boundary, 1, device=device) * Lx
+y_b_right = torch.rand(num_data_boundary, 1, device=device) * Ly
+
+# Lato Inferiore (y=0)
+x_b_bottom = torch.rand(num_data_boundary, 1, device=device) * Lx
+y_b_bottom = torch.zeros(num_data_boundary, 1, device=device)
+
+# Lato Superiore (y=Ly)
+x_b_top = torch.rand(num_data_boundary, 1, device=device) * Lx
+y_b_top = torch.ones(num_data_boundary, 1, device=device) * Ly
+
+# Concatenazione di tutti i punti del Bordo
+x_b_all = torch.cat([x_b_left, x_b_right, x_b_bottom, x_b_top], dim=0)
+y_b_all = torch.cat([y_b_left, y_b_right, y_b_bottom, y_b_top], dim=0)
+
+# -- Dati per NN classica (tutto insieme) --
+x_data = torch.cat([x_int, x_b_all], dim=0)
+y_data = torch.cat([y_int, y_b_all], dim=0)
 T_data = soluzione_analitica(x_data, y_data, Lx, Ly, Nx=Nx_fourier)
-
-# Concatenazione input training
 xy_train = torch.cat([x_data, y_data], dim=1)
+
+# -- Dati Separati per PINN --
+xy_internal = torch.cat([x_int, y_int], dim=1)
+T_internal = soluzione_analitica(x_int, y_int, Lx, Ly, Nx=Nx_fourier)
+
+xy_boundary = torch.cat([x_b_all, y_b_all], dim=1)
+T_boundary = soluzione_analitica(x_b_all, y_b_all, Lx, Ly, Nx=Nx_fourier)
+
+
 plt.figure(figsize=(8,6))
 cp = plt.contourf(X.cpu().numpy(), Y.cpu().numpy(), T_grid.cpu().numpy(), 50, cmap='inferno')
 plt.colorbar(cp)
-plt.scatter(x_data.cpu().numpy(), y_data.cpu().numpy(), c='cyan', s=21, edgecolor='k', label='Dati estratti')
+plt.scatter(x_data.cpu().numpy(), y_data.cpu().numpy(), c='cyan', s=10, edgecolor='k', linewidth=0.5, label='Dati Training (Interni + Bordi)')
 plt.xlabel('x [m]')
 plt.ylabel('y [m]')
 plt.title('Soluzione analitica e punti dati estratti')
@@ -113,7 +147,8 @@ if show_plots_interactively:
 else:
     plt.close("all") # Chiude la figura per evitare che rimanga in memoria
 # Setup Tuple Dati per train_model
-training_data_tuple = (xy_train, T_data)
+training_data_NN = (xy_train, T_data)
+
 # Passiamo T_grid (la griglia 2D completa) perché plot2D_comparison se l'aspetta
 validation_grid_tuple = (xy_grid_flat, T_grid, X, Y) 
 if 0 in goal:
@@ -126,7 +161,7 @@ if 0 in goal:
     train_modelNN(
         model=model_0,
         optimizer=optimizer_0,
-        training_data=training_data_tuple,
+        training_data=training_data_NN,
         validation_grid=validation_grid_tuple,
         epochs=epochs,
         plots_dir=plots_dir,
@@ -141,10 +176,15 @@ if 1 in goal:
     model_0 = FCN(layers=layers_config).to(device)
     optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=1e-3)
     
+    # Passiamo i dati separati alla PINN
+    data_internal = (xy_internal, T_internal)
+    data_boundary = (xy_boundary, T_boundary)
+
     train_modelPINN(
         model=model_0,
         optimizer=optimizer_0,
-        training_data=training_data_tuple,
+        data_internal=data_internal,
+        data_boundary=data_boundary,
         validation_grid=validation_grid_tuple,
         epochs=epochs,
         plots_dir=plots_dir,
