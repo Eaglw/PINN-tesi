@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import os
 import torch
 import torch.nn as nn
+import numpy as np
 
 class TrainingHistory:
     """
@@ -9,11 +10,12 @@ class TrainingHistory:
     """
     def __init__(self):
         self.epochs = []
-        self.losses = {}
+        self.losses = {} # Dizionario di liste: {'total_loss': [v1, v2...], 'pde_loss': [None, ..., v100...]}
 
     def update(self, epoch, loss_dict):
         """
         Registra i valori delle loss per un dato'epoch'.
+        Gestisce loss opzionali (es. pde_loss durante warmup) mantenendo le liste allineate.
 
         Args:
             epoch (int): L'epoch corrente.
@@ -21,12 +23,26 @@ class TrainingHistory:
                               Es: {'total_loss': 1.5, 'pde_loss': 1.2, ...}
         """
         self.epochs.append(epoch)
-        for name, value in loss_dict.items():
-            # Se è un tensore, estrai il valore numerico
-            val = value.item() if hasattr(value, 'item') else value
-            
+        
+        # 1. Identifica tutte le chiavi di loss viste finora (nel dizionario storico o nel corrente)
+        current_keys = set(loss_dict.keys())
+        known_keys = set(self.losses.keys())
+        all_keys = current_keys.union(known_keys)
+        
+        for name in all_keys:
+            # Inizializza la lista se è una nuova chiave
             if name not in self.losses:
-                self.losses[name] = []
+                # Se la chiave appare per la prima volta ma siamo già avanti col training (es. epoch > 0),
+                # dobbiamo riempire il passato con None per allinearci a len(self.epochs) - 1
+                self.losses[name] = [None] * (len(self.epochs) - 1)
+            
+            # Estrai il valore corrente o usa None se manca in questo step
+            if name in loss_dict:
+                val = loss_dict[name]
+                val = val.item() if hasattr(val, 'item') else val
+            else:
+                val = None
+            
             self.losses[name].append(val)
 
     def plot_losses(self, last_adam_epoch=0, save_path=None, experiment_name="", show_plot=True):
@@ -36,10 +52,17 @@ class TrainingHistory:
         plt.figure(figsize=(8, 4))
         ax = plt.gca()
         for name, values in self.losses.items():
+            # Filtra i None per evitare warning, anche se matplotlib li gestisce, 
+            # ma dobbiamo assicurarci che epochs e values abbiano stessa lunghezza logica.
+            # Matplotlib plotta (x, y) saltando i punti dove y è None/NaN.
+            # Qui passiamo direttamente le liste complete (con None).
+            # Convertiamo None in np.nan per compatibilità sicura.
+            clean_values = [v if v is not None else np.nan for v in values]
+            
             if name == "total_loss":
-                plt.plot(self.epochs, values, linewidth=4, label=name)
+                plt.plot(self.epochs, clean_values, linewidth=4, label=name)
             else:
-                plt.plot(self.epochs, values, label=name)
+                plt.plot(self.epochs, clean_values, label=name)
         
         plt.title(f'Andamento Loss - {experiment_name}', y=0.85)
         plt.xlabel('Epoch')
@@ -47,7 +70,7 @@ class TrainingHistory:
         plt.yscale('log')
         plt.grid(True, which="both", ls="--", alpha=0.5)
         if last_adam_epoch != 0:
-            plt.axvline(last_adam_epoch, color="r", linestyle="--", label="Last adam epoch")
+            plt.axvline(last_adam_epoch, color="r", linestyle="--", label="End Warmup/Adam")
         # Stile coerente con plot_result
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
