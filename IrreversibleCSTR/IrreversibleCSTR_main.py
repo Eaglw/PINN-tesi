@@ -21,7 +21,8 @@ try:
 except AttributeError:
     pass # Versioni vecchie di pytorch
 
-step=4000 #step di training condivisi tra i try per comparare 
+step=6000
+ #step di training condivisi tra i try per comparare 
 """
 Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 0. NN classica e PINN con dati e fisica

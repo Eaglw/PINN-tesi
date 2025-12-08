@@ -70,3 +70,6 @@ python Heat2D/Heat2D_main.py
 - **Visualization**: Plotting functions are centralized in `func/graphic_func.py` to maintain consistent styling.
 - **Output**: Scripts should check for and create necessary output directories (e.g., `Results/`, `plots/`) before saving files.
 - **Device**: Code is typically set up to use `cuda` if available, falling back to `cpu`.
+
+## Note aggiunte
+Prima di scrivere qualsiasi tipo di codice spiegami cosa stai cercando di fare. 

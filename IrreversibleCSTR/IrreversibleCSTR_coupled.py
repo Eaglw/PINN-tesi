@@ -22,14 +22,14 @@ _device = device # Usa la variabile 'device' già definita nel contesto del main
 print(f"Coupled Script using inherited device: {_device} with inherited dtype: {_dtype}")
 
 # 1. Definizione Parametri Fisici
-F, V, cAin, k_dummy, cA0 = 400, 2000, 10, 1, 10 # Parametri dal main per coerenza
+# F, V, cAin, k, cA0 sono ereditati dal main
 tau = V / F
-k0 = 1e5       
+k0 = 1.5e3     
 E_R = 2500.0   
 dH = -20.0     
 rho_Cp = 1.0   
 UA_V = 0.5     
-Tin = 350.0    
+Tin = 300.0    
 Tcool = 300.0  
 cAin_coupled = cAin 
 
@@ -180,8 +180,16 @@ for i in tqdm(range(step), desc="Coupled Training"):
     loss_p_energy = torch.mean((res_energy / T_REF)**2)
     
     # Loss Totale (Pesi bilanciati poiché tutto è normalizzato)
-    # Usiamo pesi leggermente minori per la fisica all'inizio per lasciar fittare i dati
-    lambda_phys = 0.1 
+    # STRATEGIA WARM-UP: 
+    # Spegniamo la fisica all'inizio per permettere alla rete di portarsi su valori 
+    # di temperatura fisici (evitando T negativi che fanno esplodere l'Arrhenius)
+    if i < 1000:
+        lambda_phys = 0.0
+    else:
+        lambda_phys = 0.1
+        if i == 1000:
+            print("\n[INFO] Warm-up completato. Attivazione Loss Fisica.")
+
     loss = loss_d_C + loss_d_T + lambda_phys * (loss_p_mass + loss_p_energy)
     
     loss.backward()
