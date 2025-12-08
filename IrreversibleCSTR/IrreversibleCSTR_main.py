@@ -10,17 +10,9 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from func.graphic_func import save_gif_PIL, plot_result
 
-# Configurazione dispositivo
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-    torch.set_default_dtype(torch.float64)
-elif torch.backends.mps.is_available():
-    device = torch.device("mps")
-    torch.set_default_dtype(torch.float32)
-    print("Warning: MPS detected, forcing float32 precision (MPS does not support float64).")
-else:
-    device = torch.device("cpu")
-    torch.set_default_dtype(torch.float64)
+# Configurazione dispositivo e precisione
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+torch.set_default_dtype(torch.float64)
 print(f"Using device: {device} with default dtype: {torch.get_default_dtype()}")
 
 # Imposta il device di default (opzionale, ma utile se gli script chiamati non gestiscono esplicitamente il device)
@@ -36,8 +28,9 @@ Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 1. Solo fisica e BC
 2. Problema inverso
 3. PINN che confronta l'andamento di diversi optimizer e activation function
+4. PINN accoppiata (Mass + Energy) ispirata a ViscoelasticNet
 """
-goal = [0,1,2,3]
+goal = [4]
 
 #parametri fisici del problema
 F, V, cAin, k, cA0 = 400, 2000, 10, 1, 10
@@ -84,8 +77,8 @@ x_data = x[0:150:10]
 y_data = y[0:150:10]
 print(x_data.shape, y_data.shape)
 plt.figure()
-plt.plot(x, y, label="Exact solution")
-plt.scatter(x_data, y_data, color="tab:orange", label="Training data")
+plt.plot(x.cpu(), y.cpu(), label="Exact solution")
+plt.scatter(x_data.cpu(), y_data.cpu(), color="tab:orange", label="Training data")
 plt.legend()
 #plt.show()
 
@@ -103,3 +96,6 @@ if 2 in goal:
 if 3 in goal:
     print("3. Analisi ottimizzatori e funzioni di attivazione")
     exec(open("IrreversibleCSTR/IrreversibleCSTR_pinn_optim.py").read())
+if 4 in goal:
+    print("4. PINN accoppiata (Mass + Energy)")
+    exec(open("IrreversibleCSTR/IrreversibleCSTR_coupled.py").read())
