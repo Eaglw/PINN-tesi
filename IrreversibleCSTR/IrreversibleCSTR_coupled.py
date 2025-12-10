@@ -75,7 +75,7 @@ data_sol_fine = solve_system_rk4(t_fine)
 indices = np.linspace(0, len(t_fine)-1, len(t_domain), dtype=int)
 data_sol = data_sol_fine[indices]
 
-# Tensori Ground Truth
+# Soluzione completa per plots
 C_true = torch.tensor(data_sol[:, 0], dtype=_dtype).view(-1, 1).to(_device)
 T_true = torch.tensor(data_sol[:, 1], dtype=_dtype).view(-1, 1).to(_device)
 t_tens = torch.tensor(t_domain, dtype=_dtype).view(-1, 1).to(_device)
