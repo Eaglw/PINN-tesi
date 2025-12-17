@@ -5,6 +5,7 @@ from tqdm import tqdm
 import numpy as np
 import os
 import sys
+import random
 
 # Importa moduli condivisi
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -20,6 +21,22 @@ _dtype = torch.get_default_dtype()
 _device = device # Usa la variabile 'device' già definita nel contesto del main
 
 print(f"Coupled Script using inherited device: {_device} with inherited dtype: {_dtype}")
+
+def set_seed(seed):
+    """Fissa il seed per garantire riproducibilità."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    # Per operazioni deterministiche (può rallentare)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    print(f"Seed impostato a: {seed}")
+
+# Imposta il seed (modifica qui per cambiare l'inizializzazione)
+set_seed(42)
 
 # 1. Definizione Parametri Fisici
 # F, V, cAin, k, cA0 sono ereditati dal main
