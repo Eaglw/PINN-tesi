@@ -27,7 +27,7 @@ Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 3. Problema inverso
 4. PINN che confronta l'andamento di diversi optimizer e activation function
 """
-goal = [0,1]
+goal = [2]
 # Directory Output
 base_dir = os.path.dirname(os.path.abspath(__file__))
 results_dir = os.path.join(base_dir, 'Results')
@@ -76,7 +76,7 @@ class FCN(nn.Module):
         return nn.MSELoss()(pred, target)
 
 # Griglia dominio per visualizzazione (Validazione)
-Nx_dom, Ny_dom = 100, 100
+Nx_dom, Ny_dom = 50, 50
 x_grid = torch.linspace(0, Lx, Nx_dom, device=device)
 y_grid = torch.linspace(0, Ly, Ny_dom, device=device)
 X, Y = torch.meshgrid(x_grid, y_grid, indexing='xy')
@@ -145,7 +145,7 @@ plt.savefig(os.path.join(results_dir, 'analytic_sol.png'))
 if show_plots_interactively:
     plt.show()
 else:
-    plt.close("all") # Chiude la figura per evitare che rimanga in memoria
+    plt.close("all") 
 # Setup Tuple Dati per train_model
 training_data_NN = (xy_train, T_data)
 
@@ -193,8 +193,5 @@ if 1 in goal:
     )
 if 2 in goal:
     print("2. Problema inverso")
-    pass
+    
 
-if 3 in goal:
-    print("3. Analisi ottimizzatori e funzioni di attivazione")
-    pass
