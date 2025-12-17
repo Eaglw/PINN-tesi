@@ -144,7 +144,7 @@ training_data_NN = (xy_grid_flat, T_grid_flat_data)
 validation_grid_tuple = (xy_grid_flat, T_grid, X, Y)
 
 # Eseguiamo il pre-training (Warmup breve)
-epochs_pretrain = 1000
+epochs_pretrain = 3000
 train_modelNN(
     model=model_0,
     optimizer=optimizer_0,
@@ -184,7 +184,7 @@ optimizer_full = torch.optim.Adam([
     {'params': [beta_train], 'lr': 1e-2}          
 ])
 
-epochs_inverse = 20000
+epochs_inverse = 30000
 pbar = tqdm(range(epochs_inverse), desc="Inverse Training")
 loss_history = TrainingHistory()
 beta_history = []

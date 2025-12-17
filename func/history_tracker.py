@@ -64,7 +64,7 @@ class TrainingHistory:
             else:
                 plt.plot(self.epochs, clean_values, label=name)
         
-        plt.title(f'Andamento Loss - {experiment_name}', y=0.85)
+        plt.title(f'Andamento Loss - {experiment_name}')
         plt.xlabel('Epoch')
         plt.ylabel('Loss Value')
         plt.yscale('log')
@@ -74,7 +74,7 @@ class TrainingHistory:
         # Stile coerente con plot_result
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        l = plt.legend(loc=(1.01, 0.34), frameon=False, fontsize="large")
+        l = plt.legend(loc='upper right', frameon=False, fontsize="large")
         plt.setp(l.get_texts(), color="k")
 
         if save_path:
