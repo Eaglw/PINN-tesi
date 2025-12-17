@@ -43,9 +43,6 @@ La tua nota _"Fluidity Eq. $\rightarrow$ Granular Packing"_ si riferisce quasi c
     
 
 ### "Baffi dei Gatti"
-
-Questa è probabilmente una metafora colorita usata a lezione (o un _inside joke_ accademico), ma tecnicamente può riferirsi a due concetti:
-
 Fa un esempio sul fatto che la classificazione di cani e gatti da immagini richiederebbe 10^6 elementi di training, mentre se io impongo che i baffi dei gatti debbano seguire una precisa equazione, ho bisogno solo di 100 foto di gatti e cani per ottenere lo stesso risultato. Queste sono le PINNs
 
 ---
