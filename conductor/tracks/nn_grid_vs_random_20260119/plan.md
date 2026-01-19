@@ -9,7 +9,7 @@
     - [x] Add the import and logic to call `train_modelNN_griglia` when selected.
 - [x] Task: Conductor - User Manual Verification 'Scaffolding and Integration' (Protocol in workflow.md)
 
-## Phase 2: Implementation and Verification
+## Phase 2: Implementation and Verification [checkpoint: 082744c]
 - [x] Task: Implement Grid Sampling logic
     - [x] Ensure the number of grid points in `Heat2D_NN_griglia.py` matches the density/count of random points in `Heat2D_NN.py` for fair comparison.
     - [x] Verify that boundary points are handled consistently with the grid approach.
