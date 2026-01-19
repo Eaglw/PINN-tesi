@@ -10,14 +10,14 @@
 - [x] Task: Conductor - User Manual Verification 'Scaffolding and Integration' (Protocol in workflow.md)
 
 ## Phase 2: Implementation and Verification
-- [ ] Task: Implement Grid Sampling logic
-    - [ ] Ensure the number of grid points in `Heat2D_NN_griglia.py` matches the density/count of random points in `Heat2D_NN.py` for fair comparison.
-    - [ ] Verify that boundary points are handled consistently with the grid approach.
-- [ ] Task: Implement Comparison Logic in `Heat2D_main.py`
-    - [ ] Store history/results from both `goal=0` and `goal=5` runs.
-    - [ ] Create a comparison function to plot overlapping loss curves.
-    - [ ] Create a comparison function for point-wise error maps.
-- [ ] Task: Conductor - User Manual Verification 'Implementation and Verification' (Protocol in workflow.md)
+- [x] Task: Implement Grid Sampling logic
+    - [x] Ensure the number of grid points in `Heat2D_NN_griglia.py` matches the density/count of random points in `Heat2D_NN.py` for fair comparison.
+    - [x] Verify that boundary points are handled consistently with the grid approach.
+- [x] Task: Implement Comparison Logic in `Heat2D_main.py`
+    - [x] Store history/results from both `goal=0` and `goal=5` runs.
+    - [x] Create a comparison function to plot overlapping loss curves.
+    - [x] Create a comparison function for point-wise error maps.
+- [x] Task: Conductor - User Manual Verification 'Implementation and Verification' (Protocol in workflow.md)
 
 ## Phase 3: Final Integration and Testing
 - [ ] Task: Verify Goal Execution

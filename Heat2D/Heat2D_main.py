@@ -151,6 +151,11 @@ training_data_NN = (xy_train, T_data)
 
 # Passiamo T_grid (la griglia 2D completa) perché plot2D_comparison se l'aspetta
 validation_grid_tuple = (xy_grid_flat, T_grid, X, Y) 
+
+# Dizionari per salvare risultati per il confronto
+histories = {}
+final_models = {}
+
 if 0 in goal:
     print("0. NN classica")
     from Heat2D_NN import train_modelNN
@@ -158,7 +163,7 @@ if 0 in goal:
     model_0 = FCN(layers=layers_config).to(device)
     optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=1e-3)
     
-    train_modelNN(
+    history_0 = train_modelNN(
         model=model_0,
         optimizer=optimizer_0,
         training_data=training_data_NN,
@@ -168,6 +173,8 @@ if 0 in goal:
         final_dir=final_dir,
         show_plots_interactively=show_plots_interactively 
     )
+    histories['NN Random'] = history_0
+    final_models['NN Random'] = model_0
 
 if 1 in goal:
     print("1. PINN con dati e fisica")
@@ -178,16 +185,16 @@ if 1 in goal:
     heat_physics = HeatEquation2D()
     
     # Inizializzazione Modello e Optimizer per questo caso
-    model_0 = FCN(layers=layers_config).to(device)
-    optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=1e-3)
+    model_1 = FCN(layers=layers_config).to(device)
+    optimizer_1 = torch.optim.Adam(model_1.parameters(), lr=1e-3)
     
     # Passiamo i dati separati alla PINN
     data_internal = (xy_internal, T_internal)
     data_boundary = (xy_boundary, T_boundary)
 
     train_modelPINN(
-        model=model_0,
-        optimizer=optimizer_0,
+        model=model_1,
+        optimizer=optimizer_1,
         data_internal=data_internal,
         data_boundary=data_boundary,
         validation_grid=validation_grid_tuple,
@@ -197,6 +204,9 @@ if 1 in goal:
         final_dir=final_dir,
         show_plots_interactively=show_plots_interactively 
     )
+    # PINN currently doesn't return history in the same clean way for comparison, 
+    # but we can add it later if needed.
+
 if 2 in goal:
     print("2. Problema inverso")
 
@@ -224,7 +234,7 @@ if 5 in goal:
     model_5 = FCN(layers=layers_config).to(device)
     optimizer_5 = torch.optim.Adam(model_5.parameters(), lr=1e-3)
     
-    train_modelNN_griglia(
+    history_5 = train_modelNN_griglia(
         model=model_5,
         optimizer=optimizer_5,
         training_data=training_data_grid,
@@ -234,5 +244,39 @@ if 5 in goal:
         final_dir=final_dir,
         show_plots_interactively=show_plots_interactively
     )
+    histories['NN Grid'] = history_5
+    final_models['NN Grid'] = model_5
+
+# --- COMPARISON LOGIC ---
+if 0 in goal and 5 in goal:
+    print("\n--- Generating Comparison: Random vs Grid ---")
+    from func.graphic_func import plot_loss_comparison, plot_error_map_comparison
+    
+    # 1. Loss Comparison
+    plot_loss_comparison(
+        [histories['NN Random'], histories['NN Grid']],
+        ['NN Random', 'NN Grid'],
+        save_path=os.path.join(results_dir, 'Comparison_Loss_Random_vs_Grid.png')
+    )
+    
+    # 2. Error Map Comparison
+    model_random = final_models['NN Random']
+    model_grid = final_models['NN Grid']
+    
+    model_random.eval()
+    model_grid.eval()
+    
+    with torch.no_grad():
+        # Recalculate predictions on validation grid
+        pred_random = model_random(xy_grid_flat).reshape(Nx_dom, Ny_dom)
+        pred_grid = model_grid(xy_grid_flat).reshape(Nx_dom, Ny_dom)
+        
+    plot_error_map_comparison(
+        X, Y, T_grid,
+        [pred_random, pred_grid],
+        ['NN Random', 'NN Grid'],
+        save_path=os.path.join(results_dir, 'Comparison_ErrorMap_Random_vs_Grid.png')
+    )
+    print("Comparison plots saved in Results/.")
     
 

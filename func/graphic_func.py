@@ -87,3 +87,77 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
         plt.close()
     else:
         plt.show()
+
+def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
+    """
+    Plots side-by-side error maps for multiple models.
+    
+    Args:
+        X, Y: Meshgrid tensors.
+        T_true: Analytical solution tensor.
+        T_preds: List of prediction tensors.
+        labels: List of model labels.
+        save_path: Path to save the plot.
+    """
+    num_models = len(T_preds)
+    fig, axes = plt.subplots(1, num_models, figsize=(6 * num_models, 5))
+    if num_models == 1:
+        axes = [axes]
+        
+    X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
+    T_true_np = T_true.cpu().numpy()
+    
+    for i, (T_pred, label) in enumerate(zip(T_preds, labels)):
+        ax = axes[i]
+        abs_error = torch.abs(T_pred - T_true).detach().cpu().numpy()
+        
+        c = ax.contourf(X_np, Y_np, abs_error, levels=50, cmap='magma')
+        plt.colorbar(c, ax=ax, label='Abs Error')
+        ax.set_title(f'{label} - Absolute Error')
+        ax.set_xlabel('x')
+        if i == 0:
+            ax.set_ylabel('y')
+            
+    plt.tight_layout()
+    
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+def plot_loss_comparison(histories, labels, save_path=None, title="Loss Comparison"):
+    """
+    Plots overlapping loss curves from multiple training histories.
+    
+    Args:
+        histories: List of TrainingHistory objects.
+        labels: List of labels for each history (e.g., ["NN Random", "NN Grid"]).
+        save_path: Path to save the plot.
+        title: Plot title.
+    """
+    plt.figure(figsize=(10, 6))
+    
+    colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red']
+    
+    for i, (history, label) in enumerate(zip(histories, labels)):
+        color = colors[i % len(colors)]
+        if 'total_loss' in history.losses:
+            # Clean None values
+            values = history.losses['total_loss']
+            clean_values = [v if v is not None else np.nan for v in values]
+            plt.plot(history.epochs, clean_values, label=f"{label} (Total)", color=color, linewidth=2)
+    
+    plt.yscale('log')
+    plt.title(title)
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()

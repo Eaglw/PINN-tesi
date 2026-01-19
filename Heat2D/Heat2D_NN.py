@@ -106,3 +106,5 @@ def train_modelNN(
     
     # Plot Loss History
     loss_history.plot_losses(save_path=os.path.join(final_dir, 'NNloss_history.png'), experiment_name="Heat2D NN", show_plot=show_plots_interactively) # Updated plot_losses call
+    
+    return loss_history
