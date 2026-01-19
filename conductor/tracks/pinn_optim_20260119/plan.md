@@ -1,13 +1,13 @@
 # Implementation Plan - PINN Performance Analysis and Optimization
 
-## Phase 1: Comparative Analysis
-- [ ] Task: Baseline Comparison Run
+## Phase 1: Comparative Analysis [checkpoint: 6b4d6d4]
+- [x] Task: Baseline Comparison Run
     - [ ] Run both NN (Grid) and PINN with 10,000 epochs and identical architectures.
     - [ ] Compare spatial relative error maps side-by-side using `plot_error_map_comparison`.
-- [ ] Task: Gradient Analysis
+- [x] Task: Gradient Analysis
     - [ ] Instrument the PINN training loop to log the norms of gradients for `bc_loss`, `data_loss`, and `pde_loss`.
     - [ ] Generate a plot showing the magnitude of these gradients over the first 5,000 epochs.
-- [ ] Task: Document Findings
+- [x] Task: Document Findings
     - [ ] Summarize whether physics gradients are conflicting with data gradients or if the pde_loss is just stagnating.
 
 ## Phase 2: Targeted Optimizations
