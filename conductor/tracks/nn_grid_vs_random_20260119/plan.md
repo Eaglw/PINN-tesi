@@ -1,12 +1,13 @@
 # Implementation Plan - Grid-based NN Training vs Random Sampling
 
-## Phase 1: Scaffolding and Integration
-- [~] Task: Create `Heat2D/Heat2D_NN_griglia.py`
-    - [ ] Port logic from `Heat2D_NN.py` but replace random sampling with `torch.meshgrid` grid generation (matching `Heat2D_PINN.py`).
-    - [ ] Implement a `train_modelNN_griglia` function similar to `train_modelNN`.
+## Phase 1: Scaffolding and Integration [checkpoint: c994da9]
+- [x] Task: Create `Heat2D/Heat2D_NN_griglia.py`
+    - [x] Port logic from `Heat2D_NN.py` but replace random sampling with `torch.meshgrid` grid generation (matching `Heat2D_PINN.py`).
+    - [x] Implement a `train_modelNN_griglia` function similar to `train_modelNN`.
 - [x] Task: Update `Heat2D/Heat2D_main.py` for integration
     - [x] Add a new goal (e.g., `goal=5`) for NN Griglia.
     - [x] Add the import and logic to call `train_modelNN_griglia` when selected.
+- [x] Task: Conductor - User Manual Verification 'Scaffolding and Integration' (Protocol in workflow.md)
 
 ## Phase 2: Implementation and Verification
 - [ ] Task: Implement Grid Sampling logic
