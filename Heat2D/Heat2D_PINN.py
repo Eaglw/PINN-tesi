@@ -52,7 +52,9 @@ def train_modelPINN(
     plots_dir='plots',
     final_dir='Heat2D/Results',
     show_plots_interactively=True,
-    log_gradients_every=0
+    log_gradients_every=0,
+    loss_weights=None,
+    warmup_epochs=None
 ):
     """
     Esegue il training della PINN.
@@ -65,6 +67,8 @@ def train_modelPINN(
         validation_grid: Tupla (xy_grid, T_exact_grid, X, Y).
         physics_problem: Istanza di PhysicsProblem (opzionale).
         log_gradients_every: Se > 0, calcola e logga le norme dei gradienti ogni N epoche.
+        loss_weights: Dizionario con i pesi delle loss (keys: 'data', 'bc', 'physics').
+        warmup_epochs: Numero di epoche di warmup (solo dati).
     """
     
     # Unpack dei dati
@@ -97,13 +101,17 @@ def train_modelPINN(
     pbar = tqdm(range(epochs), desc="Training PINN (Adam)")
     loss_history = TrainingHistory()
     
-    # Pesi Loss
-    lambda_data = 1.0
-    lambda_bc = 1.0
-    target_lambda_physics = 0.05
+    # Configurazione Pesi Loss
+    if loss_weights is None:
+        loss_weights = {'data': 1.0, 'bc': 1.0, 'physics': 0.05}
     
-    # Warmup setup: 1/3 delle epoche totali
-    warmup_epochs = epochs // 3
+    lambda_data = loss_weights.get('data', 1.0)
+    lambda_bc = loss_weights.get('bc', 1.0)
+    target_lambda_physics = loss_weights.get('physics', 0.05)
+    
+    # Configurazione Warmup
+    if warmup_epochs is None:
+        warmup_epochs = epochs // 3
     
     # Scheduler per il Learning Rate
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6000, gamma=0.4)
