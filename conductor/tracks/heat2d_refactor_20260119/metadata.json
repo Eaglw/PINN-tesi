@@ -1,8 +1,0 @@
-{
-  "track_id": "heat2d_refactor_20260119",
-  "type": "refactor",
-  "status": "new",
-  "created_at": "2026-01-19T10:00:00Z",
-  "updated_at": "2026-01-19T10:00:00Z",
-  "description": "Refactor the Heat2D module for better modularity and testability"
-}
