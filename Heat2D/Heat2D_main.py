@@ -199,5 +199,40 @@ if 1 in goal:
     )
 if 2 in goal:
     print("2. Problema inverso")
+
+if 5 in goal:
+    print("5. NN classica su griglia")
+    from Heat2D.Heat2D_NN_griglia import train_modelNN_griglia
+    
+    # Generazione dati su griglia per il training
+    # Cerchiamo di avere un numero di punti simile al caso random (1000 interni + 200 bordo = 1200)
+    # sqrt(1200) ~ 34.6. Usiamo 35x35 = 1225 punti.
+    Nx_train, Ny_train = 35, 35
+    x_train_line = torch.linspace(0, Lx, Nx_train, device=device)
+    y_train_line = torch.linspace(0, Ly, Ny_train, device=device)
+    X_train, Y_train = torch.meshgrid(x_train_line, y_train_line, indexing='xy')
+    
+    # Appiattimento
+    xy_train_grid = torch.stack([X_train.flatten(), Y_train.flatten()], dim=1)
+    
+    # Calcolo target analitico
+    T_train_grid = soluzione_analitica(X_train.flatten().unsqueeze(1), Y_train.flatten().unsqueeze(1), Lx, Ly, Nx=Nx_fourier)
+    
+    training_data_grid = (xy_train_grid, T_train_grid)
+    
+    # Inizializzazione Modello e Optimizer
+    model_5 = FCN(layers=layers_config).to(device)
+    optimizer_5 = torch.optim.Adam(model_5.parameters(), lr=1e-3)
+    
+    train_modelNN_griglia(
+        model=model_5,
+        optimizer=optimizer_5,
+        training_data=training_data_grid,
+        validation_grid=validation_grid_tuple,
+        epochs=epochs,
+        plots_dir=plots_dir,
+        final_dir=final_dir,
+        show_plots_interactively=show_plots_interactively
+    )
     
 
