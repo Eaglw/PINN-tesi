@@ -57,6 +57,10 @@ class TrainingHistory:
             # Matplotlib plotta (x, y) saltando i punti dove y è None/NaN.
             # Qui passiamo direttamente le liste complete (con None).
             # Convertiamo None in np.nan per compatibilità sicura.
+            
+            # Skip gradient logs in loss plot
+            if name.startswith('grad_'): continue
+            
             clean_values = [v if v is not None else np.nan for v in values]
             
             if name == "total_loss":
@@ -86,6 +90,53 @@ class TrainingHistory:
             plt.show()
         
         plt.close() # Chiude la figura per liberare memoria
+
+    def plot_gradients(self, save_path=None, experiment_name="", show_plot=True):
+        """
+        Genera un grafico con l'andamento delle norme dei gradienti.
+        """
+        grad_keys = [k for k in self.losses.keys() if k.startswith('grad_')]
+        if not grad_keys:
+            print("No gradient history found to plot.")
+            return
+
+        plt.figure(figsize=(8, 4))
+        ax = plt.gca()
+        
+        for name in grad_keys:
+            # Filter None/NaN
+            values = self.losses[name]
+            clean_values = [v if v is not None else np.nan for v in values]
+            
+            # Check if we have enough data (gradient logging might be sparse)
+            valid_indices = [i for i, v in enumerate(clean_values) if not np.isnan(v)]
+            valid_epochs = [self.epochs[i] for i in valid_indices]
+            valid_vals = [clean_values[i] for i in valid_indices]
+            
+            if valid_vals:
+                plt.plot(valid_epochs, valid_vals, label=name, marker='o', markersize=2)
+        
+        plt.title(f'Gradient Norms - {experiment_name}')
+        plt.xlabel('Epoch')
+        plt.ylabel('Gradient Norm')
+        plt.yscale('log')
+        plt.grid(True, which="both", ls="--", alpha=0.5)
+        
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        l = plt.legend(loc='upper right', frameon=False, fontsize="large")
+        plt.setp(l.get_texts(), color="k")
+
+        if save_path:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            plt.savefig(save_path, bbox_inches='tight')
+            print(f"Grafico dei gradienti salvato in: {save_path}")
+        
+        if show_plot:
+            plt.show()
+        
+        plt.close()
+
 
 
 def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, **kwargs):

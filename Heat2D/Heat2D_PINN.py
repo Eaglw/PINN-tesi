@@ -51,7 +51,8 @@ def train_modelPINN(
     physics_problem=None,
     plots_dir='plots',
     final_dir='Heat2D/Results',
-    show_plots_interactively=True
+    show_plots_interactively=True,
+    log_gradients_every=0
 ):
     """
     Esegue il training della PINN.
@@ -63,6 +64,7 @@ def train_modelPINN(
         data_boundary: Tupla (xy_bc, T_bc).
         validation_grid: Tupla (xy_grid, T_exact_grid, X, Y).
         physics_problem: Istanza di PhysicsProblem (opzionale).
+        log_gradients_every: Se > 0, calcola e logga le norme dei gradienti ogni N epoche.
     """
     
     # Unpack dei dati
@@ -140,6 +142,33 @@ def train_modelPINN(
             lambda_physics=lambda_physics
         )
         
+        # Gradient Logging Logic
+        if log_gradients_every > 0 and (epoch + 1) % log_gradients_every == 0:
+            grad_norms = {}
+            for name, loss_tensor in loss_dict.items():
+                if name == 'total_loss': continue
+                if isinstance(loss_tensor, torch.Tensor):
+                    # Get the weight used
+                    weight = 1.0
+                    if name == 'data_loss': weight = lambda_data
+                    elif name == 'bc_loss': weight = lambda_bc
+                    elif name == 'pde_loss': weight = lambda_physics
+                    
+                    if weight > 0:
+                        # Retain graph needed because we do multiple backward calls (via grad)
+                        # and then the final backward.
+                        grads = torch.autograd.grad(loss_tensor * weight, model.parameters(), retain_graph=True, allow_unused=True)
+                        
+                        # Total L2 norm of all params
+                        total_norm = 0.0
+                        for g in grads:
+                            if g is not None:
+                                total_norm += g.data.norm(2).item()**2
+                        total_norm = total_norm ** 0.5
+                        grad_norms[f'grad_{name}'] = total_norm
+            
+            loss_history.update(epoch, grad_norms)
+
         loss.backward()
         optimizer.step()
         
@@ -236,6 +265,10 @@ def train_modelPINN(
     
     # Plot Loss History con linea verticale per fine warmup
     loss_history.plot_losses(last_adam_epoch=warmup_epochs, save_path=os.path.join(final_dir, 'PINNloss_history.png'), experiment_name="Heat2D PINN", show_plot=show_plots_interactively)
+    
+    # Plot Gradient History if available
+    loss_history.plot_gradients(save_path=os.path.join(final_dir, 'PINN_gradients.png'), experiment_name="Heat2D PINN Gradients", show_plot=show_plots_interactively)
+    
     if show_plots_interactively:
         plt.show()
     else:
