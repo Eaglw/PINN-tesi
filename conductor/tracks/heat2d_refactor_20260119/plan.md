@@ -13,7 +13,7 @@
     - [x] Define abstract base class `PhysicsProblem` with methods like `residual(x, u)` and `boundary_condition(x, u)`
 - [x] Task: Conductor - User Manual Verification 'Analysis and Scaffolding' (Protocol in workflow.md)
 
-## Phase 2: Modular Physics Implementation
+## Phase 2: Modular Physics Implementation [checkpoint: 3835446]
 - [x] Task: Implement `HeatEquation2D` Class
     - [x] Create `tests/test_physics_heat2d.py`
     - [x] Write tests for the `residual` calculation (using known analytical solutions or simple checks)
@@ -24,7 +24,7 @@
     - [x] Write tests for PINN initialization and forward pass
     - [x] Modify `PINN` class in `Heat2D/Heat2D_PINN.py` to accept a `PhysicsProblem` instance
     - [x] Replace hardcoded PDE logic with calls to `physics_problem.residual`
-- [~] Task: Conductor - User Manual Verification 'Modular Physics Implementation' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Modular Physics Implementation' (Protocol in workflow.md)
 
 ## Phase 3: Integration and Verification
 - [ ] Task: Update Main Script
