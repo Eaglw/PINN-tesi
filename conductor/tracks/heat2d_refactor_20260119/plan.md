@@ -27,14 +27,14 @@
 - [x] Task: Conductor - User Manual Verification 'Modular Physics Implementation' (Protocol in workflow.md)
 
 ## Phase 3: Integration and Verification
-- [ ] Task: Update Main Script
-    - [ ] Modify `Heat2D/Heat2D_main.py` to instantiate `HeatEquation2D` and pass it to the solver
-    - [ ] Ensure all hyperparameters and configurations are preserved
-- [ ] Task: Verify Reproducibility
-    - [ ] Run the refactored `Heat2D_main.py`
-    - [ ] Compare results (loss curves, final plots) with baseline results (from `Results/` or previous runs)
-- [ ] Task: Expand Test Coverage
-    - [ ] Run coverage report
-    - [ ] specific tests for any uncovered lines (e.g., edge cases in boundary conditions)
-    - [ ] Ensure >80% coverage
-- [ ] Task: Conductor - User Manual Verification 'Integration and Verification' (Protocol in workflow.md)
+- [x] Task: Update Main Script
+    - [x] Modify `Heat2D/Heat2D_main.py` to instantiate `HeatEquation2D` and pass it to the solver
+    - [x] Ensure all hyperparameters and configurations are preserved
+- [x] Task: Verify Reproducibility
+    - [x] Run the refactored `Heat2D_main.py`
+    - [x] Compare results (loss curves, final plots) with baseline results (from `Results/` or previous runs)
+- [x] Task: Expand Test Coverage
+    - [x] Run coverage report
+    - [x] specific tests for any uncovered lines (e.g., edge cases in boundary conditions)
+    - [x] Ensure >80% coverage
+- [~] Task: Conductor - User Manual Verification 'Integration and Verification' (Protocol in workflow.md)

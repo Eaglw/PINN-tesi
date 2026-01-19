@@ -44,3 +44,14 @@ def test_train_modelPINN_modular():
         physics_problem=physics,
         show_plots_interactively=False
     )
+
+def test_legacy_heat2d_physics_loss():
+    from Heat2D.Heat2D_PINN import heat2d_physics_loss
+    
+    model = SimpleNet()
+    # T = w1*x + w2*y + b
+    # d2T/dx2 = 0, d2T/dy2 = 0
+    x = torch.tensor([[0.5, 0.5]], requires_grad=True)
+    
+    loss = heat2d_physics_loss(model, x)
+    assert torch.isclose(loss, torch.tensor(0.0))

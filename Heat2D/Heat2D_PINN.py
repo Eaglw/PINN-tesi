@@ -31,11 +31,11 @@ def heat2d_physics_loss(model, xy_p):
     
     # Calcolo gradienti secondi
     # Nota: autograd.grad restituisce una tupla, prendiamo [0]
-    grads2_x = torch.autograd.grad(dT_dx, xy_p, torch.ones_like(dT_dx), create_graph=True)[0]
-    d2T_dx2 = grads2_x[:, 0]
+    grads2_x = torch.autograd.grad(dT_dx, xy_p, torch.ones_like(dT_dx), create_graph=True, allow_unused=True)[0]
+    d2T_dx2 = grads2_x[:, 0] if grads2_x is not None else torch.zeros_like(dT_dx)
     
-    grads2_y = torch.autograd.grad(dT_dy, xy_p, torch.ones_like(dT_dy), create_graph=True)[0]
-    d2T_dy2 = grads2_y[:, 1]
+    grads2_y = torch.autograd.grad(dT_dy, xy_p, torch.ones_like(dT_dy), create_graph=True, allow_unused=True)[0]
+    d2T_dy2 = grads2_y[:, 1] if grads2_y is not None else torch.zeros_like(dT_dy)
     
     # Residuo PDE
     res = d2T_dx2 + d2T_dy2

@@ -171,7 +171,12 @@ if 0 in goal:
 
 if 1 in goal:
     print("1. PINN con dati e fisica")
-    from Heat2D_PINN import train_modelPINN
+    from Heat2D.Heat2D_PINN import train_modelPINN
+    from Heat2D.physics import HeatEquation2D
+    
+    # Inizializzazione Fisica Modulare
+    heat_physics = HeatEquation2D()
+    
     # Inizializzazione Modello e Optimizer per questo caso
     model_0 = FCN(layers=layers_config).to(device)
     optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=1e-3)
@@ -186,6 +191,7 @@ if 1 in goal:
         data_internal=data_internal,
         data_boundary=data_boundary,
         validation_grid=validation_grid_tuple,
+        physics_problem=heat_physics,
         epochs=epochs,
         plots_dir=plots_dir,
         final_dir=final_dir,

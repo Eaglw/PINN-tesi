@@ -45,3 +45,28 @@ def test_heat_equation_2d_boundary_loss():
     loss = heat_eq.boundary_loss(model, x_bc, y_bc)
     
     assert torch.isclose(loss, torch.tensor(0.0))
+
+def test_physics_problem_base_raises():
+    class IncompletePhysics(PhysicsProblem):
+        pass
+    
+    physics = IncompletePhysics()
+    model = LinearModel()
+    x = torch.tensor([[0.5, 0.5]])
+    
+    import pytest
+    with pytest.raises(NotImplementedError):
+        physics.residual(model, x)
+    
+    with pytest.raises(NotImplementedError):
+        physics.boundary_loss(model, x, x)
+
+def test_heat_equation_2d_requires_grad_auto():
+    from Heat2D.physics import HeatEquation2D
+    heat_eq = HeatEquation2D()
+    model = LinearModel()
+    # x without requires_grad
+    x = torch.tensor([[0.5, 0.5]])
+    res = heat_eq.residual(model, x)
+    assert x.requires_grad
+    assert torch.isclose(res, torch.tensor(0.0))
