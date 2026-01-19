@@ -10,11 +10,11 @@
 - [x] Task: Document Findings
     - [ ] Summarize whether physics gradients are conflicting with data gradients or if the pde_loss is just stagnating.
 
-## Phase 2: Targeted Optimizations
-- [ ] Task: Implement Loss Balancing Improvements
+## Phase 2: Targeted Optimizations [checkpoint: adb9ca5]
+- [x] Task: Implement Loss Balancing Improvements
     - [ ] Update `train_modelPINN` to support configurable weights for each loss term (increasing $\lambda_{bc}$ and $\lambda_{data}$ if they are being dominated).
     - [ ] Test a run with higher weight on boundaries.
-- [ ] Task: Enhance Collocation Strategy
+- [x] Task: Enhance Collocation Strategy
     - [ ] Increase the number of collocation points in `train_modelPINN` (e.g., from 50x50 to 100x100).
     - [ ] Verify if higher resolution physics reduces the error map peaks.
 - [ ] Task: Conductor - User Manual Verification 'Targeted Optimizations' (Protocol in workflow.md)
