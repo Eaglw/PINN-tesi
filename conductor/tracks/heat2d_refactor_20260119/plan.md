@@ -14,17 +14,17 @@
 - [x] Task: Conductor - User Manual Verification 'Analysis and Scaffolding' (Protocol in workflow.md)
 
 ## Phase 2: Modular Physics Implementation
-- [ ] Task: Implement `HeatEquation2D` Class
-    - [ ] Create `tests/test_physics_heat2d.py`
-    - [ ] Write tests for the `residual` calculation (using known analytical solutions or simple checks)
-    - [ ] Implement `HeatEquation2D` inheriting from `PhysicsProblem`
-    - [ ] Port logic from `Heat2D_PINN.py` to `HeatEquation2D`
-- [ ] Task: Refactor `PINN` Class
-    - [ ] Create `tests/test_pinn_solver.py`
-    - [ ] Write tests for PINN initialization and forward pass
-    - [ ] Modify `PINN` class in `Heat2D/Heat2D_PINN.py` to accept a `PhysicsProblem` instance
-    - [ ] Replace hardcoded PDE logic with calls to `physics_problem.residual`
-- [ ] Task: Conductor - User Manual Verification 'Modular Physics Implementation' (Protocol in workflow.md)
+- [x] Task: Implement `HeatEquation2D` Class
+    - [x] Create `tests/test_physics_heat2d.py`
+    - [x] Write tests for the `residual` calculation (using known analytical solutions or simple checks)
+    - [x] Implement `HeatEquation2D` inheriting from `PhysicsProblem`
+    - [x] Port logic from `Heat2D_PINN.py` to `HeatEquation2D`
+- [x] Task: Refactor `PINN` Class
+    - [x] Create `tests/test_pinn_solver.py`
+    - [x] Write tests for PINN initialization and forward pass
+    - [x] Modify `PINN` class in `Heat2D/Heat2D_PINN.py` to accept a `PhysicsProblem` instance
+    - [x] Replace hardcoded PDE logic with calls to `physics_problem.residual`
+- [~] Task: Conductor - User Manual Verification 'Modular Physics Implementation' (Protocol in workflow.md)
 
 ## Phase 3: Integration and Verification
 - [ ] Task: Update Main Script

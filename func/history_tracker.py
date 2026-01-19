@@ -88,7 +88,7 @@ class TrainingHistory:
         plt.close() # Chiude la figura per liberare memoria
 
 
-def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, **kwargs):
+def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, **kwargs):
     """
     Calcola le componenti della loss per una PINN in modo generico.
     
@@ -98,9 +98,10 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
         y_data: Target dei dati di training.
         x_bc: Input dei dati al contorno (Boundary Conditions).
         y_bc: Target dei dati al contorno.
-        physics_loss_fn: Funzione che accetta (model, x_physics) e restituisce la loss sulla PDE.
+        physics_loss_fn: Funzione legacy che accetta (model, x_physics) e restituisce la loss sulla PDE.
         x_physics: Punti di collocazione per la loss fisica.
         ic_loss_fn: Funzione opzionale per condizioni iniziali, accetta (model).
+        physics_problem: Istanza di una classe PhysicsProblem che definisce residual() e boundary_loss().
         lambda_data: Peso per la data loss (interna).
         lambda_bc: Peso per la boundary loss.
         lambda_physics: Peso per la physics loss.
@@ -121,22 +122,30 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
         loss_dict['data_loss'] = data_loss
         total_loss += lambda_data * data_loss
 
-    # 2. BC Loss (Boundary Points) - Explicitly separated
-    if x_bc is not None and y_bc is not None:
+    # 2. BC Loss (Boundary Points)
+    if physics_problem is not None and x_bc is not None and y_bc is not None:
+        # Use modular physics for BC loss
+        bc_loss_val = physics_problem.boundary_loss(model, x_bc, y_bc)
+        loss_dict['bc_loss'] = bc_loss_val
+        total_loss += lambda_bc * bc_loss_val
+    elif x_bc is not None and y_bc is not None:
+        # Legacy MSE BC loss
         bc_pred = model(x_bc)
         bc_loss_val = mse_loss(bc_pred, y_bc)
         loss_dict['bc_loss'] = bc_loss_val
         total_loss += lambda_bc * bc_loss_val
     
     # 3. Physics Loss (PDE)
-    if physics_loss_fn is not None:
+    if physics_problem is not None and x_physics is not None:
+        pde_loss = physics_problem.residual(model, x_physics)
+        loss_dict['pde_loss'] = pde_loss
+        total_loss += lambda_physics * pde_loss
+    elif physics_loss_fn is not None:
         if x_physics is not None:
-            # Se x_physics richiede gradiente per differenziazione automatica
             if not x_physics.requires_grad:
                 x_physics.requires_grad_(True)
             pde_loss = physics_loss_fn(model, x_physics, **kwargs)
         else:
-            # Alcune loss fisiche potrebbero non richiedere x_physics esplicito o gestirlo internamente
             pde_loss = physics_loss_fn(model, **kwargs)
             
         loss_dict['pde_loss'] = pde_loss

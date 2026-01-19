@@ -48,6 +48,7 @@ def train_modelPINN(
     data_boundary,
     validation_grid,
     epochs=20000,
+    physics_problem=None,
     plots_dir='plots',
     final_dir='Heat2D/Results',
     show_plots_interactively=True
@@ -61,6 +62,7 @@ def train_modelPINN(
         data_internal: Tupla (xy_int, T_int).
         data_boundary: Tupla (xy_bc, T_bc).
         validation_grid: Tupla (xy_grid, T_exact_grid, X, Y).
+        physics_problem: Istanza di PhysicsProblem (opzionale).
     """
     
     # Unpack dei dati
@@ -113,11 +115,13 @@ def train_modelPINN(
         if epoch < warmup_epochs:
             # Fase 1: Solo Dati (Interni + BC). Niente calcolo gradienti fisici.
             current_physics_fn = None
+            current_physics_problem = None
             lambda_physics = 0.0
             phase_desc = "Warmup (Data Only)"
         else:
             # Fase 2: Dati + Fisica
-            current_physics_fn = heat2d_physics_loss
+            current_physics_fn = heat2d_physics_loss if physics_problem is None else None
+            current_physics_problem = physics_problem
             lambda_physics = target_lambda_physics
             phase_desc = "Physics Refinement"
 
@@ -129,6 +133,7 @@ def train_modelPINN(
             x_bc=xy_bc,
             y_bc=T_bc,
             physics_loss_fn=current_physics_fn, 
+            physics_problem=current_physics_problem,
             x_physics=xy_physics,
             lambda_data=lambda_data,
             lambda_bc=lambda_bc,
@@ -184,7 +189,8 @@ def train_modelPINN(
             y_data=T_int,
             x_bc=xy_bc,
             y_bc=T_bc,
-            physics_loss_fn=heat2d_physics_loss, # Fisica sempre attiva qui
+            physics_loss_fn=heat2d_physics_loss if physics_problem is None else None, 
+            physics_problem=physics_problem,
             x_physics=xy_physics,
             lambda_data=lambda_data,
             lambda_bc=lambda_bc,
@@ -202,7 +208,8 @@ def train_modelPINN(
             y_data=T_int,
             x_bc=xy_bc,
             y_bc=T_bc,
-            physics_loss_fn=heat2d_physics_loss, 
+            physics_loss_fn=heat2d_physics_loss if physics_problem is None else None, 
+            physics_problem=physics_problem,
             x_physics=xy_physics,
             lambda_data=lambda_data,
             lambda_bc=lambda_bc,
