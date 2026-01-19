@@ -1,17 +1,17 @@
 # Implementation Plan - Refactor Heat2D
 
 ## Phase 1: Analysis and Scaffolding
-- [ ] Task: Analyze `Heat2D` module structure and dependencies
-    - [ ] Read `Heat2D/Heat2D_PINN.py` and `Heat2D/Heat2D_main.py`
-    - [ ] Identify hardcoded PDE residuals and boundary conditions
-- [ ] Task: Set up testing infrastructure
-    - [ ] Create `tests/` directory
-    - [ ] Configure `pytest` and `coverage`
-    - [ ] Create a dummy test to verify configuration
-- [ ] Task: Define `PhysicsProblem` Interface
-    - [ ] Create `Heat2D/physics.py`
-    - [ ] Define abstract base class `PhysicsProblem` with methods like `residual(x, u)` and `boundary_condition(x, u)`
-- [ ] Task: Conductor - User Manual Verification 'Analysis and Scaffolding' (Protocol in workflow.md)
+- [x] Task: Analyze `Heat2D` module structure and dependencies
+    - [x] Read `Heat2D/Heat2D_PINN.py` and `Heat2D/Heat2D_main.py`
+    - [x] Identify hardcoded PDE residuals and boundary conditions
+- [x] Task: Set up testing infrastructure
+    - [x] Create `tests/` directory
+    - [x] Configure `pytest` and `coverage`
+    - [x] Create a dummy test to verify configuration
+- [x] Task: Define `PhysicsProblem` Interface
+    - [x] Create `Heat2D/physics.py`
+    - [x] Define abstract base class `PhysicsProblem` with methods like `residual(x, u)` and `boundary_condition(x, u)`
+- [~] Task: Conductor - User Manual Verification 'Analysis and Scaffolding' (Protocol in workflow.md)
 
 ## Phase 2: Modular Physics Implementation
 - [ ] Task: Implement `HeatEquation2D` Class

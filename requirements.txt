@@ -3,4 +3,6 @@ torch
 matplotlib
 Pillow
 tqdm
+pytest
+pytest-cov
 
