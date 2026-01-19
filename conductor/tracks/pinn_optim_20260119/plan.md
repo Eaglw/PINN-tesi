@@ -19,11 +19,11 @@
     - [ ] Verify if higher resolution physics reduces the error map peaks.
 - [ ] Task: Conductor - User Manual Verification 'Targeted Optimizations' (Protocol in workflow.md)
 
-## Phase 3: Final Verification
-- [ ] Task: Unified Performance Test
+## Phase 3: Final Verification [checkpoint: 060df62]
+- [x] Task: Unified Performance Test
     - [ ] Run the optimized PINN for the full 30,000 epochs.
     - [ ] Compare the final relative error map with the original baseline.
-- [ ] Task: Cleanup and Documentation
+- [x] Task: Cleanup and Documentation
     - [ ] Remove any temporary logging or debug plots.
     - [ ] Update project notes with the optimization results.
 - [ ] Task: Conductor - User Manual Verification 'Final Verification' (Protocol in workflow.md)
