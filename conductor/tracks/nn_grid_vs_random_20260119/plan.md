@@ -20,11 +20,11 @@
 - [x] Task: Conductor - User Manual Verification 'Implementation and Verification' (Protocol in workflow.md)
 
 ## Phase 3: Final Integration and Testing
-- [ ] Task: Verify Goal Execution
-    - [ ] Run `Heat2D_main.py` with `goal=[5]` and verify output in `Results/`.
-- [ ] Task: Verify Comparative Run
-    - [ ] Run `Heat2D_main.py` with `goal=[0, 5]` and verify that the comparison plots and error maps are correctly generated.
-- [ ] Task: Quality Gate Check
-    - [ ] Ensure all code follows project style guidelines.
-    - [ ] Ensure no unnecessary libraries were added.
-- [ ] Task: Conductor - User Manual Verification 'Final Integration and Testing' (Protocol in workflow.md)
+- [x] Task: Verify Goal Execution
+    - [x] Run `Heat2D_main.py` with `goal=[5]` and verify output in `Results/`.
+- [x] Task: Verify Comparative Run
+    - [x] Run `Heat2D_main.py` with `goal=[0, 5]` and verify that the comparison plots and error maps are correctly generated.
+- [x] Task: Quality Gate Check
+    - [x] Ensure all code follows project style guidelines.
+    - [x] Ensure no unnecessary libraries were added.
+- [~] Task: Conductor - User Manual Verification 'Final Integration and Testing' (Protocol in workflow.md)

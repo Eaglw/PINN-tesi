@@ -90,7 +90,7 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
 
 def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
     """
-    Plots side-by-side error maps for multiple models.
+    Plots side-by-side relative error maps for multiple models.
     
     Args:
         X, Y: Meshgrid tensors.
@@ -107,13 +107,22 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
     X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
     T_true_np = T_true.cpu().numpy()
     
+    # Mask for relative error calculation to avoid division by zero
+    mask = torch.abs(T_true) > 0.01
+    
     for i, (T_pred, label) in enumerate(zip(T_preds, labels)):
         ax = axes[i]
-        abs_error = torch.abs(T_pred - T_true).detach().cpu().numpy()
         
-        c = ax.contourf(X_np, Y_np, abs_error, levels=50, cmap='magma')
-        plt.colorbar(c, ax=ax, label='Abs Error')
-        ax.set_title(f'{label} - Absolute Error')
+        abs_error = torch.abs(T_pred - T_true)
+        rel_error = torch.zeros_like(T_true)
+        rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
+        rel_error_np = rel_error.detach().cpu().numpy()
+        
+        # Use vmin/vmax to handle outliers in relative error
+        c = ax.contourf(X_np, Y_np, rel_error_np, levels=50, cmap='jet', vmin=0, vmax=10)
+        plt.colorbar(c, ax=ax, label='% Error')
+        ax.set_facecolor('lightgray') # Color excluded regions
+        ax.set_title(f'{label} - Relative Error %')
         ax.set_xlabel('x')
         if i == 0:
             ax.set_ylabel('y')

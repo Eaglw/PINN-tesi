@@ -27,7 +27,7 @@ Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 3. Problema inverso
 4. PINN che confronta l'andamento di diversi optimizer e activation function
 """
-goal = [2]
+goal = [0,5]
 # Directory Output
 base_dir = os.path.dirname(os.path.abspath(__file__))
 results_dir = os.path.join(base_dir, 'Results')
