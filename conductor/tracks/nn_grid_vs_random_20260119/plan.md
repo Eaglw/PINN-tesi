@@ -19,7 +19,7 @@
     - [x] Create a comparison function for point-wise error maps.
 - [x] Task: Conductor - User Manual Verification 'Implementation and Verification' (Protocol in workflow.md)
 
-## Phase 3: Final Integration and Testing
+## Phase 3: Final Integration and Testing [checkpoint: 91a9671]
 - [x] Task: Verify Goal Execution
     - [x] Run `Heat2D_main.py` with `goal=[5]` and verify output in `Results/`.
 - [x] Task: Verify Comparative Run
@@ -27,4 +27,4 @@
 - [x] Task: Quality Gate Check
     - [x] Ensure all code follows project style guidelines.
     - [x] Ensure no unnecessary libraries were added.
-- [~] Task: Conductor - User Manual Verification 'Final Integration and Testing' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Final Integration and Testing' (Protocol in workflow.md)
