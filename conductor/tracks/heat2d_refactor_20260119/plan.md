@@ -26,7 +26,7 @@
     - [x] Replace hardcoded PDE logic with calls to `physics_problem.residual`
 - [x] Task: Conductor - User Manual Verification 'Modular Physics Implementation' (Protocol in workflow.md)
 
-## Phase 3: Integration and Verification
+## Phase 3: Integration and Verification [checkpoint: 11d878e]
 - [x] Task: Update Main Script
     - [x] Modify `Heat2D/Heat2D_main.py` to instantiate `HeatEquation2D` and pass it to the solver
     - [x] Ensure all hyperparameters and configurations are preserved
@@ -37,4 +37,4 @@
     - [x] Run coverage report
     - [x] specific tests for any uncovered lines (e.g., edge cases in boundary conditions)
     - [x] Ensure >80% coverage
-- [~] Task: Conductor - User Manual Verification 'Integration and Verification' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Integration and Verification' (Protocol in workflow.md)
