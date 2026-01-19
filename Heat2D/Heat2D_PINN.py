@@ -54,7 +54,8 @@ def train_modelPINN(
     show_plots_interactively=True,
     log_gradients_every=0,
     loss_weights=None,
-    warmup_epochs=None
+    warmup_epochs=None,
+    n_collocation=(50, 50)
 ):
     """
     Esegue il training della PINN.
@@ -69,6 +70,7 @@ def train_modelPINN(
         log_gradients_every: Se > 0, calcola e logga le norme dei gradienti ogni N epoche.
         loss_weights: Dizionario con i pesi delle loss (keys: 'data', 'bc', 'physics').
         warmup_epochs: Numero di epoche di warmup (solo dati).
+        n_collocation: Numero di punti di collocazione per dimensione (int o tuple (Nx, Ny)).
     """
     
     # Unpack dei dati
@@ -87,8 +89,12 @@ def train_modelPINN(
     
     plot_files = []
     
-    # Generazione punti di collocazione: griglia regolare
-    Nx_phys, Ny_phys = 50, 50 # Numero di punti per dimensione
+    # Generazione punti di collocazione
+    if isinstance(n_collocation, int):
+        Nx_phys, Ny_phys = n_collocation, n_collocation
+    else:
+        Nx_phys, Ny_phys = n_collocation
+        
     x_phys_line = torch.linspace(0, Lx, Nx_phys, device=device)
     y_phys_line = torch.linspace(0, Ly, Ny_phys, device=device)
     X_phys, Y_phys = torch.meshgrid(x_phys_line, y_phys_line, indexing='xy')
