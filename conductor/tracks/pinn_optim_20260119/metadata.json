@@ -1,0 +1,8 @@
+{
+  "track_id": "pinn_optim_20260119",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-01-19T12:00:00Z",
+  "updated_at": "2026-01-19T12:00:00Z",
+  "description": "Prendendo in considerazione il caso PINN non sono soddisfatto delle performance della rete. Inizialmente voglio un analisi precisa di quali potrebbero essere le motivazioni, soprattutto in confronto alle performance della NN senza fisica, e poi voglio che tu implementi le eventuali migliorie ipotizzate."
+}
