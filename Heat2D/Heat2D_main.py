@@ -27,7 +27,7 @@ Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 3. Problema inverso
 4. PINN che confronta l'andamento di diversi optimizer e activation function
 """
-goal = [0, 1, 2, 5]
+goal = [2]
 # Directory Output
 base_dir = os.path.dirname(os.path.abspath(__file__))
 results_dir = os.path.join(base_dir, 'Results')
@@ -36,7 +36,7 @@ final_dir = results_dir
 plots_dir = os.path.join(results_dir, 'plots')
 os.makedirs(plots_dir, exist_ok=True)
 # Parametri 
-epochs = 50000
+epochs = 30000
 Lx, Ly = 1.0, 1.0
 Nx_fourier = 50  # termini serie
 # --- Setup comune Training ---
@@ -253,8 +253,6 @@ if 2 in goal:
     histories['PINN PurePhys'] = history_2
     final_models['PINN PurePhys'] = model_2
     
-    # Save Model explicitly (anche se train_modelPINN salva plot finale, salviamo il modello)
-    torch.save(model_2.state_dict(), os.path.join(pp_results_dir, f'model{pp_config["model_suffix"]}.pth'))
 
 if 5 in goal:
     print("5. NN classica su griglia")
