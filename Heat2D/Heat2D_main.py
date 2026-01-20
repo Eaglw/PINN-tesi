@@ -23,11 +23,11 @@ show_plots_interactively = False # Imposta su False per eseguire lo script senza
 Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
 0. NN classica
 1. PINN con dati e fisica
-2. Solo fisica e BC
+2. Solo fisica e BC (Pure Physics)
 3. Problema inverso
 4. PINN che confronta l'andamento di diversi optimizer e activation function
 """
-goal = [0,5]
+goal = [0, 1, 2, 5]
 # Directory Output
 base_dir = os.path.dirname(os.path.abspath(__file__))
 results_dir = os.path.join(base_dir, 'Results')
@@ -36,7 +36,7 @@ final_dir = results_dir
 plots_dir = os.path.join(results_dir, 'plots')
 os.makedirs(plots_dir, exist_ok=True)
 # Parametri 
-epochs = 30000
+epochs = 50000
 Lx, Ly = 1.0, 1.0
 Nx_fourier = 50  # termini serie
 # --- Setup comune Training ---
@@ -192,7 +192,7 @@ if 1 in goal:
     data_internal = (xy_internal, T_internal)
     data_boundary = (xy_boundary, T_boundary)
 
-    train_modelPINN(
+    history_1 = train_modelPINN(
         model=model_1,
         optimizer=optimizer_1,
         data_internal=data_internal,
@@ -204,11 +204,57 @@ if 1 in goal:
         final_dir=final_dir,
         show_plots_interactively=show_plots_interactively 
     )
-    # PINN currently doesn't return history in the same clean way for comparison, 
-    # but we can add it later if needed.
+    histories['PINN Data+Phys'] = history_1
+    final_models['PINN Data+Phys'] = model_1
 
 if 2 in goal:
-    print("2. Problema inverso")
+    print("2. Solo fisica e BC (Pure Physics)")
+    from Heat2D.Heat2D_PINN import train_modelPINN
+    from Heat2D.physics import HeatEquation2D
+    from Heat2D.pure_physics_setup import get_pure_physics_config
+
+    # Load Config
+    pp_config = get_pure_physics_config()
+    pp_results_dir = os.path.join(results_dir, pp_config['results_subdir'])
+    pp_plots_dir = os.path.join(pp_results_dir, 'plots')
+    os.makedirs(pp_plots_dir, exist_ok=True)
+    os.makedirs(pp_results_dir, exist_ok=True)
+
+    print(f"Configurazione Pure Physics: {pp_config}")
+
+    # Inizializzazione Fisica Modulare
+    heat_physics = HeatEquation2D()
+
+    # Inizializzazione Modello e Optimizer
+    model_2 = FCN(layers=layers_config).to(device)
+    optimizer_2 = torch.optim.Adam(model_2.parameters(), lr=1e-3)
+
+    # Passiamo i dati separati alla PINN
+    # Per Pure Physics, i dati interni (T_internal) non vengono usati per la loss (peso 0),
+    # ma passiamo comunque la struttura dati attesa.
+    data_internal = (xy_internal, T_internal) 
+    data_boundary = (xy_boundary, T_boundary)
+
+    history_2 = train_modelPINN(
+        model=model_2,
+        optimizer=optimizer_2,
+        data_internal=data_internal,
+        data_boundary=data_boundary,
+        validation_grid=validation_grid_tuple,
+        physics_problem=heat_physics,
+        epochs=epochs,
+        plots_dir=pp_plots_dir,
+        final_dir=pp_results_dir,
+        show_plots_interactively=show_plots_interactively,
+        loss_weights=pp_config['loss_weights'],
+        warmup_epochs=pp_config['warmup_epochs']
+    )
+    
+    histories['PINN PurePhys'] = history_2
+    final_models['PINN PurePhys'] = model_2
+    
+    # Save Model explicitly (anche se train_modelPINN salva plot finale, salviamo il modello)
+    torch.save(model_2.state_dict(), os.path.join(pp_results_dir, f'model{pp_config["model_suffix"]}.pth'))
 
 if 5 in goal:
     print("5. NN classica su griglia")
@@ -278,5 +324,36 @@ if 0 in goal and 5 in goal:
         save_path=os.path.join(results_dir, 'Comparison_ErrorMap_Random_vs_Grid.png')
     )
     print("Comparison plots saved in Results/.")
+
+if 1 in goal and 2 in goal:
+    print("\n--- Generating Comparison: PINN Data+Phys vs Pure Physics ---")
+    from func.graphic_func import plot_loss_comparison, plot_error_map_comparison
     
+    # 1. Loss Comparison
+    plot_loss_comparison(
+        [histories['PINN Data+Phys'], histories['PINN PurePhys']],
+        ['PINN Data+Phys', 'PINN PurePhys'],
+        save_path=os.path.join(results_dir, 'Comparison_Loss_DataPhys_vs_PurePhys.png')
+    )
+    
+    # 2. Error Map Comparison
+    model_dp = final_models['PINN Data+Phys']
+    model_pp = final_models['PINN PurePhys']
+    
+    model_dp.eval()
+    model_pp.eval()
+    
+    with torch.no_grad():
+        # Recalculate predictions on validation grid
+        pred_dp = model_dp(xy_grid_flat).reshape(Nx_dom, Ny_dom)
+        pred_pp = model_pp(xy_grid_flat).reshape(Nx_dom, Ny_dom)
+        
+    plot_error_map_comparison(
+        X, Y, T_grid,
+        [pred_dp, pred_pp],
+        ['PINN Data+Phys', 'PINN PurePhys'],
+        save_path=os.path.join(results_dir, 'Comparison_ErrorMap_DataPhys_vs_PurePhys.png')
+    )
+    print("Comparison plots saved in Results/.")
+
 

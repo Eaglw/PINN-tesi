@@ -287,3 +287,5 @@ def train_modelPINN(
         plt.show()
     else:
         plt.close("all")
+
+    return loss_history

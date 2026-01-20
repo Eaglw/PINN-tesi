@@ -1,0 +1,1 @@
+ho notato che con tante epoche 50k solo la fisica rimane ad errori alti(max 134%), mentre pinn con dati scende come erroree(max 54%) arrivando paragonabile a solo NN(random point 38%, grid point 28%). Sono tutti errori relativi. s
