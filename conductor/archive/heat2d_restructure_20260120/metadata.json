@@ -1,0 +1,8 @@
+{
+  "track_id": "heat2d_restructure_20260120",
+  "type": "chore",
+  "status": "new",
+  "created_at": "2026-01-20T14:27:00Z",
+  "updated_at": "2026-01-20T14:27:00Z",
+  "description": "Riorganizzare la struttura dei file del modulo Heat2D per separare codice e risultati, migliorando la leggibilità e la riproducibilità."
+}
