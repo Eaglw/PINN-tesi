@@ -23,9 +23,9 @@ Update `Heat2D_main.py` and the training functions to handle new paths and imple
 ## Phase 3: Migration of Existing Results
 Organize current artifacts from `Results/` into the new `experiments/` structure with documentation.
 
-- [ ] Task: Map existing folders in `Results/` (e.g., `optim_collocation`, `comparison_pinn_grid`) to the new numeric goal categories.
-- [ ] Task: Move artifacts into `experiments/` and add the documented script copy for each migrated case.
-- [ ] Task: Add specific notes to `optim_collocation` regarding its `high_res`/`std_res` sub-structure.
+- [x] Task: Map existing folders in Results/ (e.g., optim_collocation, comparison_pinn_grid) to the new numeric goal categories.
+- [x] Task: Move artifacts into experiments/ and add the documented script copy for each migrated case.
+- [x] Task: Add specific notes to optim_collocation regarding its high_res/std_res sub-structure.
 - [ ] Task: Conductor - User Manual Verification 'Phase 3: Migration' (Protocol in workflow.md)
 
 ## Phase 4: Final Verification and Cleanup
