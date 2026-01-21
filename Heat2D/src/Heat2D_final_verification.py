@@ -7,9 +7,10 @@ import sys
 from tqdm import tqdm
 
 # Import shared functions
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from Heat2D.Heat2D_PINN import train_modelPINN
-from Heat2D.physics import HeatEquation2D
+sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+from Heat2D.src.Heat2D_PINN import train_modelPINN
+from Heat2D.src.physics import HeatEquation2D
+from func.graphic_func import plot_error_map_comparison, plot_loss_comparison
 
 # Device and Precision
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -17,11 +18,11 @@ torch.set_default_dtype(torch.float64)
 print(f"Using device: {device}")
 
 # --- Configuration ---
-epochs = 5000
+epochs = 30000 # Full training
 Lx, Ly = 1.0, 1.0
 Nx_fourier = 50
 layers_config = [2, 50, 50, 50, 50, 1]
-results_dir = os.path.join(os.path.dirname(__file__), 'Results', 'gradient_analysis')
+results_dir = os.path.join(os.path.dirname(__file__), 'Results', 'final_verification')
 os.makedirs(results_dir, exist_ok=True)
 plots_dir = os.path.join(results_dir, 'plots')
 os.makedirs(plots_dir, exist_ok=True)
@@ -52,8 +53,6 @@ class FCN(nn.Module):
         return x
 
 # --- Data Preparation ---
-
-# Validation Grid
 Nx_dom, Ny_dom = 50, 50
 x_grid = torch.linspace(0, Lx, Nx_dom, device=device)
 y_grid = torch.linspace(0, Ly, Ny_dom, device=device)
@@ -62,10 +61,8 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 T_grid = soluzione_analitica(X, Y, Lx, Ly, Nx=Nx_fourier)
 validation_grid_tuple = (xy_grid_flat, T_grid, X, Y)
 
-# Seed for reproducibility
 torch.manual_seed(123)
 
-# PINN Data
 num_data_internal = 1000
 num_data_boundary = 50
 
@@ -93,24 +90,67 @@ T_boundary = soluzione_analitica(x_b_all, y_b_all, Lx, Ly, Nx=Nx_fourier)
 data_internal = (xy_internal, T_internal)
 data_boundary = (xy_boundary, T_boundary)
 
-# --- Training with Gradient Logging ---
-print("\n--- Training PINN with Gradient Logging ---")
-model_pinn = FCN(layers=layers_config).to(device)
-optimizer_pinn = torch.optim.Adam(model_pinn.parameters(), lr=1e-3)
+# --- Experiments ---
+
+weights = {'data': 1.0, 'bc': 1.0, 'physics': 0.05}
 heat_physics = HeatEquation2D()
 
+# 1. Standard (Baseline) Run - 30k epochs
+print(f"\n--- Running Baseline PINN (50x50 Collocation, {epochs} epochs) ---")
+model_baseline = FCN(layers=layers_config).to(device)
+optimizer_baseline = torch.optim.Adam(model_baseline.parameters(), lr=1e-3)
+
 train_modelPINN(
-    model=model_pinn,
-    optimizer=optimizer_pinn,
+    model=model_baseline,
+    optimizer=optimizer_baseline,
     data_internal=data_internal,
     data_boundary=data_boundary,
     validation_grid=validation_grid_tuple,
     physics_problem=heat_physics,
     epochs=epochs,
-    plots_dir=plots_dir,
-    final_dir=results_dir,
+    plots_dir=os.path.join(plots_dir, 'baseline'),
+    final_dir=os.path.join(results_dir, 'baseline'),
     show_plots_interactively=False,
-    log_gradients_every=10 # Log every 10 epochs
+    loss_weights=weights,
+    n_collocation=50
 )
 
-print(f"Gradient Analysis complete. Results in {results_dir}")
+# 2. Optimized Run - 30k epochs
+print(f"\n--- Running Optimized PINN (100x100 Collocation, {epochs} epochs) ---")
+model_optim = FCN(layers=layers_config).to(device)
+optimizer_optim = torch.optim.Adam(model_optim.parameters(), lr=1e-3)
+
+train_modelPINN(
+    model=model_optim,
+    optimizer=optimizer_optim,
+    data_internal=data_internal,
+    data_boundary=data_boundary,
+    validation_grid=validation_grid_tuple,
+    physics_problem=heat_physics,
+    epochs=epochs,
+    plots_dir=os.path.join(plots_dir, 'optimized'),
+    final_dir=os.path.join(results_dir, 'optimized'),
+    show_plots_interactively=False,
+    loss_weights=weights,
+    n_collocation=100
+)
+
+# --- Final Comparisons ---
+print("\n--- Generating Final Comparisons ---")
+
+# 1. Error Maps
+model_baseline.eval()
+model_optim.eval()
+
+with torch.no_grad():
+    pred_baseline = model_baseline(xy_grid_flat).reshape(Nx_dom, Ny_dom)
+    pred_optim = model_optim(xy_grid_flat).reshape(Nx_dom, Ny_dom)
+
+plot_error_map_comparison(
+    X, Y, T_grid,
+    [pred_baseline, pred_optim],
+    ['Baseline (50x50)', 'Optimized (100x100)'] ,
+    save_path=os.path.join(results_dir, 'Final_Comparison_ErrorMap.png')
+)
+
+print(f"Final Verification complete. Results saved in {results_dir}")

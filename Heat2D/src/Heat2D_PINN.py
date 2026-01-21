@@ -7,7 +7,7 @@ import sys
 from tqdm import tqdm
 
 # Import function for GIF and loss comparison
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
 from func.history_tracker import TrainingHistory, compute_pinn_loss
 

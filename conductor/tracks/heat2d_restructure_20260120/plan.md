@@ -5,9 +5,10 @@ Reorganize the `Heat2D` directory to separate source code from experiment artifa
 ## Phase 1: Directory Setup and Code Migration
 Establish the new folder structure and relocate core logic scripts.
 
-- [ ] Task: Create `Heat2D/src/` and `Heat2D/experiments/` directories.
-- [ ] Task: Move training scripts (`Heat2D_NN.py`, `Heat2D_PINN.py`, `Heat2D_NN_griglia.py`, `Heat2D_optim_collocation.py`, etc.) and `physics.py` into `Heat2D/src/`.
-- [ ] Task: Update `Heat2D/__init__.py` if necessary to maintain package integrity.
+- [x] Task: Create Heat2D/src/ and Heat2D/experiments/ directories.
+- [x] Task: Move training scripts (Heat2D_NN.py, Heat2D_PINN.py, Heat2D_NN_griglia.py, Heat2D_optim_collocation.py, etc.) and physics.py into Heat2D/src/.
+- [x] Task: Move remaining standalone scripts (comparison, verification, gradient) to Heat2D/src/.
+- [x] Task: Update Heat2D/__init__.py if necessary to maintain package integrity.
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Migration' (Protocol in workflow.md)
 
 ## Phase 2: Refactor Orchestration Logic

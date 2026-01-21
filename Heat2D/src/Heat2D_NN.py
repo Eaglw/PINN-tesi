@@ -7,11 +7,16 @@ import sys
 from tqdm import tqdm
 
 # Import function for GIF
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
-from func.history_tracker import TrainingHistory
+from func.history_tracker import TrainingHistory # Added import
 
-def train_modelNN_griglia(
+"""# Configurazione dispositivo e precisione
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+torch.set_default_dtype(torch.float64)
+"""
+# --- TRAINING FUNCTION ---
+def train_modelNN(
     model,
     optimizer,
     training_data,
@@ -22,13 +27,14 @@ def train_modelNN_griglia(
     show_plots_interactively=True
 ):
     """
-    Esegue il training della NN utilizzando dati su griglia.
+    Esegue il training della NN.
     
     Args:
         model: Istanza del modello FCN.
         optimizer: Istanza dell'ottimizzatore.
         training_data: Tupla (xy_train, T_train).
         validation_grid: Tupla (xy_grid, T_exact_grid, X, Y).
+                         X e Y servono per i plot e contengono la shape della griglia.
         show_plots_interactively: Booleano per controllare la visualizzazione interattiva dei plot.
     """
     
@@ -46,10 +52,12 @@ def train_modelNN_griglia(
     plot_files = []
     
     # Training Loop
-    pbar = tqdm(range(epochs), desc="Training NN (Grid)")
-    loss_history = TrainingHistory()
+    pbar = tqdm(range(epochs), desc="Training NN")
+    loss_history = TrainingHistory() # Changed to TrainingHistory
     
-    # Scheduler per il Learning Rate (stesso di Heat2D_NN)
+    # Scheduler per il Learning Rate
+    # Decadimento lr ogni 6000 epoche con gamma=0.4
+    # Da 1e-3 -> 4e-4 -> 1.6e-4 -> 6.4e-5 -> 2.5e-5 -> 1e-5
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6000, gamma=0.4)
 
     for epoch in pbar:
@@ -65,7 +73,7 @@ def train_modelNN_griglia(
         # Step dello scheduler
         scheduler.step()
         
-        loss_history.update(epoch, {'total_loss': loss.item()})
+        loss_history.update(epoch, {'total_loss': loss.item()}) # Changed to update method
         
         # Monitoraggio e Plotting periodico
         if (epoch + 1) % 500 == 0:
@@ -87,17 +95,16 @@ def train_modelNN_griglia(
         T_final = model(xy_grid).reshape(Nx_dom, Ny_dom)
     
     # Salvataggio ultimo plot (Results)
-    final_path = os.path.join(final_dir, 'NN_Grid_final_result.png')
+    final_path = os.path.join(final_dir, 'NNfinal_result.png')
     plot2D_comparison(X, Y, T_exact_grid, T_final, epochs, save_path=final_path)
     
     # Generazione GIF
     print(f"Creazione GIF con {len(plot_files)} frames...")
     if plot_files:
-        gif_path = os.path.join(final_dir, 'NN_Grid_training_evolution.gif')
+        gif_path = os.path.join(final_dir, 'NNtraining_evolution.gif')
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
     # Plot Loss History
-    loss_history.plot_losses(save_path=os.path.join(final_dir, 'NN_Grid_loss_history.png'), experiment_name="Heat2D NN (Grid)", show_plot=show_plots_interactively)
+    loss_history.plot_losses(save_path=os.path.join(final_dir, 'NNloss_history.png'), experiment_name="Heat2D NN", show_plot=show_plots_interactively) # Updated plot_losses call
     
-    # Return history for comparison
     return loss_history
