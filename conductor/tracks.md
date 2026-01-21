@@ -5,5 +5,3 @@ This file tracks all major tracks for the project. Each track has its own detail
 ---
 ---
 
-- [x] **Track: Implement a centralized logging system for Heat2D experiments**
-*Link: [./tracks/heat2d_logging_20260121/](./tracks/heat2d_logging_20260121/)*
