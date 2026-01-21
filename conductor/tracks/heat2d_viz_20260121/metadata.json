@@ -1,0 +1,8 @@
+{
+  "track_id": "heat2d_viz_20260121",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-01-21T19:23:00Z",
+  "updated_at": "2026-01-21T19:23:00Z",
+  "description": "Improve Heat2D visualization: 2-column final results with training points, and 2x2 unified comparison plots with hyperparameter titles."
+}
