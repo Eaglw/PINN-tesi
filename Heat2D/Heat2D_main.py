@@ -10,6 +10,8 @@ import shutil
 # Import function for GIF
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
+from func.logging_utils import compute_metrics, update_results_csv
+from datetime import datetime
 
 def setup_experiment_folder(parent_dir, goal_folder, description, source_script_path=None):
     """
@@ -128,6 +130,7 @@ activation_options = [
 ]
 
 base_output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'experiments')
+results_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results.csv')
 
 # Dati fissi del problema
 Lx, Ly = 1.0, 1.0
@@ -230,6 +233,27 @@ for layers_config in layers_options:
                     final_dir=exp_dir_0,
                     show_plots_interactively=show_plots_interactively 
                 )
+                
+                # --- LOGGING 0_NN_Random ---
+                l2_err, max_err = compute_metrics(model_0, xy_grid_flat, T_grid)
+                log_data = {
+                    'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'Architecture': str(layers_config),
+                    'Activation_Func': get_activation_name(act_fn),
+                    'Epochs': epochs,
+                    'Run_Type': 'NN_Random',
+                    'Optimizer': 'Adam', # Hardcoded as per current script
+                    'Learning_Rate': 1e-3, # Hardcoded
+                    'Loss_Total': history_0.losses['total_loss'][-1] if history_0.losses['total_loss'] else 0,
+                    'Loss_Physics': 0,
+                    'Loss_Boundary': 0,
+                    'Loss_Data': history_0.losses['total_loss'][-1] if history_0.losses['total_loss'] else 0, # Total is Data for NN
+                    'L2_Relative_Error': l2_err,
+                    'Max_Relative_Error_Peak': max_err,
+                    'Seed': 123
+                }
+                update_results_csv(results_csv_path, log_data)
+
                 histories['NN Random'] = history_0
                 final_models['NN Random'] = model_0
                 # Cleanup Plots
@@ -269,6 +293,27 @@ for layers_config in layers_options:
                     final_dir=exp_dir_1,
                     show_plots_interactively=show_plots_interactively
                 )
+                
+                # --- LOGGING 1_NN_Grid ---
+                l2_err, max_err = compute_metrics(model_1, xy_grid_flat, T_grid)
+                log_data = {
+                    'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'Architecture': str(layers_config),
+                    'Activation_Func': get_activation_name(act_fn),
+                    'Epochs': epochs,
+                    'Run_Type': 'NN_Grid',
+                    'Optimizer': 'Adam',
+                    'Learning_Rate': 1e-3,
+                    'Loss_Total': history_1.losses['total_loss'][-1] if history_1.losses['total_loss'] else 0,
+                    'Loss_Physics': 0,
+                    'Loss_Boundary': 0,
+                    'Loss_Data': history_1.losses['total_loss'][-1] if history_1.losses['total_loss'] else 0,
+                    'L2_Relative_Error': l2_err,
+                    'Max_Relative_Error_Peak': max_err,
+                    'Seed': 123
+                }
+                update_results_csv(results_csv_path, log_data)
+                
                 histories['NN Grid'] = history_1
                 final_models['NN Grid'] = model_1
                 # Cleanup Plots
@@ -303,6 +348,33 @@ for layers_config in layers_options:
                     final_dir=exp_dir_2,
                     show_plots_interactively=show_plots_interactively 
                 )
+                
+                # --- LOGGING 2_PINN_DataPhys ---
+                l2_err, max_err = compute_metrics(model_2, xy_grid_flat, T_grid)
+                # Helper to safely get last loss
+                def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
+                
+                log_data = {
+                    'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'Architecture': str(layers_config),
+                    'Activation_Func': get_activation_name(act_fn),
+                    'Epochs': epochs,
+                    'Run_Type': 'PINN_DataPhys',
+                    'Optimizer': 'Adam',
+                    'Learning_Rate': 1e-3,
+                    'Loss_Total': get_last(history_2, 'total_loss'),
+                    'Loss_Physics': get_last(history_2, 'physics_loss'),
+                    'Loss_Boundary': get_last(history_2, 'boundary_loss'), # Usually combined in data or separate depending on impl, checking PINN keys
+                    'Loss_Data': get_last(history_2, 'data_loss'),
+                    'L2_Relative_Error': l2_err,
+                    'Max_Relative_Error_Peak': max_err,
+                    'Seed': 123
+                }
+                # Note: PINN implementation might aggregate boundary into data or physics. 
+                # Inspecting standard PINN implementation: usually data_loss covers boundary if provided as data.
+                # If specific keys are missing, they default to 0.
+                update_results_csv(results_csv_path, log_data)
+
                 histories['PINN Data+Phys'] = history_2
                 final_models['PINN Data+Phys'] = model_2
                 # Cleanup Plots
@@ -340,6 +412,29 @@ for layers_config in layers_options:
                     loss_weights=pp_config['loss_weights'],
                     warmup_epochs=pp_config['warmup_epochs']
                 )
+
+                # --- LOGGING 3_PINN_PurePhys ---
+                l2_err, max_err = compute_metrics(model_3, xy_grid_flat, T_grid)
+                def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
+                
+                log_data = {
+                    'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'Architecture': str(layers_config),
+                    'Activation_Func': get_activation_name(act_fn),
+                    'Epochs': epochs,
+                    'Run_Type': 'PINN_PurePhys',
+                    'Optimizer': 'Adam',
+                    'Learning_Rate': 1e-3,
+                    'Loss_Total': get_last(history_3, 'total_loss'),
+                    'Loss_Physics': get_last(history_3, 'physics_loss'),
+                    'Loss_Boundary': get_last(history_3, 'boundary_loss'), 
+                    'Loss_Data': get_last(history_3, 'data_loss'),
+                    'L2_Relative_Error': l2_err,
+                    'Max_Relative_Error_Peak': max_err,
+                    'Seed': 123
+                }
+                update_results_csv(results_csv_path, log_data)
+                
                 histories['PINN PurePhys'] = history_3
                 final_models['PINN PurePhys'] = model_3
                 # Cleanup Plots
@@ -374,6 +469,29 @@ for layers_config in layers_options:
                     final_dir=exp_dir_4,
                     show_plots_interactively=show_plots_interactively
                 )
+                
+                # --- LOGGING 4_PINN_HardBC ---
+                l2_err, max_err = compute_metrics(model_4, xy_grid_flat, T_grid)
+                def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
+
+                log_data = {
+                    'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'Architecture': str(layers_config),
+                    'Activation_Func': get_activation_name(act_fn),
+                    'Epochs': epochs,
+                    'Run_Type': 'PINN_HardBC',
+                    'Optimizer': 'Adam',
+                    'Learning_Rate': 1e-3,
+                    'Loss_Total': get_last(history_4, 'total_loss'),
+                    'Loss_Physics': get_last(history_4, 'physics_loss'),
+                    'Loss_Boundary': 0, # HardBC enforces boundary, usually no explicit loss or it's 0
+                    'Loss_Data': get_last(history_4, 'data_loss'),
+                    'L2_Relative_Error': l2_err,
+                    'Max_Relative_Error_Peak': max_err,
+                    'Seed': 123
+                }
+                update_results_csv(results_csv_path, log_data)
+                
                 histories['PINN HardBC'] = history_4
                 final_models['PINN HardBC'] = model_4
                 # Cleanup Plots
