@@ -14,10 +14,10 @@ Establish the new folder structure and relocate core logic scripts.
 ## Phase 2: Refactor Orchestration Logic
 Update `Heat2D_main.py` and the training functions to handle new paths and implement script snapshotting.
 
-- [ ] Task: Update imports in `Heat2D/Heat2D_main.py` to reference the new `src/` location.
-- [ ] Task: Refactor `Heat2D_main.py` to define output paths within `experiments/<Goal_Name>/`.
-- [ ] Task: Implement a utility function to copy the training script to the experiment folder and inject the required explanatory header.
-- [ ] Task: Update `train_model` functions (NN, PINN, etc.) to accept the new `experiments` path structure for saving plots and GIFs.
+- [x] Task: Update imports in Heat2D/Heat2D_main.py to reference the new src/ location.
+- [x] Task: Refactor Heat2D_main.py to define output paths within experiments/<Goal_Name>/.
+- [x] Task: Implement a utility function to copy the training script to the experiment folder and inject the required explanatory header.
+- [x] Task: Update train_model functions (NN, PINN, etc.) to accept the new experiments path structure for saving plots and GIFs.
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: Orchestration' (Protocol in workflow.md)
 
 ## Phase 3: Migration of Existing Results
