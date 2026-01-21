@@ -17,7 +17,7 @@ Il caso del CSTR e dello scambio di calore sono due esempi che mi servono per se
 ## Key Features
 - **Modular Physics Engine:** A clear interface for defining differential equations, boundary conditions, and domain geometry, allowing new physics (like Non-Newtonian rheology) to be plugged in without rewriting the training loop.
 - **Hybrid Optimization Pipeline:** Built-in support for switching between optimizers (Adam, L-BFGS) and strategies (warm-up phases) to handle stiff or complex problems.
-- **Unified Experimentation:** Centralized logging, history tracking, and visualization tools (experiments/) to compare runs across different physical problems.
+- **Unified Experimentation:** Centralized logging of metadata and performance metrics (CSV format), history tracking, and visualization tools to enable systematic comparison across different architectures and strategies.
 - **Reproducible Workflows:** Automatic snapshotting of training scripts and configuration for every experiment run, ensuring full reproducibility of results.
 - **Inverse Solving:** dedicated workflows for identifying unknown physical parameters from sparse data.
 - **Pure Physics Solving:** Dedicated mode for solving forward problems using only physics residuals and boundary conditions (no experimental data).

@@ -11,6 +11,7 @@
 
 ## Utilities
 - **tqdm:** Progress bars for monitoring training loops.
+- **CSV:** Standard library for structured logging of experiment metrics.
 - **JSON/Markdown:** For configuration state and documentation.
 
 ## Development Environment
