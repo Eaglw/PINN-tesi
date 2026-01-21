@@ -363,8 +363,8 @@ for layers_config in layers_options:
                     'Optimizer': 'Adam',
                     'Learning_Rate': 1e-3,
                     'Loss_Total': get_last(history_2, 'total_loss'),
-                    'Loss_Physics': get_last(history_2, 'physics_loss'),
-                    'Loss_Boundary': get_last(history_2, 'boundary_loss'), # Usually combined in data or separate depending on impl, checking PINN keys
+                    'Loss_Physics': get_last(history_2, 'pde_loss'),
+                    'Loss_Boundary': get_last(history_2, 'bc_loss'), # Usually combined in data or separate depending on impl, checking PINN keys
                     'Loss_Data': get_last(history_2, 'data_loss'),
                     'L2_Relative_Error': l2_err,
                     'Max_Relative_Error_Peak': max_err,
@@ -426,8 +426,8 @@ for layers_config in layers_options:
                     'Optimizer': 'Adam',
                     'Learning_Rate': 1e-3,
                     'Loss_Total': get_last(history_3, 'total_loss'),
-                    'Loss_Physics': get_last(history_3, 'physics_loss'),
-                    'Loss_Boundary': get_last(history_3, 'boundary_loss'), 
+                    'Loss_Physics': get_last(history_3, 'pde_loss'),
+                    'Loss_Boundary': get_last(history_3, 'bc_loss'), 
                     'Loss_Data': get_last(history_3, 'data_loss'),
                     'L2_Relative_Error': l2_err,
                     'Max_Relative_Error_Peak': max_err,
@@ -483,7 +483,7 @@ for layers_config in layers_options:
                     'Optimizer': 'Adam',
                     'Learning_Rate': 1e-3,
                     'Loss_Total': get_last(history_4, 'total_loss'),
-                    'Loss_Physics': get_last(history_4, 'physics_loss'),
+                    'Loss_Physics': get_last(history_4, 'pde_loss'),
                     'Loss_Boundary': 0, # HardBC enforces boundary, usually no explicit loss or it's 0
                     'Loss_Data': get_last(history_4, 'data_loss'),
                     'L2_Relative_Error': l2_err,
