@@ -1,3 +1,7 @@
+"""
+Experiment Goal: 2_PINN_DataPhys
+Description: PINN Data+Phys. Config: L2_50x4_1_E20000_Tanh
+"""
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt

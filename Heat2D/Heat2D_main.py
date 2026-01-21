@@ -142,8 +142,8 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 # Preparazione dati Training (generati una volta per consistenza o rigenerati nel loop se seed cambia)
 # Per semplicità li generiamo una volta qui con seed fisso
 torch.manual_seed(123)
-num_data_internal = 1000
-num_data_boundary = 50
+num_data_internal = 1600
+num_data_boundary = 100
 
 x_int = torch.rand(num_data_internal, 1, device=device) * Lx
 y_int = torch.rand(num_data_internal, 1, device=device) * Ly
@@ -248,7 +248,7 @@ for layers_config in layers_options:
                 from Heat2D.src.Heat2D_NN_griglia import train_modelNN_griglia
                 
                 # Generazione Griglia Train
-                Nx_train, Ny_train = 35, 35
+                Nx_train, Ny_train = 45, 45
                 x_tr_l = torch.linspace(0, Lx, Nx_train, device=device)
                 y_tr_l = torch.linspace(0, Ly, Ny_train, device=device)
                 X_tr, Y_tr = torch.meshgrid(x_tr_l, y_tr_l, indexing='xy')

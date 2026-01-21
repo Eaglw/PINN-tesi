@@ -16,6 +16,65 @@ from func.history_tracker import TrainingHistory, compute_pinn_loss
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.float64)
 
+class HardBCWrapper(nn.Module):
+    """
+    Wrapper che applica Hard Boundary Conditions (BC) all'output della rete.
+    Impone T=0 su x=0, y=0, y=Ly.
+    Impone T~1 su x=Lx (approssimazione tramite serie di Fourier).
+    
+    Ansatz:
+    T(x,y) = T_boundary(x,y) + x * y * (Ly - y) * NN(x,y)
+    
+    Dove T_boundary è costruito per essere 0 su x=0, y=0, y=Ly e ~1 su x=Lx.
+    Usiamo la serie: Sum_{n odd} (4/(n*pi)) * (sinh(n*pi*x/Ly)/sinh(n*pi*Lx/Ly)) * sin(n*pi*y/Ly)
+    che è la soluzione analitica troncata, soddisfacente esattamente le BC sui 3 lati e approssimante 1 sul quarto.
+    """
+    def __init__(self, model, Lx, Ly, n_terms=10):
+        super().__init__()
+        self.model = model
+        self.Lx = Lx
+        self.Ly = Ly
+        self.n_terms = n_terms
+        
+    def forward(self, xy):
+        x = xy[:, 0:1]
+        y = xy[:, 1:2]
+        
+        # 1. Calcolo Termine di Bordo (Analitico Troncato)
+        T_boundary = torch.zeros_like(x)
+        const_pi = np.pi
+        
+        for n in range(1, self.n_terms * 2, 2): # n dispari: 1, 3, 5...
+            lambda_n = n * const_pi / self.Ly
+            An = 4 / (n * const_pi)
+            # Termine sinh(lambda * x) / sinh(lambda * Lx)
+            # Per stabilità numerica con x grandi, usiamo exp
+            # Ma qui x è limitato, sinh va bene se Lx non è enorme.
+            
+            # Nota: sinh(a)/sinh(b) ~ exp(a-b). 
+            # Se lambda_n * Lx è grande, sinh overflow. 
+            # Implementazione safe:
+            arg_x = lambda_n * x
+            arg_L = lambda_n * self.Lx
+            
+            # term_x = torch.sinh(arg_x) / torch.sinh(arg_L) 
+            # Meglio: exp(arg_x - arg_L) * (1 - exp(-2*arg_x)) / (1 - exp(-2*arg_L))
+            # Per PINN standard (L~1), sinh è ok.
+            term_x = torch.sinh(arg_x) / torch.sinh(arg_L)
+            
+            term = An * term_x * torch.sin(lambda_n * y)
+            T_boundary = T_boundary + term
+            
+        # 2. Calcolo Termine Correttivo (NN con maschera)
+        # Maschera che si annulla su x=0, y=0, y=Ly.
+        # Su x=Lx vale Lx * y * (Ly-y). 
+        # La NN imparerà a correggere l'approssimazione di Fourier su x=Lx (e nell'interno).
+        mask = x * y * (self.Ly - y)
+        
+        T_nn = self.model(xy)
+        
+        return T_boundary + mask * T_nn
+
 # ---  DEFINIZIONE DELLA LOSS FISICA ---
 def heat2d_physics_loss(model, xy_p):
     """
@@ -55,22 +114,11 @@ def train_modelPINN(
     log_gradients_every=0,
     loss_weights=None,
     warmup_epochs=None,
-    n_collocation=(50, 50)
+    n_collocation=(50, 50),
+    collocation_points=None
 ):
     """
-    Esegue il training della PINN.
-    
-    Args:
-        model: Istanza del modello FCN.
-        optimizer: Istanza dell'ottimizzatore.
-        data_internal: Tupla (xy_int, T_int).
-        data_boundary: Tupla (xy_bc, T_bc).
-        validation_grid: Tupla (xy_grid, T_exact_grid, X, Y).
-        physics_problem: Istanza di PhysicsProblem (opzionale).
-        log_gradients_every: Se > 0, calcola e logga le norme dei gradienti ogni N epoche.
-        loss_weights: Dizionario con i pesi delle loss (keys: 'data', 'bc', 'physics').
-        warmup_epochs: Numero di epoche di warmup (solo dati).
-        n_collocation: Numero di punti di collocazione per dimensione (int o tuple (Nx, Ny)).
+    Esegue il training della PINN con Hard BC.
     """
     
     # Unpack dei dati
@@ -83,37 +131,49 @@ def train_modelPINN(
     Lx = X.max().item()
     Ly = Y.max().item()
     
+    # --- WRAP MODEL FOR HARD BC ---
+    # Avvolgiamo il modello originale per imporre le BC.
+    # L'optimizer continuerà ad aggiornare i pesi di 'model' (passato per riferimento).
+    wrapped_model = HardBCWrapper(model, Lx, Ly, n_terms=10).to(device)
+    
     # Directory Output
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(final_dir, exist_ok=True)
     
     plot_files = []
     
-    # Generazione punti di collocazione
-    if isinstance(n_collocation, int):
-        Nx_phys, Ny_phys = n_collocation, n_collocation
+    # Generazione punti di collocazione (STRETTAMENTE INTERNI)
+    if collocation_points is not None:
+        xy_physics = collocation_points.clone()
+        if not xy_physics.requires_grad:
+            xy_physics.requires_grad_(True)
     else:
-        Nx_phys, Ny_phys = n_collocation
-        
-    x_phys_line = torch.linspace(0, Lx, Nx_phys, device=device)
-    y_phys_line = torch.linspace(0, Ly, Ny_phys, device=device)
-    X_phys, Y_phys = torch.meshgrid(x_phys_line, y_phys_line, indexing='xy')
-    xy_physics = torch.stack([X_phys.flatten(), Y_phys.flatten()], dim=1)
-    # Non impostiamo requires_grad=True qui, lo gestisce compute_pinn_loss se necessario,
-    # ma per sicurezza lo mettiamo, anche se nel warmup non verrà usato.
-    xy_physics.requires_grad_(True)
+        if isinstance(n_collocation, int):
+            Nx_phys, Ny_phys = n_collocation, n_collocation
+        else:
+            Nx_phys, Ny_phys = n_collocation
+            
+        # Usiamo +2 e slicing [1:-1] per escludere 0 e 1
+        x_phys_line = torch.linspace(0, Lx, Nx_phys + 2, device=device)[1:-1]
+        y_phys_line = torch.linspace(0, Ly, Ny_phys + 2, device=device)[1:-1]
+        X_phys, Y_phys = torch.meshgrid(x_phys_line, y_phys_line, indexing='xy')
+        xy_physics = torch.stack([X_phys.flatten(), Y_phys.flatten()], dim=1)
+        xy_physics.requires_grad_(True)
     
     # Training Loop (Adam)
-    pbar = tqdm(range(epochs), desc="Training PINN (Adam)")
+    pbar = tqdm(range(epochs), desc="Training PINN HardBC")
     loss_history = TrainingHistory()
     
     # Configurazione Pesi Loss
+    # FORZIAMO BC LOSS A 0 PERCHE' SONO HARDCODED
     if loss_weights is None:
-        loss_weights = {'data': 1.0, 'bc': 1.0, 'physics': 0.05}
+        loss_weights = {'data': 1.0, 'bc': 0.0, 'physics': 1.0}
+    else:
+        loss_weights['bc'] = 0.0 # Override
     
     lambda_data = loss_weights.get('data', 1.0)
-    lambda_bc = loss_weights.get('bc', 1.0)
-    target_lambda_physics = loss_weights.get('physics', 0.05)
+    lambda_bc = 0.0
+    target_lambda_physics = loss_weights.get('physics', 1.0)
     
     # Configurazione Warmup
     if warmup_epochs is None:
@@ -124,12 +184,13 @@ def train_modelPINN(
 
     for epoch in pbar:
         
-        model.train()
+        # NOTA: model.train() agisce sui pesi interni. wrapped_model propaga la chiamata.
+        wrapped_model.train()
         optimizer.zero_grad()
         
         # Gestione Warmup e Fisica
         if epoch < warmup_epochs:
-            # Fase 1: Solo Dati (Interni + BC). Niente calcolo gradienti fisici.
+            # Fase 1: Solo Dati Interni (se presenti). Niente BC Loss (è hard).
             current_physics_fn = None
             current_physics_problem = None
             lambda_physics = 0.0
@@ -141,13 +202,14 @@ def train_modelPINN(
             lambda_physics = target_lambda_physics
             phase_desc = "Physics Refinement"
 
-        # Calcolo loss
+        # Calcolo loss usando WRAPPED_MODEL
+        # Passiamo x_bc=None, y_bc=None per evitare calcolo inutile, tanto lambda_bc=0
         loss, loss_dict = compute_pinn_loss(
-            model, 
+            wrapped_model, 
             x_data=xy_int, 
             y_data=T_int,
-            x_bc=xy_bc,
-            y_bc=T_bc,
+            x_bc=None, # Disabilitiamo BC loss esplicitamente
+            y_bc=None,
             physics_loss_fn=current_physics_fn, 
             physics_problem=current_physics_problem,
             x_physics=xy_physics,
@@ -169,27 +231,18 @@ def train_modelPINN(
                     elif name == 'pde_loss': weight = lambda_physics
                     
                     if weight > 0:
-                        # Retain graph needed because we do multiple backward calls (via grad)
-                        # and then the final backward.
                         grads = torch.autograd.grad(loss_tensor * weight, model.parameters(), retain_graph=True, allow_unused=True)
-                        
-                        # Total L2 norm of all params
                         total_norm = 0.0
                         for g in grads:
                             if g is not None:
                                 total_norm += g.data.norm(2).item()**2
                         total_norm = total_norm ** 0.5
                         grad_norms[f'grad_{name}'] = total_norm
-            
             loss_history.update(epoch, grad_norms)
 
         loss.backward()
         optimizer.step()
-        
-        # Step dello scheduler
         scheduler.step()
-        
-        # Aggiornamento history
         loss_history.update(epoch, loss_dict)
         
         # Monitoraggio e Plotting periodico
@@ -198,13 +251,12 @@ def train_modelPINN(
             pbar.set_postfix({
                 'Phase': phase_desc,
                 'Loss': f"{loss.item():.2e}", 
-                'BC_L': f"{loss_dict.get('bc_loss', 0):.2e}",
                 'LR': f"{current_lr:.1e}"
             })
             
-            model.eval()
+            wrapped_model.eval()
             with torch.no_grad():
-                T_pred_grid = model(xy_grid).reshape(Nx_dom, Ny_dom)
+                T_pred_grid = wrapped_model(xy_grid).reshape(Nx_dom, Ny_dom)
                 
             plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
             plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path, physics_points=xy_physics)
@@ -223,15 +275,14 @@ def train_modelPINN(
         line_search_fn="strong_wolfe"
     )
 
-    # Closure function richiesta da L-BFGS
     def closure():
         optimizer_lbfgs.zero_grad()
         loss, loss_dict = compute_pinn_loss(
-            model, 
+            wrapped_model, 
             x_data=xy_int, 
             y_data=T_int,
-            x_bc=xy_bc,
-            y_bc=T_bc,
+            x_bc=None,
+            y_bc=None,
             physics_loss_fn=heat2d_physics_loss if physics_problem is None else None, 
             physics_problem=physics_problem,
             x_physics=xy_physics,
@@ -244,13 +295,12 @@ def train_modelPINN(
 
     optimizer_lbfgs.step(closure)
     
-    # Calcolo loss finale dopo L-BFGS per aggiornare history
     final_loss, final_loss_dict = compute_pinn_loss(
-            model, 
+            wrapped_model, 
             x_data=xy_int, 
             y_data=T_int,
-            x_bc=xy_bc,
-            y_bc=T_bc,
+            x_bc=None,
+            y_bc=None,
             physics_loss_fn=heat2d_physics_loss if physics_problem is None else None, 
             physics_problem=physics_problem,
             x_physics=xy_physics,
@@ -263,25 +313,20 @@ def train_modelPINN(
 
     # Plot Finale Interattivo
     print("Training completato. Generazione plot finale...")
-    model.eval()
+    wrapped_model.eval()
     with torch.no_grad():
-        T_final = model(xy_grid).reshape(Nx_dom, Ny_dom)
+        T_final = wrapped_model(xy_grid).reshape(Nx_dom, Ny_dom)
     
-    # Salvataggio ultimo plot (Results)
     final_path = os.path.join(final_dir, 'PINNfinal_result.png')
     plot2D_comparison(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, physics_points=xy_physics)
     
-    # Generazione GIF
     print(f"Creazione GIF con {len(plot_files)} frames...")
     if plot_files:
         gif_path = os.path.join(final_dir, 'PINNtraining_evolution.gif')
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
-    # Plot Loss History con linea verticale per fine warmup
-    loss_history.plot_losses(last_adam_epoch=warmup_epochs, save_path=os.path.join(final_dir, 'PINNloss_history.png'), experiment_name="Heat2D PINN", show_plot=show_plots_interactively)
-    
-    # Plot Gradient History if available
-    loss_history.plot_gradients(save_path=os.path.join(final_dir, 'PINN_gradients.png'), experiment_name="Heat2D PINN Gradients", show_plot=show_plots_interactively)
+    loss_history.plot_losses(last_adam_epoch=warmup_epochs, save_path=os.path.join(final_dir, 'PINNloss_history.png'), experiment_name="Heat2D PINN HardBC", show_plot=show_plots_interactively)
+    loss_history.plot_gradients(save_path=os.path.join(final_dir, 'PINN_gradients.png'), experiment_name="Heat2D PINN HardBC Gradients", show_plot=show_plots_interactively)
     
     if show_plots_interactively:
         plt.show()

@@ -1,3 +1,7 @@
+"""
+Experiment Goal: 3_PINN_PurePhys
+Description: PINN PurePhys. Config: L2_50x4_1_E20000_GELU
+"""
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
