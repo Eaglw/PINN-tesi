@@ -9,7 +9,7 @@ Establish the new folder structure and relocate core logic scripts.
 - [x] Task: Move training scripts (Heat2D_NN.py, Heat2D_PINN.py, Heat2D_NN_griglia.py, Heat2D_optim_collocation.py, etc.) and physics.py into Heat2D/src/.
 - [x] Task: Move remaining standalone scripts (comparison, verification, gradient) to Heat2D/src/.
 - [x] Task: Update Heat2D/__init__.py if necessary to maintain package integrity.
-- [ ] Task: Conductor - User Manual Verification 'Phase 1: Migration' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Migration' (Protocol in workflow.md) [checkpoint: a6c96c9]
 
 ## Phase 2: Refactor Orchestration Logic
 Update `Heat2D_main.py` and the training functions to handle new paths and implement script snapshotting.
