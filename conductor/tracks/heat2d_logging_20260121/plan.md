@@ -4,11 +4,11 @@ This plan outlines the steps to implement a centralized logging system for Heat2
 
 ## Phase 1: Metric Calculation and Logging Infrastructure
 
-- [ ] Task: Create `func/logging_utils.py` and implement `compute_metrics` (L2 & Max Relative Error) and `update_results_csv` (CSV handling).
-- [ ] Task: Create a temporary test script `func/test_logging.py` to verify CSV formatting, file creation, and metric calculation logic.
-- [ ] Task: Run the test script to confirm functionality.
-- [ ] Task: Delete `func/test_logging.py` after successful verification.
-- [ ] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
+- [x] Task: Create `func/logging_utils.py` and implement `compute_metrics` (L2 & Max Relative Error) and `update_results_csv` (CSV handling).
+- [x] Task: Create a temporary test script `func/test_logging.py` to verify CSV formatting, file creation, and metric calculation logic.
+- [x] Task: Run the test script to confirm functionality.
+- [x] Task: Delete `func/test_logging.py` after successful verification.
+- [~] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
 
 ## Phase 2: Integration and Validation
 
