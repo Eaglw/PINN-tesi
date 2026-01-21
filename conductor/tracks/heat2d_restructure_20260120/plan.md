@@ -31,7 +31,7 @@ Organize current artifacts from `Results/` into the new `experiments/` structure
 ## Phase 4: Final Verification and Cleanup
 Ensure the system is fully functional and the root directory is clean.
 
-- [ ] Task: Run a sample experiment from `Heat2D_main.py` and verify artifact generation in the correct `experiments/` subfolder.
-- [ ] Task: Verify that all script copies in `experiments/` contain the correct headers.
-- [ ] Task: Remove the legacy `Heat2D/Results/` directory.
+- [x] Task: Run a sample experiment from Heat2D_main.py and verify artifact generation in the correct experiments/ subfolder.
+- [x] Task: Verify that all script copies in experiments/ contain the correct headers.
+- [x] Task: Remove the legacy Heat2D/Results/ directory.
 - [ ] Task: Conductor - User Manual Verification 'Phase 4: Cleanup' (Protocol in workflow.md)
