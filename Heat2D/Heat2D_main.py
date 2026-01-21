@@ -85,14 +85,15 @@ if __name__ == "__main__":
     # Flag per controllare la visualizzazione interattiva dei plot
     show_plots_interactively = False # Imposta su False per eseguire lo script senza blocchi
     """
-    Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero
-    0. NN classica
-    1. PINN con dati e fisica
-    2. Solo fisica e BC (Pure Physics)
-    3. Problema inverso
-    4. PINN che confronta l'andamento di diversi optimizer e activation function
+    Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero:
+    0. NN con dati random
+    1. NN con dati su griglia
+    2. PINN con dati e fisica
+    3. PINN solo fisica
+    4. PINN con BC hardcoded (con dati e fisica)
     """
     goal = [2]
+    
     # Directory Output
     base_dir = os.path.dirname(os.path.abspath(__file__))
     results_dir = os.path.join(base_dir, 'experiments', 'comparisons')
@@ -187,12 +188,13 @@ if __name__ == "__main__":
     histories = {}
     final_models = {}
 
+    # --- 0. NN con dati random ---
     if 0 in goal:
-        print("0. NN classica")
+        print("0. NN con dati random")
         # Setup Experiment
         exp_dir_0, plots_dir_0 = setup_experiment_folder(
-            "0_NN_Classic", 
-            "Classic Neural Network training on data (Internal + Boundary).",
+            "0_NN_Random", 
+            "Classic Neural Network training on random data (Internal + Boundary).",
             "src/Heat2D_NN.py"
         )
 
@@ -214,97 +216,12 @@ if __name__ == "__main__":
         histories['NN Random'] = history_0
         final_models['NN Random'] = model_0
 
+    # --- 1. NN con griglia ---
     if 1 in goal:
-        print("1. PINN con dati e fisica")
+        print("1. NN con dati su griglia")
         # Setup Experiment
         exp_dir_1, plots_dir_1 = setup_experiment_folder(
-            "1_PINN_DataPhys", 
-            "PINN training with both Data (Internal + Boundary) and Physics Loss.",
-            "src/Heat2D_PINN.py"
-        )
-        from Heat2D.src.Heat2D_PINN import train_modelPINN
-        from Heat2D.src.physics import HeatEquation2D
-        
-        # Inizializzazione Fisica Modulare
-        heat_physics = HeatEquation2D()
-        
-        # Inizializzazione Modello e Optimizer per questo caso
-        model_1 = FCN(layers=layers_config).to(device)
-        optimizer_1 = torch.optim.Adam(model_1.parameters(), lr=1e-3)
-        
-        # Passiamo i dati separati alla PINN
-        data_internal = (xy_internal, T_internal)
-        data_boundary = (xy_boundary, T_boundary)
-
-        history_1 = train_modelPINN(
-            model=model_1,
-            optimizer=optimizer_1,
-            data_internal=data_internal,
-            data_boundary=data_boundary,
-            validation_grid=validation_grid_tuple,
-            physics_problem=heat_physics,
-            epochs=epochs,
-            plots_dir=plots_dir_1,
-            final_dir=exp_dir_1,
-            show_plots_interactively=show_plots_interactively 
-        )
-        histories['PINN Data+Phys'] = history_1
-        final_models['PINN Data+Phys'] = model_1
-
-    if 2 in goal:
-        print("2. Solo fisica e BC (Pure Physics)")
-        from Heat2D.src.Heat2D_PINN import train_modelPINN
-        from Heat2D.src.physics import HeatEquation2D
-        from Heat2D.src.pure_physics_setup import get_pure_physics_config
-
-        pp_config = get_pure_physics_config()
-        
-        # Setup Experiment
-        exp_dir_2, plots_dir_2 = setup_experiment_folder(
-            "2_Pure_Physics", 
-            "PINN training using Pure Physics approach (No internal data loss).",
-            "src/pure_physics_setup.py"
-        )
-
-        print(f"Configurazione Pure Physics: {pp_config}")
-
-        # Inizializzazione Fisica Modulare
-        heat_physics = HeatEquation2D()
-
-        # Inizializzazione Modello e Optimizer
-        model_2 = FCN(layers=layers_config).to(device)
-        optimizer_2 = torch.optim.Adam(model_2.parameters(), lr=1e-3)
-
-        # Passiamo i dati separati alla PINN
-        # Per Pure Physics, i dati interni (T_internal) non vengono usati per la loss (peso 0),
-        # ma passiamo comunque la struttura dati attesa.
-        data_internal = (xy_internal, T_internal) 
-        data_boundary = (xy_boundary, T_boundary)
-
-        history_2 = train_modelPINN(
-            model=model_2,
-            optimizer=optimizer_2,
-            data_internal=data_internal,
-            data_boundary=data_boundary,
-            validation_grid=validation_grid_tuple,
-            physics_problem=heat_physics,
-            epochs=epochs,
-            plots_dir=plots_dir_2,
-            final_dir=exp_dir_2,
-            show_plots_interactively=show_plots_interactively,
-            loss_weights=pp_config['loss_weights'],
-            warmup_epochs=pp_config['warmup_epochs']
-        )
-        
-        histories['PINN PurePhys'] = history_2
-        final_models['PINN PurePhys'] = model_2
-        
-
-    if 5 in goal:
-        print("5. NN classica su griglia")
-        # Setup Experiment
-        exp_dir_5, plots_dir_5 = setup_experiment_folder(
-            "5_NN_Grid", 
+            "1_NN_Grid", 
             "Neural Network training on a structured grid.",
             "src/Heat2D_NN_griglia.py"
         )
@@ -328,25 +245,154 @@ if __name__ == "__main__":
         training_data_grid = (xy_train_grid, T_train_grid)
         
         # Inizializzazione Modello e Optimizer
-        model_5 = FCN(layers=layers_config).to(device)
-        optimizer_5 = torch.optim.Adam(model_5.parameters(), lr=1e-3)
+        model_1 = FCN(layers=layers_config).to(device)
+        optimizer_1 = torch.optim.Adam(model_1.parameters(), lr=1e-3)
         
-        history_5 = train_modelNN_griglia(
-            model=model_5,
-            optimizer=optimizer_5,
+        history_1 = train_modelNN_griglia(
+            model=model_1,
+            optimizer=optimizer_1,
             training_data=training_data_grid,
             validation_grid=validation_grid_tuple,
             epochs=epochs,
-            plots_dir=plots_dir_5,
-            final_dir=exp_dir_5,
+            plots_dir=plots_dir_1,
+            final_dir=exp_dir_1,
             show_plots_interactively=show_plots_interactively
         )
-        histories['NN Grid'] = history_5
-        final_models['NN Grid'] = model_5
+        histories['NN Grid'] = history_1
+        final_models['NN Grid'] = model_1
+
+    # --- 2. PINN con dati e fisica ---
+    if 2 in goal:
+        print("2. PINN con dati e fisica")
+        # Setup Experiment
+        exp_dir_2, plots_dir_2 = setup_experiment_folder(
+            "2_PINN_DataPhys", 
+            "PINN training with both Data (Internal + Boundary) and Physics Loss.",
+            "src/Heat2D_PINN.py"
+        )
+        from Heat2D.src.Heat2D_PINN import train_modelPINN
+        from Heat2D.src.physics import HeatEquation2D
+        
+        # Inizializzazione Fisica Modulare
+        heat_physics = HeatEquation2D()
+        
+        # Inizializzazione Modello e Optimizer per questo caso
+        model_2 = FCN(layers=layers_config).to(device)
+        optimizer_2 = torch.optim.Adam(model_2.parameters(), lr=1e-3)
+        
+        # Passiamo i dati separati alla PINN
+        data_internal = (xy_internal, T_internal)
+        data_boundary = (xy_boundary, T_boundary)
+
+        history_2 = train_modelPINN(
+            model=model_2,
+            optimizer=optimizer_2,
+            data_internal=data_internal,
+            data_boundary=data_boundary,
+            validation_grid=validation_grid_tuple,
+            physics_problem=heat_physics,
+            epochs=epochs,
+            plots_dir=plots_dir_2,
+            final_dir=exp_dir_2,
+            show_plots_interactively=show_plots_interactively 
+        )
+        histories['PINN Data+Phys'] = history_2
+        final_models['PINN Data+Phys'] = model_2
+
+    # --- 3. PINN solo fisica ---
+    if 3 in goal:
+        print("3. PINN solo fisica (Pure Physics)")
+        from Heat2D.src.Heat2D_PINN import train_modelPINN
+        from Heat2D.src.physics import HeatEquation2D
+        from Heat2D.src.pure_physics_setup import get_pure_physics_config
+
+        pp_config = get_pure_physics_config()
+        
+        # Setup Experiment
+        exp_dir_3, plots_dir_3 = setup_experiment_folder(
+            "3_PINN_PurePhys", 
+            "PINN training using Pure Physics approach (No internal data loss).",
+            "src/pure_physics_setup.py"
+        )
+
+        print(f"Configurazione Pure Physics: {pp_config}")
+
+        # Inizializzazione Fisica Modulare
+        heat_physics = HeatEquation2D()
+
+        # Inizializzazione Modello e Optimizer
+        model_3 = FCN(layers=layers_config).to(device)
+        optimizer_3 = torch.optim.Adam(model_3.parameters(), lr=1e-3)
+
+        # Passiamo i dati separati alla PINN
+        # Per Pure Physics, i dati interni (T_internal) non vengono usati per la loss (peso 0),
+        # ma passiamo comunque la struttura dati attesa.
+        data_internal = (xy_internal, T_internal) 
+        data_boundary = (xy_boundary, T_boundary)
+
+        history_3 = train_modelPINN(
+            model=model_3,
+            optimizer=optimizer_3,
+            data_internal=data_internal,
+            data_boundary=data_boundary,
+            validation_grid=validation_grid_tuple,
+            physics_problem=heat_physics,
+            epochs=epochs,
+            plots_dir=plots_dir_3,
+            final_dir=exp_dir_3,
+            show_plots_interactively=show_plots_interactively,
+            loss_weights=pp_config['loss_weights'],
+            warmup_epochs=pp_config['warmup_epochs']
+        )
+        
+        histories['PINN PurePhys'] = history_3
+        final_models['PINN PurePhys'] = model_3
+
+    # --- 4. PINN con BC hardcoded ---
+    if 4 in goal:
+        print("4. PINN con BC hardcoded (con dati e fisica)")
+        # Setup Experiment
+        exp_dir_4, plots_dir_4 = setup_experiment_folder(
+            "4_PINN_HardBC", 
+            "PINN training with Hardcoded Boundary Conditions, Data and Physics.",
+            "src/Heat2D_PINN_hardBC.py"
+        )
+        
+        # Nota: Qui importiamo da Heat2D_PINN_hardBC che al momento è un clone, 
+        # ma servirà per modifiche future.
+        from Heat2D.src.Heat2D_PINN_hardBC import train_modelPINN as train_modelPINN_HardBC
+        from Heat2D.src.physics import HeatEquation2D
+        
+        # Inizializzazione Fisica Modulare
+        heat_physics = HeatEquation2D()
+        
+        # Inizializzazione Modello e Optimizer
+        # TODO: Implementare una classe HardBC_FCN se necessario, per ora usiamo FCN
+        model_4 = FCN(layers=layers_config).to(device)
+        optimizer_4 = torch.optim.Adam(model_4.parameters(), lr=1e-3)
+        
+        data_internal = (xy_internal, T_internal)
+        data_boundary = (xy_boundary, T_boundary)
+
+        history_4 = train_modelPINN_HardBC(
+            model=model_4,
+            optimizer=optimizer_4,
+            data_internal=data_internal,
+            data_boundary=data_boundary,
+            validation_grid=validation_grid_tuple,
+            physics_problem=heat_physics,
+            epochs=epochs,
+            plots_dir=plots_dir_4,
+            final_dir=exp_dir_4,
+            show_plots_interactively=show_plots_interactively
+        )
+        histories['PINN HardBC'] = history_4
+        final_models['PINN HardBC'] = model_4
+
 
     # --- COMPARISON LOGIC ---
-    if 0 in goal and 5 in goal:
-        print("\n--- Generating Comparison: Random vs Grid ---")
+    if 0 in goal and 1 in goal:
+        print("\n--- Generating Comparison: Random (0) vs Grid (1) ---")
         from func.graphic_func import plot_loss_comparison, plot_error_map_comparison
         
         # 1. Loss Comparison
@@ -376,8 +422,8 @@ if __name__ == "__main__":
         )
         print("Comparison plots saved in Results/.")
 
-    if 1 in goal and 2 in goal:
-        print("\n--- Generating Comparison: PINN Data+Phys vs Pure Physics ---")
+    if 2 in goal and 3 in goal:
+        print("\n--- Generating Comparison: PINN Data+Phys (2) vs Pure Physics (3) ---")
         from func.graphic_func import plot_loss_comparison, plot_error_map_comparison
         
         # 1. Loss Comparison
@@ -406,5 +452,3 @@ if __name__ == "__main__":
             save_path=os.path.join(results_dir, 'Comparison_ErrorMap_DataPhys_vs_PurePhys.png')
         )
         print("Comparison plots saved in Results/.")
-
-
