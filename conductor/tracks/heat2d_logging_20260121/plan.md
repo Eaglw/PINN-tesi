@@ -10,13 +10,13 @@ This plan outlines the steps to implement a centralized logging system for Heat2
 - [x] Task: Delete `func/test_logging.py` after successful verification.
 - [x] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
 
-## Phase 2: Integration and Validation
+## Phase 2: Integration and Validation [checkpoint: 00e0852]
 
 - [x] Task: Import `update_results_csv` in `Heat2D/Heat2D_main.py`.
 - [x] Task: Integrate `update_results_csv` calls into each experimental case (NN Random, NN Grid, PINNs) within `Heat2D/Heat2D_main.py`, passing all required metadata and history objects.
 - [x] Task: Perform a "smoke test" run of `Heat2D/Heat2D_main.py` with significantly reduced epochs (e.g., 100) and a single case to verify `results.csv` population.
 - [x] Task: Verify the generated `Heat2D/results.csv` content matches the specification (columns, order, precision).
-- [~] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
 
 ## Phase 3: Final Cleanup
 
