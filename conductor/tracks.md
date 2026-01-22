@@ -4,7 +4,7 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [~] **Track: Create a script to analyze and visualize Heat2D results from csv**
+- [x] **Track: Create a script to analyze and visualize Heat2D results from csv**
 *Link: [./tracks/heat2d_analysis_20260122/](./tracks/heat2d_analysis_20260122/)*
 
 ---
