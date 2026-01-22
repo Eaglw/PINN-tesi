@@ -18,9 +18,9 @@ Update the main execution script to handle the new parameter and format the outp
 - [x] Task: Update the CSV writing logic in `Heat2D/Heat2D_main.py` to handle the new LR format.
 - [x] Task: Conductor - User Manual Verification 'Grid Search and Logging' (Protocol in workflow.md)
 
-## Phase 3: Verification and Cleanup
+## Phase 3: Verification and Cleanup [checkpoint: 84c50f8]
 Run a small test grid to verify the implementation.
 
-- [~] Task: Run a mini-grid experiment (e.g., 100 epochs) to verify both `fixed` and `step_decay` work.
-- [~] Task: Verify `results.csv` content for correct LR formatting.
-- [ ] Task: Conductor - User Manual Verification 'Verification and Cleanup' (Protocol in workflow.md)
+- [x] Task: Run a mini-grid experiment (e.g., 100 epochs) to verify both `fixed` and `step_decay` work.
+- [x] Task: Verify `results.csv` content for correct LR formatting.
+- [x] Task: Conductor - User Manual Verification 'Verification and Cleanup' (Protocol in workflow.md)
