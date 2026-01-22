@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 # Import function for GIF
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-from func.graphic_func import save_gif_PIL, plot2D_comparison
+from func.graphic_func import save_gif_PIL, plot2D_comparison, plot2D_final_result
 from func.history_tracker import TrainingHistory
 
 def train_modelNN_griglia(
@@ -88,7 +88,7 @@ def train_modelNN_griglia(
     
     # Salvataggio ultimo plot (Results)
     final_path = os.path.join(final_dir, 'NN_Grid_final_result.png')
-    plot2D_comparison(X, Y, T_exact_grid, T_final, epochs, save_path=final_path)
+    plot2D_final_result(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, data_points=xy_train)
     
     # Generazione GIF
     print(f"Creazione GIF con {len(plot_files)} frames...")

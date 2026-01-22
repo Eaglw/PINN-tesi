@@ -8,11 +8,11 @@ This plan outlines the steps to refine the visualization output for Heat2D exper
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Analysis and Infrastructure (Preparation)' (Protocol in workflow.md)
 
 ## Phase 2: Refactor Final Result Visualization
-- [ ] Task: Modify `Heat2D_PINN.py` (and related scripts) to pass training points (physics and data) to the plotting function.
-- [ ] Task: Update the `final_result.png` generation logic to produce a 2-column layout (Solution with Points vs Relative Error).
-- [ ] Task: Ensure training points are plotted with distinct colors and a clear legend.
-- [ ] Task: Verify the new `final_result.png` layout across different Heat2D runs.
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Refactor Final Result Visualization' (Protocol in workflow.md)
+- [x] Task: Modify `Heat2D_PINN.py` (and related scripts) to pass training points (physics and data) to the plotting function.
+- [x] Task: Update the `final_result.png` generation logic to produce a 2-column layout (Solution with Points vs Relative Error).
+- [x] Task: Ensure training points are plotted with distinct colors and a clear legend.
+- [x] Task: Verify the new `final_result.png` layout across different Heat2D runs.
+- [~] Task: Conductor - User Manual Verification 'Phase 2: Refactor Final Result Visualization' (Protocol in workflow.md)
 
 ## Phase 3: Unified Comparison Plotting
 - [ ] Task: Implement a new script or function in `Heat2D/src/` (e.g., `comparison_utils.py`) to generate the 2x2 error map comparison.

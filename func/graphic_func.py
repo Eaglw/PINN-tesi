@@ -88,6 +88,58 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     else:
         plt.show()
 
+def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, data_points=None, physics_points=None):
+    """
+    Generates a 2-column plot:
+    Left: Solution u(x,y) with overlaid training points (Data & Physics).
+    Right: Relative Error Map %.
+    """
+    # Calculate Relative Error
+    abs_error = torch.abs(T_pred - T_true)
+    mask = torch.abs(T_true) > 0.01
+    rel_error = torch.zeros_like(T_true)
+    rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
+    
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
+    
+    # 1. Solution + Points
+    ax = axes[0]
+    c1 = ax.contourf(X_np, Y_np, T_pred.detach().cpu().numpy(), levels=50, cmap='inferno')
+    plt.colorbar(c1, ax=ax, label='Temp')
+    ax.set_title(f'Prediction (Epoch {epoch})')
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    
+    # Overlay Points
+    if physics_points is not None:
+        xy_phys = physics_points.detach().cpu().numpy()
+        ax.scatter(xy_phys[:, 0], xy_phys[:, 1], s=10, c='cyan', marker='x', alpha=0.6, label='Physics Points')
+        
+    if data_points is not None:
+        xy_data = data_points.detach().cpu().numpy()
+        ax.scatter(xy_data[:, 0], xy_data[:, 1], s=15, c='red', marker='o', alpha=0.8, label='Data Points')
+        
+    if physics_points is not None or data_points is not None:
+        ax.legend(loc='upper right', framealpha=0.9)
+
+    # 2. Relative Error
+    ax = axes[1]
+    c2 = ax.contourf(X_np, Y_np, rel_error.detach().cpu().numpy(), levels=50, cmap='jet', vmin=0, vmax=10)
+    plt.colorbar(c2, ax=ax, label='% Error')
+    ax.set_facecolor('lightgray')
+    ax.set_title('Relative Error % (where T_true > 0.01)')
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+
+    plt.tight_layout()
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
 def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
     """
     Plots side-by-side relative error maps for multiple models.

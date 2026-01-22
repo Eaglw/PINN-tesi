@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 # Import function for GIF and loss comparison
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-from func.graphic_func import save_gif_PIL, plot2D_comparison
+from func.graphic_func import save_gif_PIL, plot2D_comparison, plot2D_final_result
 from func.history_tracker import TrainingHistory, compute_pinn_loss
 
 
@@ -317,8 +317,11 @@ def train_modelPINN(
     with torch.no_grad():
         T_final = wrapped_model(xy_grid).reshape(Nx_dom, Ny_dom)
     
+    # Concatenate data points for visualization
+    xy_data_points = torch.cat([xy_int, xy_bc], dim=0)
+
     final_path = os.path.join(final_dir, 'PINNfinal_result.png')
-    plot2D_comparison(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, physics_points=xy_physics)
+    plot2D_final_result(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, data_points=xy_data_points, physics_points=xy_physics)
     
     print(f"Creazione GIF con {len(plot_files)} frames...")
     if plot_files:
