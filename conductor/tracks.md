@@ -4,7 +4,7 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [ ] **Track: Crea uno script per pulire results.csv e rimuovere le cartelle esperimenti Heat2D con < 10k epoche.**
+- [~] **Track: Crea uno script per pulire results.csv e rimuovere le cartelle esperimenti Heat2D con < 10k epoche.**
 *Link: [./tracks/heat2d_cleanup_20260122/](./tracks/heat2d_cleanup_20260122/)*
 
 ---

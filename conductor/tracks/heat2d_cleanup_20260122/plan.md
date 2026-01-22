@@ -4,12 +4,12 @@ This plan covers the creation of a maintenance script to clean up `Heat2D` resul
 
 ## Phase 1: Script Development & Logic Verification
 
-- [ ] Task: Create `Heat2D/cleanup_experiments.py` with skeleton logic
-- [ ] Task: Implement CSV parsing and filtering logic (Epochs < 10,000)
-- [ ] Task: Implement directory mapping logic (searching `Heat2D/experiments/`)
-- [ ] Task: Implement Dry Run and confirmation prompt
-- [ ] Task: Implement file writing (updating CSV) and directory removal
-- [ ] Task: Conductor - User Manual Verification 'Phase 1: Script Development' (Protocol in workflow.md)
+- [x] Task: Create `Heat2D/cleanup_experiments.py` with skeleton logic
+- [x] Task: Implement CSV parsing and filtering logic (Epochs < 10,000)
+- [x] Task: Implement directory mapping logic (searching `Heat2D/experiments/`)
+- [x] Task: Implement Dry Run and confirmation prompt
+- [x] Task: Implement file writing (updating CSV) and directory removal
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Script Development' (Protocol in workflow.md)
 
 ## Phase 2: Execution and Cleanup
 
