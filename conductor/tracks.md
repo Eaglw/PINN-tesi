@@ -19,5 +19,5 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [~] **Track: Implementa uno scheduler step decay per il learning rate per tutti i casi di heat2D con integrazione in grid search e logging.**
+- [x] **Track: Implementa uno scheduler step decay per il learning rate per tutti i casi di heat2D con integrazione in grid search e logging.**
 *Link: [./tracks/heat2d_lr_scheduler_20260122/](./tracks/heat2d_lr_scheduler_20260122/)*
