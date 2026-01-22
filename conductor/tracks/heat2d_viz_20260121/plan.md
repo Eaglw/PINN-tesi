@@ -2,10 +2,10 @@
 
 This plan outlines the steps to refine the visualization output for Heat2D experiments, including a 2-column final result plot and a 2x2 unified comparison plot.
 
-## Phase 1: Analysis and Infrastructure (Preparation)
+## Phase 1: Analysis and Infrastructure (Preparation) [checkpoint: cc91eeb]
 - [x] Task: Analyze current plotting implementation in `Heat2D/src/` and `func/graphic_func.py` to identify the best insertion points for changes.
 - [x] Task: Create a utility function to extract hyperparameters (architecture, epochs, activation) from experiment paths or metadata.
-- [~] Task: Conductor - User Manual Verification 'Phase 1: Analysis and Infrastructure (Preparation)' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Analysis and Infrastructure (Preparation)' (Protocol in workflow.md)
 
 ## Phase 2: Refactor Final Result Visualization
 - [ ] Task: Modify `Heat2D_PINN.py` (and related scripts) to pass training points (physics and data) to the plotting function.
