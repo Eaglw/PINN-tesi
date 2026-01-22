@@ -5,8 +5,12 @@
 - **PyTorch (torch):** Main framework for deep learning and automatic differentiation.
 - **NumPy:** Numerical computing and data manipulation.
 
+## Data Analysis & Processing
+- **Pandas:** Data manipulation and analysis for experiment results.
+
 ## Visualization & Imaging
 - **Matplotlib:** Core plotting library for results and analysis.
+- **Seaborn:** Statistical data visualization based on matplotlib.
 - **Pillow:** Image processing and GIF generation for transient physical simulations.
 
 ## Utilities
@@ -17,3 +21,10 @@
 ## Development Environment
 - **Virtual Environment:** Recommended (`.venv` or `tesi`).
 - **Precision:** `torch.float64` as default for numerical stability in physics-informed tasks.
+
+---
+
+### Deviations & Updates
+
+#### 2026-01-22
+- Added **Pandas** and **Seaborn** to support the new `Heat2D/analyze_results.py` script for advanced data analysis and visualization of experiment results.
