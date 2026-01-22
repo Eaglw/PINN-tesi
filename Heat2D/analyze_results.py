@@ -2,6 +2,12 @@ import pandas as pd
 import ast
 import os
 import sys
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Set global style
+sns.set_theme(style="whitegrid")
+plt.rcParams['figure.figsize'] = (12, 8)
 
 def load_data(file_path):
     """
@@ -62,6 +68,186 @@ def setup_output_dir(base_dir="Heat2D"):
         print(f"Output directory already exists: {output_dir}")
     return output_dir
 
+def plot_method_comparison(df, output_dir):
+    """
+    Generates bar charts comparing Max_Relative_Error_Peak and L2_Relative_Error
+    grouped by Run_Type.
+    
+    Args:
+        df (pd.DataFrame): The results dataframe.
+        output_dir (str): Directory to save plots.
+    """
+    if df is None or output_dir is None:
+        return
+
+    metrics = ['Max_Relative_Error_Peak', 'L2_Relative_Error']
+    
+    for metric in metrics:
+        if metric not in df.columns:
+            continue
+            
+        plt.figure(figsize=(12, 8))
+        
+        # Calculate mean error for each Run_Type to sort the bars
+        order = df.groupby('Run_Type')[metric].mean().sort_values().index
+        
+        sns.barplot(x='Run_Type', y=metric, hue='Run_Type', data=df, order=order, palette='viridis', legend=False)
+        
+        plt.title(f'Comparison of {metric} by Method', fontsize=16)
+        plt.xlabel('Method (Run_Type)', fontsize=14)
+        plt.ylabel(metric, fontsize=14)
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        
+        filename = f"comparison_{metric}.png"
+        filepath = os.path.join(output_dir, filename)
+        plt.savefig(filepath, dpi=300)
+        plt.close()
+        print(f"Saved plot: {filepath}")
+
+def plot_error_correlation(df, output_dir):
+    """
+    Generates scatter plots to show correlations between metrics.
+    1. Loss_Total vs Max_Relative_Error_Peak
+    2. Epochs vs Max_Relative_Error_Peak (if Epochs vary)
+    
+    Args:
+        df (pd.DataFrame): The results dataframe.
+        output_dir (str): Directory to save plots.
+    """
+    if df is None or output_dir is None:
+        return
+
+    # 1. Loss_Total vs Max_Relative_Error_Peak
+    if 'Loss_Total' in df.columns and 'Max_Relative_Error_Peak' in df.columns:
+        plt.figure(figsize=(10, 6))
+        sns.scatterplot(
+            data=df, 
+            x='Loss_Total', 
+            y='Max_Relative_Error_Peak', 
+            hue='Run_Type', 
+            style='Run_Type', 
+            s=100
+        )
+        plt.xscale('log') # Loss is often logarithmic
+        plt.yscale('log') # Error can also span orders of magnitude
+        plt.title('Loss Total vs Max Relative Error Peak (Log-Log)', fontsize=16)
+        plt.xlabel('Loss Total', fontsize=14)
+        plt.ylabel('Max Relative Error Peak', fontsize=14)
+        plt.tight_layout()
+        
+        filepath = os.path.join(output_dir, "correlation_loss_vs_error.png")
+        plt.savefig(filepath, dpi=300)
+        plt.close()
+        print(f"Saved plot: {filepath}")
+
+    # 2. Epochs vs Accuracy (Max_Relative_Error_Peak)
+    if 'Epochs' in df.columns and 'Max_Relative_Error_Peak' in df.columns:
+        # Check if Epochs vary
+        if df['Epochs'].nunique() > 1:
+            plt.figure(figsize=(10, 6))
+            sns.lineplot(
+                data=df,
+                x='Epochs',
+                y='Max_Relative_Error_Peak',
+                hue='Run_Type',
+                marker='o',
+                err_style='bars' # Show error bars if multiple seeds
+            )
+            plt.title('Effect of Training Epochs on Accuracy', fontsize=16)
+            plt.xlabel('Epochs', fontsize=14)
+            plt.ylabel('Max Relative Error Peak', fontsize=14)
+            plt.tight_layout()
+            
+            filepath = os.path.join(output_dir, "correlation_epochs_vs_error.png")
+            plt.savefig(filepath, dpi=300)
+            plt.close()
+            print(f"Saved plot: {filepath}")
+
+def plot_stability_distribution(df, output_dir):
+    """
+    Generates box plots to visualize the stability of each method (Run_Type)
+    across multiple seeds.
+    
+    Args:
+        df (pd.DataFrame): The results dataframe.
+        output_dir (str): Directory to save plots.
+    """
+    if df is None or output_dir is None:
+        return
+
+    # Check if we have multiple seeds to make this meaningful
+    # Even if not, a box plot is still useful (just looks like a line/point)
+    
+    metrics = ['Max_Relative_Error_Peak', 'L2_Relative_Error']
+    
+    for metric in metrics:
+        if metric not in df.columns:
+            continue
+            
+        plt.figure(figsize=(12, 8))
+        
+        # Calculate mean error for each Run_Type to sort the bars
+        order = df.groupby('Run_Type')[metric].mean().sort_values().index
+        
+        sns.boxplot(x='Run_Type', y=metric, data=df, order=order, palette='viridis', hue='Run_Type', legend=False)
+        sns.swarmplot(x='Run_Type', y=metric, data=df, order=order, color=".25", size=5) # Show individual points
+        
+        plt.title(f'Stability Distribution of {metric} by Method', fontsize=16)
+        plt.xlabel('Method (Run_Type)', fontsize=14)
+        plt.ylabel(metric, fontsize=14)
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        
+        filename = f"stability_{metric}.png"
+        filepath = os.path.join(output_dir, filename)
+        plt.savefig(filepath, dpi=300)
+        plt.close()
+        print(f"Saved plot: {filepath}")
+
+def plot_hyperparam_heatmap(df, output_dir):
+    """
+    Generates heatmaps to show performance across different hyperparameters.
+    Architecture vs Activation_Func.
+    
+    Args:
+        df (pd.DataFrame): The results dataframe.
+        output_dir (str): Directory to save plots.
+    """
+    if df is None or output_dir is None:
+        return
+
+    # Check for required columns
+    if not all(col in df.columns for col in ['Architecture', 'Activation_Func', 'Max_Relative_Error_Peak']):
+        return
+
+    # Prepare a copy for heatmap
+    heatmap_df = df.copy()
+    
+    # Convert Architecture list to string for labeling
+    heatmap_df['Arch_Str'] = heatmap_df['Architecture'].apply(lambda x: str(x))
+    
+    # Create pivot table for mean error
+    pivot_table = heatmap_df.pivot_table(
+        values='Max_Relative_Error_Peak', 
+        index='Arch_Str', 
+        columns='Activation_Func', 
+        aggfunc='mean'
+    )
+    
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(pivot_table, annot=True, fmt=".2f", cmap='YlGnBu', cbar_kws={'label': 'Mean Max Relative Error Peak'})
+    
+    plt.title('Performance Heatmap: Architecture vs Activation Function', fontsize=16)
+    plt.xlabel('Activation Function', fontsize=14)
+    plt.ylabel('Architecture', fontsize=14)
+    plt.tight_layout()
+    
+    filepath = os.path.join(output_dir, "heatmap_arch_vs_activation.png")
+    plt.savefig(filepath, dpi=300)
+    plt.close()
+    print(f"Saved plot: {filepath}")
+
 if __name__ == "__main__":
     # Determine the project root to find the file relative to it
     # This allows running from root or Heat2D folder
@@ -93,11 +279,20 @@ if __name__ == "__main__":
             
             output_dir = setup_output_dir(base_dir)
             
+            if output_dir:
+                print("Generating method comparison plots...")
+                plot_method_comparison(df, output_dir)
+                
+                print("Generating correlation plots...")
+                plot_error_correlation(df, output_dir)
+                
+                print("Generating stability plots...")
+                plot_stability_distribution(df, output_dir)
+                
+                print("Generating hyperparameter heatmaps...")
+                plot_hyperparam_heatmap(df, output_dir)
+            
             print("-" * 30)
-            print("First 5 rows:")
-            print(df.head())
-            print("-" * 30)
-            print("Data Info:")
-            print(df.info())
+            print("Analysis complete.")
     else:
         print("Error: results.csv not found in common locations.")

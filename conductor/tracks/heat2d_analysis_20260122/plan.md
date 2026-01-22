@@ -10,13 +10,13 @@
 - [ ] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
 
 ## Phase 2: Visualization Implementation
-- [ ] Task: Implement Method Comparison Plots (Bar Charts)
+- [x] Task: Implement Method Comparison Plots (Bar Charts)
     - [ ] Create function `plot_method_comparison()` to visualize `Max_Relative_Error_Peak` and `L2_Relative_Error` grouped by `Run_Type`.
-- [ ] Task: Implement Correlation Analysis (Scatter Plots)
+- [x] Task: Implement Correlation Analysis (Scatter Plots)
     - [ ] Create function `plot_error_correlation()` to show `Loss_Total` vs `Max_Relative_Error_Peak` and `Epochs` vs Accuracy.
-- [ ] Task: Implement Stability Analysis (Box Plots)
+- [x] Task: Implement Stability Analysis (Box Plots)
     - [ ] Create function `plot_stability_distribution()` to visualize metric spread across Seeds for each `Run_Type`.
-- [ ] Task: Implement Hyperparameter Heatmaps
+- [x] Task: Implement Hyperparameter Heatmaps
     - [ ] Create function `plot_hyperparam_heatmap()` to show performance across `Architecture` vs `Activation_Func`.
 - [ ] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
 
