@@ -21,8 +21,8 @@ This plan outlines the steps to refine the visualization output for Heat2D exper
 - [x] Task: Update the main execution flow to call the unified comparison generator after experiments are complete.
 - [x] Task: Conductor - User Manual Verification 'Phase 3: Unified Comparison Plotting' (Protocol in workflow.md)
 
-## Phase 4: Integration and Cleanup
+## Phase 4: Integration and Cleanup [checkpoint: 7d12de6]
 - [x] Task: Ensure the updated visualization logic is applied consistently to all Heat2D scripts (`Heat2D_NN.py`, `Heat2D_PINN.py`, etc.).
 - [x] Task: Verify that existing `results.csv` logging is compatible with the new metadata requirements for titles.
 - [x] Task: Perform a final test run of a full experiment suite to confirm all plots are generated correctly.
-- [~] Task: Conductor - User Manual Verification 'Phase 4: Integration and Cleanup' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 4: Integration and Cleanup' (Protocol in workflow.md)
