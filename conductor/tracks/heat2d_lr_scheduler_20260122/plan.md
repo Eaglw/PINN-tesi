@@ -13,10 +13,10 @@ Update individual training scripts to support the new learning rate strategy.
 ## Phase 2: Grid Search and Logging (Main Script)
 Update the main execution script to handle the new parameter and format the output.
 
-- [ ] Task: Update `Heat2D/Heat2D_main.py` to include `lr_strategies = ['fixed', 'step_decay']` in the grid search loop.
-- [ ] Task: Implement LR range calculation logic in `Heat2D/Heat2D_main.py` for logging.
-- [ ] Task: Update the CSV writing logic in `Heat2D/Heat2D_main.py` to handle the new LR format.
-- [ ] Task: Conductor - User Manual Verification 'Grid Search and Logging' (Protocol in workflow.md)
+- [x] Task: Update `Heat2D/Heat2D_main.py` to include `lr_strategies = ['fixed', 'step_decay']` in the grid search loop.
+- [x] Task: Implement LR range calculation logic in `Heat2D/Heat2D_main.py` for logging.
+- [x] Task: Update the CSV writing logic in `Heat2D/Heat2D_main.py` to handle the new LR format.
+- [~] Task: Conductor - User Manual Verification 'Grid Search and Logging' (Protocol in workflow.md)
 
 ## Phase 3: Verification and Cleanup
 Run a small test grid to verify the implementation.
