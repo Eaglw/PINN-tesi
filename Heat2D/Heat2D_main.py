@@ -504,67 +504,51 @@ for layers_config in layers_options:
             results_dir = os.path.join(config_dir, 'comparisons')
             os.makedirs(results_dir, exist_ok=True)
             
+            # Unified 2x2 Error Map Comparison
+            if all(g in goal for g in [0, 1, 2, 3]):
+                from func.graphic_func import plot2D_unified_comparison
+                from func.logging_utils import extract_hyperparams_from_path
+                
+                model_results = []
+                for label in ['NN Random', 'NN Grid', 'PINN Data+Phys', 'PINN PurePhys']:
+                    model = final_models[label]
+                    model.eval()
+                    with torch.no_grad():
+                        pred = model(xy_grid_flat).reshape(Nx_dom, Ny_dom)
+                    model_results.append({'T_pred': pred, 'label': label})
+                
+                # Extract hyperparams from path for the title
+                arch, epochs_str, act = extract_hyperparams_from_path(config_dir)
+                hparams = {'arch': arch, 'epochs': epochs_str, 'act': act}
+                
+                plot2D_unified_comparison(
+                    X, Y, T_grid, 
+                    model_results, 
+                    hparams, 
+                    save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png')
+                )
+
+            # Pairwise Loss Comparisons
+            from func.graphic_func import plot_loss_comparison
             if 0 in goal and 1 in goal:
-                from func.graphic_func import plot_loss_comparison, plot_error_map_comparison
                 plot_loss_comparison(
                     [histories['NN Random'], histories['NN Grid']],
                     ['NN Random', 'NN Grid'],
                     save_path=os.path.join(results_dir, 'Comparison_Loss_Random_vs_Grid.png')
                 )
-                model_random = final_models['NN Random']
-                model_grid = final_models['NN Grid']
-                model_random.eval()
-                model_grid.eval()
-                with torch.no_grad():
-                    pred_random = model_random(xy_grid_flat).reshape(Nx_dom, Ny_dom)
-                    pred_grid = model_grid(xy_grid_flat).reshape(Nx_dom, Ny_dom)
-                plot_error_map_comparison(
-                    X, Y, T_grid,
-                    [pred_random, pred_grid],
-                    ['NN Random', 'NN Grid'],
-                    save_path=os.path.join(results_dir, 'Comparison_ErrorMap_Random_vs_Grid.png')
-                )
 
             if 2 in goal and 3 in goal:
-                from func.graphic_func import plot_loss_comparison, plot_error_map_comparison
                 plot_loss_comparison(
                     [histories['PINN Data+Phys'], histories['PINN PurePhys']],
                     ['PINN Data+Phys', 'PINN PurePhys'],
                     save_path=os.path.join(results_dir, 'Comparison_Loss_DataPhys_vs_PurePhys.png')
                 )
-                model_dp = final_models['PINN Data+Phys']
-                model_pp = final_models['PINN PurePhys']
-                model_dp.eval()
-                model_pp.eval()
-                with torch.no_grad():
-                    pred_dp = model_dp(xy_grid_flat).reshape(Nx_dom, Ny_dom)
-                    pred_pp = model_pp(xy_grid_flat).reshape(Nx_dom, Ny_dom)
-                plot_error_map_comparison(
-                    X, Y, T_grid,
-                    [pred_dp, pred_pp],
-                    ['PINN Data+Phys', 'PINN PurePhys'],
-                    save_path=os.path.join(results_dir, 'Comparison_ErrorMap_DataPhys_vs_PurePhys.png')
-                )
             
             if 1 in goal and 2 in goal:
-                from func.graphic_func import plot_loss_comparison, plot_error_map_comparison
                 plot_loss_comparison(
                     [histories['NN Grid'], histories['PINN Data+Phys']],
                     ['NN Grid', 'PINN Data+Phys'],
                     save_path=os.path.join(results_dir, 'Comparison_Loss_Grid_vs_PINN.png')
-                )
-                model_grid = final_models['NN Grid']
-                model_pinn = final_models['PINN Data+Phys']
-                model_grid.eval()
-                model_pinn.eval()
-                with torch.no_grad():
-                    pred_grid = model_grid(xy_grid_flat).reshape(Nx_dom, Ny_dom)
-                    pred_pinn = model_pinn(xy_grid_flat).reshape(Nx_dom, Ny_dom)
-                plot_error_map_comparison(
-                    X, Y, T_grid,
-                    [pred_grid, pred_pinn],
-                    ['NN Grid', 'PINN Data+Phys'],
-                    save_path=os.path.join(results_dir, 'Comparison_ErrorMap_Grid_vs_PINN.png')
                 )
                     
 print("\nAll Grid Search configurations completed.")

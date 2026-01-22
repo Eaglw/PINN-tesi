@@ -140,16 +140,68 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, data_points=None
     else:
         plt.show()
 
-def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
+def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_path=None):
     """
-    Plots side-by-side relative error maps for multiple models.
+    Generates a 2x2 grid of relative error maps.
     
     Args:
         X, Y: Meshgrid tensors.
         T_true: Analytical solution tensor.
-        T_preds: List of prediction tensors.
-        labels: List of model labels.
+        model_results: List of dictionaries [{'T_pred': tensor, 'label': str}, ...] (exactly 4 expected).
+        hyperparams: Dictionary {'arch': str, 'epochs': int, 'act': str}.
         save_path: Path to save the plot.
+    """
+    if len(model_results) != 4:
+        print("Warning: plot2D_unified_comparison expects exactly 4 model results for a 2x2 grid.")
+        return
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
+    
+    # Mask for relative error
+    mask = torch.abs(T_true) > 0.01
+    
+    arch = hyperparams.get('arch', 'N/A')
+    epochs = hyperparams.get('epochs', 'N/A')
+    act = hyperparams.get('act', 'N/A')
+    
+    fig.suptitle(f"Comparison: {arch} | Epochs: {epochs} | Activation: {act}", fontsize=18, fontweight='bold')
+
+    for i, res in enumerate(model_results):
+        row = i // 2
+        col = i % 2
+        ax = axes[row, col]
+        
+        T_pred = res['T_pred']
+        label = res['label']
+        
+        abs_error = torch.abs(T_pred - T_true)
+        rel_error = torch.zeros_like(T_true)
+        rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
+        rel_error_np = rel_error.detach().cpu().numpy()
+        
+        # Plot with individual colorbar
+        c = ax.contourf(X_np, Y_np, rel_error_np, levels=50, cmap='jet', vmin=0, vmax=10)
+        cbar = plt.colorbar(c, ax=ax)
+        cbar.set_label('% Error', rotation=270, labelpad=15)
+        
+        ax.set_facecolor('lightgray')
+        ax.set_title(label, fontsize=14)
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust for suptitle
+    
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
+def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
+    """
+    Plots side-by-side relative error maps for multiple models.
     """
     num_models = len(T_preds)
     fig, axes = plt.subplots(1, num_models, figsize=(6 * num_models, 5))
@@ -157,7 +209,6 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
         axes = [axes]
         
     X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
-    T_true_np = T_true.cpu().numpy()
     
     # Mask for relative error calculation to avoid division by zero
     mask = torch.abs(T_true) > 0.01
@@ -187,15 +238,10 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
         plt.close()
     else:
         plt.show()
+
 def plot_loss_comparison(histories, labels, save_path=None, title="Loss Comparison"):
     """
     Plots overlapping loss curves from multiple training histories.
-    
-    Args:
-        histories: List of TrainingHistory objects.
-        labels: List of labels for each history (e.g., ["NN Random", "NN Grid"]).
-        save_path: Path to save the plot.
-        title: Plot title.
     """
     plt.figure(figsize=(10, 6))
     
