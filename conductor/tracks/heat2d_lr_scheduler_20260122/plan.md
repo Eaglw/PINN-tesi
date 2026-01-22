@@ -21,6 +21,6 @@ Update the main execution script to handle the new parameter and format the outp
 ## Phase 3: Verification and Cleanup
 Run a small test grid to verify the implementation.
 
-- [ ] Task: Run a mini-grid experiment (e.g., 100 epochs) to verify both `fixed` and `step_decay` work.
-- [ ] Task: Verify `results.csv` content for correct LR formatting.
+- [~] Task: Run a mini-grid experiment (e.g., 100 epochs) to verify both `fixed` and `step_decay` work.
+- [~] Task: Verify `results.csv` content for correct LR formatting.
 - [ ] Task: Conductor - User Manual Verification 'Verification and Cleanup' (Protocol in workflow.md)
