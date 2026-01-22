@@ -1,3 +1,13 @@
+"""
+Heat2D Results Analysis Script
+==============================
+This script processes 'results.csv' from the Heat2D experiments and generates
+comprehensive visualizations and summary statistics to evaluate model performance.
+
+Usage:
+    python Heat2D/analyze_results.py
+"""
+
 import pandas as pd
 import ast
 import os
@@ -248,6 +258,51 @@ def plot_hyperparam_heatmap(df, output_dir):
     plt.close()
     print(f"Saved plot: {filepath}")
 
+def print_summary_statistics(df):
+    """
+    Prints key insights and summary statistics to the console.
+    
+    Args:
+        df (pd.DataFrame): The results dataframe.
+    """
+    if df is None:
+        return
+
+    print("\n" + "="*50)
+    print("SUMMARY STATISTICS & INSIGHTS")
+    print("="*50)
+
+    # Best performing method overall (by Max_Relative_Error_Peak)
+    if 'Max_Relative_Error_Peak' in df.columns:
+        best_run = df.loc[df['Max_Relative_Error_Peak'].idxmin()]
+        print(f"Overall Best Run (Lowest Max Error):")
+        print(f"  - Max Relative Error: {best_run['Max_Relative_Error_Peak']:.4f}")
+        print(f"  - Run Type:           {best_run['Run_Type']}")
+        print(f"  - Architecture:       {best_run['Architecture']}")
+        print(f"  - Activation:         {best_run['Activation_Func']}")
+        print(f"  - Epochs:             {best_run['Epochs']}")
+        print(f"  - Timestamp:          {best_run['Timestamp']}")
+        print("-" * 30)
+
+    # Average performance by Run_Type
+    if 'Run_Type' in df.columns and 'Max_Relative_Error_Peak' in df.columns:
+        avg_by_method = df.groupby('Run_Type')['Max_Relative_Error_Peak'].agg(['mean', 'std', 'min', 'count'])
+        avg_by_method = avg_by_method.sort_values(by='mean')
+        
+        print("Performance Ranking by Method (Run_Type):")
+        print(avg_by_method.to_string(formatters={'mean': '{:,.4f}'.format, 'std': '{:,.4f}'.format, 'min': '{:,.4f}'.format}))
+        print("-" * 30)
+
+    # Activation Function Comparison
+    if 'Activation_Func' in df.columns and 'Max_Relative_Error_Peak' in df.columns:
+        avg_by_act = df.groupby('Activation_Func')['Max_Relative_Error_Peak'].mean().sort_values()
+        print("Mean Max Error by Activation Function:")
+        for act, val in avg_by_act.items():
+            print(f"  - {act}: {val:.4f}")
+        print("-" * 30)
+
+    print("="*50 + "\n")
+
 if __name__ == "__main__":
     # Determine the project root to find the file relative to it
     # This allows running from root or Heat2D folder
@@ -291,6 +346,9 @@ if __name__ == "__main__":
                 
                 print("Generating hyperparameter heatmaps...")
                 plot_hyperparam_heatmap(df, output_dir)
+                
+                print("Printing summary statistics...")
+                print_summary_statistics(df)
             
             print("-" * 30)
             print("Analysis complete.")

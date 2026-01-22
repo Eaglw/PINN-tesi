@@ -21,9 +21,9 @@
 - [ ] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
 
 ## Phase 3: Refinement and Summary
-- [ ] Task: Generate Summary Statistics
+- [x] Task: Generate Summary Statistics
     - [ ] Implement a function to print key insights (e.g., "Best performing Run_Type", "Lowest Max Error") to the console.
-- [ ] Task: Final Polish and Execution
+- [x] Task: Final Polish and Execution
     - [ ] Ensure all plots have proper titles, labels, and legends.
     - [ ] Add a `main` execution block to run all functions sequentially.
 - [ ] Task: Conductor - User Manual Verification 'Phase 3' (Protocol in workflow.md)
