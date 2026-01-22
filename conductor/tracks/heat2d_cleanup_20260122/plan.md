@@ -11,7 +11,7 @@ This plan covers the creation of a maintenance script to clean up `Heat2D` resul
 - [x] Task: Implement file writing (updating CSV) and directory removal
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Script Development' (Protocol in workflow.md)
 
-## Phase 2: Execution and Cleanup
+## Phase 2: Execution and Cleanup [checkpoint: 6e7f4ef]
 
 - [x] Task: Execute the script in Dry Run mode and verify targeted items
 - [x] Task: Run the cleanup script and confirm deletion
