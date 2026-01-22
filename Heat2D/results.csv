@@ -1,1 +1,1 @@
-Timestamp,Max_Relative_Error_Peak,Architecture,Activation_Func,Epochs,Run_Type,Optimizer,Learning_Rate,Loss_Total,Loss_Physics,Loss_Boundary,Loss_Data,L2_Relative_Error,Seed
+Timestamp,Max_Relative_Error_Peak,Architecture,Activation_Func,Epochs,Run_Type,Optimizer,Learning_Rate,Loss_Total,Loss_Physics,Loss_Boundary,Loss_Data,L2_Relative_Error,Seed2026-01-23 00:07:28,397.14143947422343,"[2, 50, 50, 50, 50, 1]",GELU,500,NN_Random,Adam,[0.001 -> 6.25e-05],0.006268431924683512,0,0,0.006268431924683512,0.15466399627272845,123
