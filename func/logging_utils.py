@@ -85,3 +85,44 @@ def update_results_csv(file_path, data_dict):
             
     except Exception as e:
         print(f"Error updating CSV log: {e}")
+
+def extract_hyperparams_from_path(path):
+    """
+    Extracts hyperparameters from a directory path following the naming convention:
+    'L<arch>_E<epochs>_<activation>'
+    
+    Args:
+        path: Path string.
+        
+    Returns:
+        tuple: (architecture, epochs, activation)
+    """
+    parts = os.path.normpath(path).split(os.sep)
+    target = None
+    # Look for the segment that follows our convention
+    for p in reversed(parts):
+        if p.startswith('L') and '_E' in p:
+            target = p
+            break
+            
+    if not target:
+        return "N/A", "N/A", "N/A"
+        
+    try:
+        # Example: L2_50x4_1_E20000_GELU
+        # Find index of _E
+        idx_e = target.find('_E')
+        arch = target[1:idx_e] # 2_50x4_1
+        
+        rest = target[idx_e+2:] # 20000_GELU
+        if '_' in rest:
+            split_rest = rest.split('_')
+            epochs = split_rest[0]
+            activation = split_rest[1]
+        else:
+            epochs = rest
+            activation = "N/A"
+            
+        return arch, epochs, activation
+    except Exception:
+        return "Error", "Error", "Error"

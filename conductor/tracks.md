@@ -8,7 +8,7 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [ ] **Track: Heat2D Visualization Improvements**
+- [~] **Track: Heat2D Visualization Improvements**
 *Link: [./tracks/heat2d_viz_20260121/](./tracks/heat2d_viz_20260121/)*
 
 ---
