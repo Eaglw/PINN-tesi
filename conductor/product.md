@@ -19,7 +19,7 @@ Il caso del CSTR e dello scambio di calore sono due esempi che mi servono per se
 - **Modular Physics Engine:** A clear interface for defining differential equations, boundary conditions, and domain geometry, allowing new physics (like Non-Newtonian rheology) to be plugged in without rewriting the training loop.
 - **Hybrid Optimization Pipeline:** Built-in support for switching between optimizers (Adam, L-BFGS) and strategies (warm-up phases) to handle stiff or complex problems.
 - **Unified Experimentation:** Centralized logging of metadata and performance metrics (CSV format), history tracking, and visualization tools to enable systematic comparison across different architectures and strategies.
-- **Visual Analytics:** Standardized visualization pipelines generating unified 2x2 comparison grids and high-precision error maps, enabling immediate visual assessment of model performance across different architectures and training strategies.
+- **Visual Analytics:** Standardized visualization pipelines generating unified 2x2 comparison grids, high-precision error maps, and aggregate performance analysis (bar charts, box plots, heatmaps) to enable deep assessment of model performance across architectures and strategies.
 - **Reproducible Workflows:** Automatic snapshotting of training scripts and configuration for every experiment run, ensuring full reproducibility of results.
 - **Inverse Solving:** dedicated workflows for identifying unknown physical parameters from sparse data.
 - **Pure Physics Solving:** Dedicated mode for solving forward problems using only physics residuals and boundary conditions (no experimental data).
