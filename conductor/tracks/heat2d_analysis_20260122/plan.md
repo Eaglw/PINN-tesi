@@ -9,7 +9,7 @@
     - [ ] Ensure the script creates `Heat2D/analysis_plots/` if it doesn't exist.
 - [ ] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
 
-## Phase 2: Visualization Implementation
+## Phase 2: Visualization Implementation [checkpoint: 18581bc]
 - [x] Task: Implement Method Comparison Plots (Bar Charts)
     - [ ] Create function `plot_method_comparison()` to visualize `Max_Relative_Error_Peak` and `L2_Relative_Error` grouped by `Run_Type`.
 - [x] Task: Implement Correlation Analysis (Scatter Plots)
