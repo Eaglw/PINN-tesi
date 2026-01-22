@@ -56,7 +56,8 @@ def train_modelPINN(
     loss_weights=None,
     warmup_epochs=None,
     n_collocation=(50, 50),
-    collocation_points=None
+    collocation_points=None,
+    lr_strategy='fixed'
 ):
     """
     Esegue il training della PINN.
@@ -74,6 +75,7 @@ def train_modelPINN(
         n_collocation: Numero di punti di collocazione per dimensione (int o tuple (Nx, Ny)).
         collocation_points: (Opzionale) Tensor (N, 2) con i punti di collocazione espliciti.
                             Se fornito, ignora n_collocation.
+        lr_strategy: Strategia di learning rate ('fixed' o 'step_decay').
     """
     
     # Unpack dei dati
@@ -99,7 +101,7 @@ def train_modelPINN(
         Nx_phys, Ny_phys = n_collocation
     
     # Training Loop (Adam)
-    pbar = tqdm(range(epochs), desc="Training PINN (Adam)")
+    pbar = tqdm(range(epochs), desc=f"Training PINN (Adam) ({lr_strategy})")
     loss_history = TrainingHistory()
     
     # Configurazione Pesi Loss
@@ -115,7 +117,10 @@ def train_modelPINN(
         warmup_epochs = epochs // 3
     
     # Scheduler per il Learning Rate
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6000, gamma=0.4)
+    scheduler = None
+    if lr_strategy == 'step_decay':
+        step_size = int(epochs * 0.25)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=0.5)
 
     # Pre-generate Collocation Points (Fixed across epochs)
     if collocation_points is not None:
@@ -194,14 +199,15 @@ def train_modelPINN(
         optimizer.step()
         
         # Step dello scheduler
-        scheduler.step()
+        if scheduler:
+            scheduler.step()
         
         # Aggiornamento history
         loss_history.update(epoch, loss_dict)
         
         # Monitoraggio e Plotting periodico
         if (epoch + 1) % 500 == 0:
-            current_lr = scheduler.get_last_lr()[0]
+            current_lr = scheduler.get_last_lr()[0] if scheduler else optimizer.param_groups[0]['lr']
             pbar.set_postfix({
                 'Phase': phase_desc,
                 'Loss': f"{loss.item():.2e}", 

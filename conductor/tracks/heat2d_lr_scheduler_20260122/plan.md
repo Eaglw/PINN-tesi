@@ -5,10 +5,10 @@ Implement a Step Decay learning rate scheduler for Heat2D experiments, integrate
 ## Phase 1: Core Logic Update (Training Scripts)
 Update individual training scripts to support the new learning rate strategy.
 
-- [ ] Task: Modify `Heat2D/src/Heat2D_NN.py` to accept `lr_strategy` and implement `StepLR`.
-- [ ] Task: Modify `Heat2D/src/Heat2D_NN_griglia.py` to accept `lr_strategy` and implement `StepLR`.
-- [ ] Task: Modify `Heat2D/src/Heat2D_PINN.py` to accept `lr_strategy` and implement `StepLR`.
-- [ ] Task: Conductor - User Manual Verification 'Core Logic Update' (Protocol in workflow.md)
+- [x] Task: Modify `Heat2D/src/Heat2D_NN.py` to accept `lr_strategy` and implement `StepLR`.
+- [x] Task: Modify `Heat2D/src/Heat2D_NN_griglia.py` to accept `lr_strategy` and implement `StepLR`.
+- [x] Task: Modify `Heat2D/src/Heat2D_PINN.py` to accept `lr_strategy` and implement `StepLR`.
+- [~] Task: Conductor - User Manual Verification 'Core Logic Update' (Protocol in workflow.md)
 
 ## Phase 2: Grid Search and Logging (Main Script)
 Update the main execution script to handle the new parameter and format the output.

@@ -19,7 +19,8 @@ def train_modelNN_griglia(
     epochs=20000,
     plots_dir='plots',
     final_dir='Heat2D/Results',
-    show_plots_interactively=True
+    show_plots_interactively=True,
+    lr_strategy='fixed'
 ):
     """
     Esegue il training della NN utilizzando dati su griglia.
@@ -30,6 +31,7 @@ def train_modelNN_griglia(
         training_data: Tupla (xy_train, T_train).
         validation_grid: Tupla (xy_grid, T_exact_grid, X, Y).
         show_plots_interactively: Booleano per controllare la visualizzazione interattiva dei plot.
+        lr_strategy: Strategia di learning rate ('fixed' o 'step_decay').
     """
     
     # Unpack dei dati
@@ -46,11 +48,14 @@ def train_modelNN_griglia(
     plot_files = []
     
     # Training Loop
-    pbar = tqdm(range(epochs), desc="Training NN (Grid)")
+    pbar = tqdm(range(epochs), desc=f"Training NN (Grid) ({lr_strategy})")
     loss_history = TrainingHistory()
     
-    # Scheduler per il Learning Rate (stesso di Heat2D_NN)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6000, gamma=0.4)
+    # Scheduler per il Learning Rate
+    scheduler = None
+    if lr_strategy == 'step_decay':
+        step_size = int(epochs * 0.25)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=0.5)
 
     for epoch in pbar:
         model.train()
@@ -63,13 +68,14 @@ def train_modelNN_griglia(
         optimizer.step()
         
         # Step dello scheduler
-        scheduler.step()
+        if scheduler:
+            scheduler.step()
         
         loss_history.update(epoch, {'total_loss': loss.item()})
         
         # Monitoraggio e Plotting periodico
         if (epoch + 1) % 500 == 0:
-            current_lr = scheduler.get_last_lr()[0]
+            current_lr = scheduler.get_last_lr()[0] if scheduler else optimizer.param_groups[0]['lr']
             pbar.set_postfix({'Loss': f"{loss.item():.2e}", 'LR': f"{current_lr:.1e}"})
             
             model.eval()
