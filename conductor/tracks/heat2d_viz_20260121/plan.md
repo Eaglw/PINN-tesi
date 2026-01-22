@@ -14,12 +14,12 @@ This plan outlines the steps to refine the visualization output for Heat2D exper
 - [x] Task: Verify the new `final_result.png` layout across different Heat2D runs.
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Refactor Final Result Visualization' (Protocol in workflow.md)
 
-## Phase 3: Unified Comparison Plotting
+## Phase 3: Unified Comparison Plotting [checkpoint: cb13241]
 - [x] Task: Implement a new script or function in `Heat2D/src/` (e.g., `comparison_utils.py`) to generate the 2x2 error map comparison.
 - [x] Task: Implement individual colorbars for each subplot in the 2x2 grid.
 - [x] Task: Add the hyperparameter metadata title to the comparison plot.
 - [x] Task: Update the main execution flow to call the unified comparison generator after experiments are complete.
-- [~] Task: Conductor - User Manual Verification 'Phase 3: Unified Comparison Plotting' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Unified Comparison Plotting' (Protocol in workflow.md)
 
 ## Phase 4: Integration and Cleanup
 - [ ] Task: Ensure the updated visualization logic is applied consistently to all Heat2D scripts (`Heat2D_NN.py`, `Heat2D_PINN.py`, etc.).
