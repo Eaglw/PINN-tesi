@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 # Import function for GIF
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from func.graphic_func import save_gif_PIL, plot2D_comparison
+from func.graphic_func import save_gif_PIL, plot2D_comparison, plot2D_final_result
 from func.history_tracker import TrainingHistory, compute_pinn_loss
 # Import architecture and training function from Heat2D_NN
 from Heat2D_NN import train_modelNN
@@ -276,3 +276,12 @@ if plot_files:
 
 # Loss History
 loss_history.plot_losses(save_path=os.path.join(final_dir, 'Inverse_Loss_History.png'), experiment_name="Inverse Heat2D")
+
+# Final Plot
+print("Generazione plot finale...")
+model_0.eval()
+with torch.no_grad():
+    T_final = model_0(xy_grid_flat).reshape(Nx_dom, Ny_dom)
+
+final_plot_path = os.path.join(final_dir, 'Inverse_Final_Result.png')
+plot2D_final_result(X, Y, T_grid, T_final, epochs_inverse, final_plot_path, data_points=xy_train, physics_points=xy_physics)
