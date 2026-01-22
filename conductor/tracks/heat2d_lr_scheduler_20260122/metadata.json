@@ -1,8 +1,0 @@
-{
-  "track_id": "heat2d_lr_scheduler_20260122",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-01-22T15:30:00Z",
-  "updated_at": "2026-01-22T15:30:00Z",
-  "description": "Implementa uno scheduler step decay per il learning rate per tutti i casi di heat2D con integrazione in grid search e logging."
-}

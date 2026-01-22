@@ -107,7 +107,7 @@ activation_options = [
 ]
 
 lr_strategies = [
-    'fixed',
+    #'fixed',
     'step_decay'
 ]
 
@@ -124,64 +124,80 @@ X, Y = torch.meshgrid(x_grid, y_grid, indexing='xy')
 T_grid = soluzione_analitica(X, Y, Lx, Ly, Nx=Nx_fourier)
 xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 
-# Preparazione dati Training (generati una volta per consistenza o rigenerati nel loop se seed cambia)
-# Per semplicità li generiamo una volta qui con seed fisso
+# Preparazione dati Training (generati una volta per consistenza)
 torch.manual_seed(123)
 
-# --- GENERAZIONE GRIGLIE FISICA E DATI ---
-# Griglia 45x45 per Physics (e per NN Grid)
-Nx_train, Ny_train = 45, 45
-x_tr_l = torch.linspace(0, Lx, Nx_train, device=device)
-y_tr_l = torch.linspace(0, Ly, Ny_train, device=device)
-X_tr, Y_tr = torch.meshgrid(x_tr_l, y_tr_l, indexing='xy')
-xy_physics_grid = torch.stack([X_tr.flatten(), Y_tr.flatten()], dim=1)
+# --- GENERAZIONE GRIGLIE FISICA E DATI (Master Sets) ---
+# 1. Grid Points (Internal): 40x40 = 1600 points
+Nx_grid_master, Ny_grid_master = 40, 40
+x_grid_int = torch.linspace(0, Lx, Nx_grid_master + 2, device=device)[1:-1]
+y_grid_int = torch.linspace(0, Ly, Ny_grid_master + 2, device=device)[1:-1]
+X_grid_int, Y_grid_int = torch.meshgrid(x_grid_int, y_grid_int, indexing='xy')
+xy_master_grid = torch.stack([X_grid_int.flatten(), Y_grid_int.flatten()], dim=1)
 
-# 1000 punti random aggiuntivi per la fisica (usati in PINN Data+Phys)
-num_phys_random = 1000
-xy_phys_random = torch.rand((num_phys_random, 2), device=device)
-xy_phys_random[:, 0] *= Lx
-xy_phys_random[:, 1] *= Ly
-xy_physics_mixed = torch.cat([xy_physics_grid, xy_phys_random], dim=0)
+# 2. Random Points (Internal): 1600 points
+num_master_random = 1600
+xy_master_random = torch.rand((num_master_random, 2), device=device)
+xy_master_random[:, 0] *= Lx
+xy_master_random[:, 1] *= Ly
 
-# Dati per NN Grid
-T_train_grid = soluzione_analitica(xy_physics_grid[:, 0:1], xy_physics_grid[:, 1:2], Lx, Ly, Nx=Nx_fourier)
-training_data_grid = (xy_physics_grid, T_train_grid)
+# 3. Boundary Points: 400 points (100 per side) - Equidistant
+num_b_side = 100
+# Left (x=0)
+x_b_l = torch.zeros(num_b_side, 1, device=device)
+y_b_l = torch.linspace(0, Ly, num_b_side, device=device).reshape(-1, 1)
+# Right (x=Lx)
+x_b_r = torch.ones(num_b_side, 1, device=device) * Lx
+y_b_r = torch.linspace(0, Ly, num_b_side, device=device).reshape(-1, 1)
+# Bottom (y=0)
+x_b_b = torch.linspace(0, Lx, num_b_side, device=device).reshape(-1, 1)
+y_b_b = torch.zeros(num_b_side, 1, device=device)
+# Top (y=Ly)
+x_b_t = torch.linspace(0, Lx, num_b_side, device=device).reshape(-1, 1)
+y_b_t = torch.ones(num_b_side, 1, device=device) * Ly
 
-# Dati Interni e Boundary (Data Loss)
-num_data_internal = 1600
-num_data_boundary = 100
+xy_master_boundary = torch.cat([
+    torch.cat([x_b_l, y_b_l], dim=1),
+    torch.cat([x_b_r, y_b_r], dim=1),
+    torch.cat([x_b_b, y_b_b], dim=1),
+    torch.cat([x_b_t, y_b_t], dim=1)
+], dim=0)
 
-x_int = torch.rand(num_data_internal, 1, device=device) * Lx
-y_int = torch.rand(num_data_internal, 1, device=device) * Ly
+# Pre-calcolo Soluzione Analitica per i Master Sets
+T_master_grid = soluzione_analitica(xy_master_grid[:, 0:1], xy_master_grid[:, 1:2], Lx, Ly, Nx=Nx_fourier)
+T_master_random = soluzione_analitica(xy_master_random[:, 0:1], xy_master_random[:, 1:2], Lx, Ly, Nx=Nx_fourier)
+T_master_boundary = soluzione_analitica(xy_master_boundary[:, 0:1], xy_master_boundary[:, 1:2], Lx, Ly, Nx=Nx_fourier)
 
-x_b_left = torch.zeros(num_data_boundary, 1, device=device)
-y_b_left = torch.rand(num_data_boundary, 1, device=device) * Ly
-x_b_right = torch.ones(num_data_boundary, 1, device=device) * Lx
-y_b_right = torch.rand(num_data_boundary, 1, device=device) * Ly
-x_b_bottom = torch.rand(num_data_boundary, 1, device=device) * Lx
-y_b_bottom = torch.zeros(num_data_boundary, 1, device=device)
-x_b_top = torch.rand(num_data_boundary, 1, device=device) * Lx
-y_b_top = torch.ones(num_data_boundary, 1, device=device) * Ly
+# --- CONFIGURAZIONE CASI ---
+# 0. NN Random: 1600 Random + 400 Boundary
+xy_train_nn_random = torch.cat([xy_master_random, xy_master_boundary], dim=0)
+T_train_nn_random = torch.cat([T_master_random, T_master_boundary], dim=0)
+training_data_0 = (xy_train_nn_random, T_train_nn_random)
 
-x_b_all = torch.cat([x_b_left, x_b_right, x_b_bottom, x_b_top], dim=0)
-y_b_all = torch.cat([y_b_left, y_b_right, y_b_bottom, y_b_top], dim=0)
+# 1. NN Grid: 1600 Grid + 400 Boundary
+xy_train_nn_grid = torch.cat([xy_master_grid, xy_master_boundary], dim=0)
+T_train_nn_grid = torch.cat([T_master_grid, T_master_boundary], dim=0)
+training_data_1 = (xy_train_nn_grid, T_train_nn_grid)
 
-# Dati Completi
-x_data = torch.cat([x_int, x_b_all], dim=0)
-y_data = torch.cat([y_int, y_b_all], dim=0)
-T_data = soluzione_analitica(x_data, y_data, Lx, Ly, Nx=Nx_fourier)
-xy_train = torch.cat([x_data, y_data], dim=1)
+# 2. PINN Data+Phys: Phys=Grid(1600), BC=Boundary(400), Data=RandomSubset(1000)
+num_subset = 1000
+xy_pinn_data = xy_master_random[:num_subset]
+T_pinn_data = T_master_random[:num_subset]
+# Per PINN Data+Phys, data_internal riceve i 1000 punti random
+pinn_data_internal = (xy_pinn_data, T_pinn_data)
+pinn_data_boundary = (xy_master_boundary, T_master_boundary)
 
-# Dati Separati PINN
-xy_internal = torch.cat([x_int, y_int], dim=1)
-T_internal = soluzione_analitica(x_int, y_int, Lx, Ly, Nx=Nx_fourier)
-xy_boundary = torch.cat([x_b_all, y_b_all], dim=1)
-T_boundary = soluzione_analitica(x_b_all, y_b_all, Lx, Ly, Nx=Nx_fourier)
+# 3. PINN Pure Phys: Phys=Grid(1600), BC=Boundary(400)
+# Usa gli stessi pinn_data_boundary, ma data_internal viene ignorato se peso=0
 
-training_data_NN = (xy_train, T_data)
+print(f"Punti generati per esperimenti:")
+print(f" - NN Random: {xy_train_nn_random.shape[0]} punti totali")
+print(f" - NN Grid:   {xy_train_nn_grid.shape[0]} punti totali")
+print(f" - PINN Data: {xy_pinn_data.shape[0]} punti supervisionati")
+print(f" - PINN Phys: {xy_master_grid.shape[0]} punti collocazione")
+print(f" - PINN BC:   {xy_master_boundary.shape[0]} punti boundary")
+
 validation_grid_tuple = (xy_grid_flat, T_grid, X, Y)
-data_internal = (xy_internal, T_internal)
-data_boundary = (xy_boundary, T_boundary)
 
 # --- GRID SEARCH EXECUTION ---
 total_configs = len(layers_options) * len(epochs_options) * len(activation_options) * len(lr_strategies)
@@ -238,7 +254,7 @@ for layers_config in layers_options:
                     history_0 = train_modelNN(
                         model=model_0,
                         optimizer=optimizer_0,
-                        training_data=training_data_NN,
+                        training_data=training_data_0,
                         validation_grid=validation_grid_tuple,
                         epochs=epochs,
                         plots_dir=plots_dir_0,
@@ -289,7 +305,7 @@ for layers_config in layers_options:
                     history_1 = train_modelNN_griglia(
                         model=model_1,
                         optimizer=optimizer_1,
-                        training_data=training_data_grid,
+                        training_data=training_data_1,
                         validation_grid=validation_grid_tuple,
                         epochs=epochs,
                         plots_dir=plots_dir_1,
@@ -342,15 +358,15 @@ for layers_config in layers_options:
                     history_2 = train_modelPINN(
                         model=model_2,
                         optimizer=optimizer_2,
-                        data_internal=data_internal,
-                        data_boundary=data_boundary,
+                        data_internal=pinn_data_internal,
+                        data_boundary=pinn_data_boundary,
                         validation_grid=validation_grid_tuple,
                         physics_problem=heat_physics,
                         epochs=epochs,
                         plots_dir=plots_dir_2,
                         final_dir=exp_dir_2,
                         show_plots_interactively=show_plots_interactively,
-                        collocation_points=xy_physics_mixed,
+                        collocation_points=xy_master_grid,
                         lr_strategy=lr_strat
                     )
                     
@@ -402,8 +418,8 @@ for layers_config in layers_options:
                     history_3 = train_modelPINN(
                         model=model_3,
                         optimizer=optimizer_3,
-                        data_internal=data_internal,
-                        data_boundary=data_boundary,
+                        data_internal=pinn_data_internal,
+                        data_boundary=pinn_data_boundary,
                         validation_grid=validation_grid_tuple,
                         physics_problem=heat_physics,
                         epochs=epochs,
@@ -412,7 +428,7 @@ for layers_config in layers_options:
                         show_plots_interactively=show_plots_interactively,
                         loss_weights=pp_config['loss_weights'],
                         warmup_epochs=pp_config['warmup_epochs'],
-                        collocation_points=xy_physics_grid,
+                        collocation_points=xy_master_grid,
                         lr_strategy=lr_strat
                     )
 
@@ -464,8 +480,8 @@ for layers_config in layers_options:
                     model_4_wrapped, history_4 = train_modelPINN_HardBC(
                         model=model_4,
                         optimizer=optimizer_4,
-                        data_internal=data_internal,
-                        data_boundary=data_boundary,
+                        data_internal=pinn_data_internal,
+                        data_boundary=pinn_data_boundary,
                         validation_grid=validation_grid_tuple,
                         physics_problem=heat_physics,
                         epochs=epochs,

@@ -13,8 +13,3 @@ This file tracks all major tracks for the project. Each track has its own detail
 *Link: [./tracks/heat2d_analysis_20260122/](./tracks/heat2d_analysis_20260122/)*
 
 ---
-
-- [ ] **Track: Standardize Heat2D Point Distribution**
-*Link: [./tracks/heat2d_point_standardization_20260122/](./tracks/heat2d_point_standardization_20260122/)*
-
----
