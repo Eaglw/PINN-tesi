@@ -10,6 +10,7 @@ Il caso del CSTR e dello scambio di calore sono due esempi che mi servono per se
 
 ## Core Goals
 - **Foundational Validation:** Use CSTR and 2D Heat Transfer problems to validate the PINN architecture (Pure Physics vs Data-Driven), training strategies (e.g., warm-up, hybrid optimization), and code structure.
+- **Verified Mathematical Core:** Ensure that the underlying physical equations and analytical benchmarks are mathematically rigorous and numerically verified against theoretical solutions.
 - **CFD Readiness:** Establish a codebase capable of scaling to Computational Fluid Dynamics problems, specifically for Non-Newtonian fluids.
 - **Modular Physics:** Decouple the solver logic from the physical equations to allow seamless transitions from ODEs (CSTR) / simple PDEs (Heat) to complex systems (Navier-Stokes + Constitutive equations).
 - **Inverse Problem Capability:** Ensure robust functionality for parameter estimation (e.g., identifying viscosity coefficients or reaction rates) alongside forward simulations.
