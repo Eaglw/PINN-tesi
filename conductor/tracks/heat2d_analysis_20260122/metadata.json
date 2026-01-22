@@ -1,8 +1,0 @@
-{
-  "track_id": "heat2d_analysis_20260122",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-01-22T21:24:00Z",
-  "updated_at": "2026-01-22T21:24:00Z",
-  "description": "Create a script to analyze and visualize Heat2D results from csv"
-}

@@ -18,6 +18,7 @@ Il modulo `Heat2D` ha superato le iniziali difficoltà di convergenza grazie a m
 *   **Strategia di Warm-up:** È stata implementata una fase iniziale di training in cui la fisica è disattivata (o pesata a 0), permettendo alla rete di imparare prima la geometria della soluzione dai dati.
 *   **Raffinamento L-BFGS:** L'aggiunta di una fase finale di ottimizzazione del secondo ordine ha portato la loss globale a valori estremamente bassi (**~3e-4**), rendendo la soluzione della PINN competitiva e visivamente indistinguibile da quella della NN supervisionata classica.
 *   **Architettura:** Il passaggio a una rete più profonda (4 layer da 50 neuroni) e l'uso dell'attivazione `Tanh` hanno migliorato significativamente la capacità rappresentativa del modello.
+*   **Analisi Avanzata dei Risultati:** È stato introdotto uno strumento di analisi automatizzata (`analyze_results.py`) che permette di confrontare sistematicamente le performance di diverse architetture e strategie di training tramite grafici statistici (bar charts, box plots, heatmaps).
 
 ## Setup & Installazione
 
@@ -40,12 +41,15 @@ pip install -r requirements.txt
 
 ### Dipendenze Principali
 *   `torch`: Core del framework di deep learning.
-*   `numpy`, `matplotlib`: Calcolo numerico e visualizzazione.
+*   `numpy`, `pandas`: Calcolo numerico e manipolazione dati.
+*   `matplotlib`, `seaborn`: Visualizzazione e analisi statistica.
 *   `tqdm`: Barre di progresso per il monitoraggio del training.
 
 ## Struttura del Progetto
 
 - **`Heat2D/`**: Modulo per l'equazione del calore 2D (Laplace). Include script per NN classica e PINN con strategie avanzate.
+    - `Heat2D_main.py`: Script principale per eseguire gli esperimenti.
+    - `analyze_results.py`: Strumento per generare grafici comparativi e statistiche a partire dai risultati salvati in CSV.
 - **`IrreversibleCSTR/`**: Modulo per il reattore CSTR. Include script per problemi diretti, inversi e ottimizzazione iperparametri.
 - **`func/`**: Funzioni di utilità condivise (plotting, tracking della loss).
 - **`notes/`**: Documentazione tecnica e log degli esperimenti.
