@@ -92,23 +92,11 @@ def train_modelPINN(
     
     plot_files = []
     
-    # Generazione punti di collocazione (STRETTAMENTE INTERNI)
-    if collocation_points is not None:
-        xy_physics = collocation_points.clone()
-        if not xy_physics.requires_grad:
-            xy_physics.requires_grad_(True)
+    # Store dimensions for resampling
+    if isinstance(n_collocation, int):
+        Nx_phys, Ny_phys = n_collocation, n_collocation
     else:
-        if isinstance(n_collocation, int):
-            Nx_phys, Ny_phys = n_collocation, n_collocation
-        else:
-            Nx_phys, Ny_phys = n_collocation
-            
-        # Usiamo +2 e slicing [1:-1] per escludere 0 e 1
-        x_phys_line = torch.linspace(0, Lx, Nx_phys + 2, device=device)[1:-1]
-        y_phys_line = torch.linspace(0, Ly, Ny_phys + 2, device=device)[1:-1]
-        X_phys, Y_phys = torch.meshgrid(x_phys_line, y_phys_line, indexing='xy')
-        xy_physics = torch.stack([X_phys.flatten(), Y_phys.flatten()], dim=1)
-        xy_physics.requires_grad_(True)
+        Nx_phys, Ny_phys = n_collocation
     
     # Training Loop (Adam)
     pbar = tqdm(range(epochs), desc="Training PINN (Adam)")
@@ -116,11 +104,11 @@ def train_modelPINN(
     
     # Configurazione Pesi Loss
     if loss_weights is None:
-        loss_weights = {'data': 1.0, 'bc': 1.0, 'physics': 0.05}
+        loss_weights = {'data': 1.0, 'bc': 1.0, 'physics': 1.0}
     
     lambda_data = loss_weights.get('data', 1.0)
     lambda_bc = loss_weights.get('bc', 1.0)
-    target_lambda_physics = loss_weights.get('physics', 0.05)
+    target_lambda_physics = loss_weights.get('physics', 1.0)
     
     # Configurazione Warmup
     if warmup_epochs is None:
@@ -133,6 +121,15 @@ def train_modelPINN(
         
         model.train()
         optimizer.zero_grad()
+
+        # Resampling Collocation Points (Every Epoch)
+        # We keep the same number of points but change their locations
+        if collocation_points is None:
+            # Random points in [0, Lx] x [0, Ly]
+            xy_physics = torch.rand((Nx_phys * Ny_phys, 2), device=device)
+            xy_physics[:, 0] = xy_physics[:, 0] * Lx
+            xy_physics[:, 1] = xy_physics[:, 1] * Ly
+            xy_physics.requires_grad_(True)
         
         # Gestione Warmup e Fisica
         if epoch < warmup_epochs:
@@ -219,6 +216,14 @@ def train_modelPINN(
 
     # --- L-BFGS Optimization Phase ---
     print("\nInizio fase di raffinamento con L-BFGS...")
+    
+    # Re-sample collocation points one last time for a clean L-BFGS surface
+    if collocation_points is None:
+        xy_physics = torch.rand((Nx_phys * Ny_phys, 2), device=device)
+        xy_physics[:, 0] = xy_physics[:, 0] * Lx
+        xy_physics[:, 1] = xy_physics[:, 1] * Ly
+        xy_physics.requires_grad_(True)
+
     optimizer_lbfgs = torch.optim.LBFGS(
         model.parameters(), 
         lr=1.0, 
@@ -274,8 +279,17 @@ def train_modelPINN(
     with torch.no_grad():
         T_final = model(xy_grid).reshape(Nx_dom, Ny_dom)
     
-    # Concatenate data points for visualization
-    xy_data_points = torch.cat([xy_int, xy_bc], dim=0)
+    # Concatenate data points for visualization based on weights
+    # If lambda_data is 0 (Pure Physics), we only show boundary points if lambda_bc > 0
+    lambda_data_viz = loss_weights.get('data', 1.0)
+    lambda_bc_viz = loss_weights.get('bc', 1.0)
+    viz_data_points = []
+    if lambda_data_viz > 0:
+        viz_data_points.append(xy_int)
+    if lambda_bc_viz > 0:
+        viz_data_points.append(xy_bc)
+    
+    xy_data_points = torch.cat(viz_data_points, dim=0) if viz_data_points else None
 
     # Salvataggio ultimo plot (Results)
     final_path = os.path.join(final_dir, 'PINNfinal_result.png')

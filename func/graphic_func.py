@@ -20,9 +20,9 @@ def plot_result(i,x,y,x_data,y_data,yh,xp=None):
     plt.figure(figsize=(8,4))
     plt.plot(x,y, color="grey", linewidth=2, alpha=0.8, label="Exact solution")
     plt.plot(x,yh, color="tab:blue", linewidth=4, alpha=0.8, label="Neural network prediction")
-    plt.scatter(x_data, y_data, s=60, color="tab:orange", alpha=0.4, label='Training data')
+    plt.scatter(x_data, y_data, s=60, color="white", alpha=0.4, label='Training data')
     if xp is not None:
-        plt.scatter(xp, -0*torch.ones_like(xp), s=60, color="tab:green", alpha=0.4, 
+        plt.scatter(xp, -0*torch.ones_like(xp), s=60, color="white", alpha=0.4, 
                     label='Physics loss training locations')
     l = plt.legend(loc=(1.01,0.34), frameon=False, fontsize="large")
     plt.setp(l.get_texts(), color="k")
@@ -60,7 +60,7 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     # Aggiungi i punti della fisica
     if physics_points is not None:
         xy_physics_np = physics_points.detach().cpu().numpy()
-        ax.scatter(xy_physics_np[:, 0], xy_physics_np[:, 1], s=5, color='cyan', alpha=0.6, label='Punti Fisica')
+        ax.scatter(xy_physics_np[:, 0], xy_physics_np[:, 1], s=5, color='white', alpha=0.6, label='Punti Fisica')
         ax.legend(loc='upper right')
 
     # 2. Errore Assoluto (Più robusto)
@@ -114,11 +114,11 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, data_points=None
     # Overlay Points
     if physics_points is not None:
         xy_phys = physics_points.detach().cpu().numpy()
-        ax.scatter(xy_phys[:, 0], xy_phys[:, 1], s=10, c='cyan', marker='x', alpha=0.6, label='Physics Points')
+        ax.scatter(xy_phys[:, 0], xy_phys[:, 1], s=10, c='white', marker='x', alpha=0.6, label='Physics Points')
         
     if data_points is not None:
         xy_data = data_points.detach().cpu().numpy()
-        ax.scatter(xy_data[:, 0], xy_data[:, 1], s=15, c='red', marker='o', alpha=0.8, label='Data Points')
+        ax.scatter(xy_data[:, 0], xy_data[:, 1], s=15, c='white', marker='o', alpha=0.8, label='Data Points')
         
     if physics_points is not None or data_points is not None:
         ax.legend(loc='upper right', framealpha=0.9)

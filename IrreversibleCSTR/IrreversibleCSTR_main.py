@@ -79,8 +79,7 @@ y_data = y[0:150:10]
 print(x_data.shape, y_data.shape)
 plt.figure()
 plt.plot(x.cpu(), y.cpu(), label="Exact solution")
-plt.scatter(x_data.cpu(), y_data.cpu(), color="tab:orange", label="Training data")
-plt.legend()
+    plt.scatter(x_data.cpu(), y_data.cpu(), color="white", label="Training data")plt.legend()
 #plt.show()
 
 

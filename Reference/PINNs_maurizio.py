@@ -90,8 +90,7 @@ y_data = y[0:500:20]#y[0:200:1]
 
 plt.figure()
 plt.plot(x, y, label="Exact solution")
-plt.scatter(x_data, y_data, color="tab:orange", label="Training data")
-plt.legend()
+    plt.scatter(x_data, y_data, color="white", label="Training data")plt.legend()
 
 
 #plt.show()
@@ -102,9 +101,9 @@ def plot_result(x, y, x_data, y_data, yh, xp=None):
     plt.figure(figsize=(8, 4))
     plt.plot(x, y, color="grey", linewidth=2, alpha=0.8, label="Exact solution")
     plt.plot(x, yh, color="tab:blue", linewidth=4, alpha=0.8, label="Neural network prediction")
-    plt.scatter(x_data, y_data, s=60, color="tab:orange", alpha=0.4, label='Training data')
+    plt.scatter(x_data, y_data, s=60, color="white", alpha=0.4, label='Training data')
     if xp is not None:
-        plt.scatter(xp, -0 * torch.ones_like(xp), s=60, color="tab:green", alpha=0.4,
+        plt.scatter(xp, -0 * torch.ones_like(xp), s=60, color="white", alpha=0.4,
                     label='Physics loss training locations')
     l = plt.legend(loc=(1.01, 0.34), frameon=False, fontsize="large")
     plt.setp(l.get_texts(), color="k")
@@ -312,8 +311,8 @@ if goal == objectives[2]:
         """
         plt.figure()
         plt.plot(x, y, label="Exact solution")
-        plt.scatter(x_data_new, y_data_new, color="tab:orange", label="Training data")
-        plt.scatter(x_data_new, model(x_data_new).detach().numpy(), color='red', label="Prediction")
+        plt.scatter(x_data_new, y_data_new, color="white", label="Training data")
+        plt.scatter(x_data_new, model(x_data_new).detach().numpy(), color='white', label="Prediction")
         plt.legend()
         
         
@@ -455,8 +454,8 @@ if goal == objectives[3]:
         """
         plt.figure()
         plt.plot(x, y, label="Exact solution")
-        plt.scatter(x_data_new, y_data_new, color="tab:orange", label="Training data")
-        plt.scatter(x_data_new, model(x_data_new).detach().numpy(), color='red', label="Prediction")
+        plt.scatter(x_data_new, y_data_new, color="white", label="Training data")
+        plt.scatter(x_data_new, model(x_data_new).detach().numpy(), color='white', label="Prediction")
         plt.legend()
 
 

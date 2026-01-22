@@ -119,8 +119,7 @@ layers_options = [
 ]
 
 epochs_options = [
-    20000, 
-    50000
+    20000
 ]
 
 activation_options = [
@@ -457,7 +456,7 @@ for layers_config in layers_options:
                 model_4 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
                 optimizer_4 = torch.optim.Adam(model_4.parameters(), lr=1e-3)
                 
-                history_4 = train_modelPINN_HardBC(
+                model_4_wrapped, history_4 = train_modelPINN_HardBC(
                     model=model_4,
                     optimizer=optimizer_4,
                     data_internal=data_internal,
@@ -471,7 +470,7 @@ for layers_config in layers_options:
                 )
                 
                 # --- LOGGING 4_PINN_HardBC ---
-                l2_err, max_err = compute_metrics(model_4, xy_grid_flat, T_grid)
+                l2_err, max_err = compute_metrics(model_4_wrapped, xy_grid_flat, T_grid)
                 def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
 
                 log_data = {

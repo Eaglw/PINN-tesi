@@ -55,11 +55,9 @@ class HardBCWrapper(nn.Module):
             # Se lambda_n * Lx è grande, sinh overflow. 
             # Implementazione safe:
             arg_x = lambda_n * x
-            arg_L = lambda_n * self.Lx
+            arg_L = torch.tensor(lambda_n * self.Lx, device=x.device, dtype=x.dtype)
             
             # term_x = torch.sinh(arg_x) / torch.sinh(arg_L) 
-            # Meglio: exp(arg_x - arg_L) * (1 - exp(-2*arg_x)) / (1 - exp(-2*arg_L))
-            # Per PINN standard (L~1), sinh è ok.
             term_x = torch.sinh(arg_x) / torch.sinh(arg_L)
             
             term = An * term_x * torch.sin(lambda_n * y)
@@ -317,8 +315,17 @@ def train_modelPINN(
     with torch.no_grad():
         T_final = wrapped_model(xy_grid).reshape(Nx_dom, Ny_dom)
     
-    # Concatenate data points for visualization
-    xy_data_points = torch.cat([xy_int, xy_bc], dim=0)
+    # Concatenate data points for visualization based on weights
+    # If lambda_data is 0 (Pure Physics), we only show boundary points if lambda_bc > 0
+    lambda_data_viz = loss_weights.get('data', 1.0)
+    lambda_bc_viz = loss_weights.get('bc', 0.0) # In HardBC, bc weight is 0
+    viz_data_points = []
+    if lambda_data_viz > 0:
+        viz_data_points.append(xy_int)
+    if lambda_bc_viz > 0:
+        viz_data_points.append(xy_bc)
+    
+    xy_data_points = torch.cat(viz_data_points, dim=0) if viz_data_points else None
 
     final_path = os.path.join(final_dir, 'PINNfinal_result.png')
     plot2D_final_result(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, data_points=xy_data_points, physics_points=xy_physics)
@@ -336,4 +343,4 @@ def train_modelPINN(
     else:
         plt.close("all")
 
-    return loss_history
+    return wrapped_model, loss_history

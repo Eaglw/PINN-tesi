@@ -141,26 +141,9 @@ class TrainingHistory:
 
 def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, **kwargs):
     """
-    Calcola le componenti della loss per una PINN in modo generico.
-    
-    Args:
-        model: Il modello PyTorch.
-        x_data: Input dei dati di training (punti interni / supervisionati).
-        y_data: Target dei dati di training.
-        x_bc: Input dei dati al contorno (Boundary Conditions).
-        y_bc: Target dei dati al contorno.
-        physics_loss_fn: Funzione legacy che accetta (model, x_physics) e restituisce la loss sulla PDE.
-        x_physics: Punti di collocazione per la loss fisica.
-        ic_loss_fn: Funzione opzionale per condizioni iniziali, accetta (model).
-        physics_problem: Istanza di una classe PhysicsProblem che definisce residual() e boundary_loss().
-        lambda_data: Peso per la data loss (interna).
-        lambda_bc: Peso per la boundary loss.
-        lambda_physics: Peso per la physics loss.
-        **kwargs: Argomenti extra da passare alle funzioni di loss custom.
-        
-    Returns:
-        total_loss: Somma delle loss.
-        loss_dict: Dizionario con i dettagli {'total_loss': ..., 'data_loss': ..., ...}.
+    Computes the components of the PINN loss.
+    Note: Each group (data, bc, physics) returns its own MEAN squared error.
+    Total Loss = lambda_data * Mean(data_res^2) + lambda_bc * Mean(bc_res^2) + lambda_physics * Mean(pde_res^2)
     """
     loss_dict = {}
     total_loss = 0.0

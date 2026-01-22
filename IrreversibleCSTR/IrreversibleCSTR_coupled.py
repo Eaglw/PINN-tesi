@@ -130,7 +130,7 @@ def plot_coupled_result(i, t, C_true, T_true, t_data, C_data_norm, T_data_norm, 
     plt.subplot(1, 2, 1)
     plt.plot(t.cpu(), C_true.cpu(), 'grey', linewidth=2, alpha=0.8, label="Exact Solution")
     plt.plot(t.cpu(), C_pred, 'tab:blue', linewidth=4, alpha=0.8, label="NN Prediction")
-    plt.scatter(t_data.cpu(), C_data, s=60, color="tab:orange", alpha=0.4, label='Training Data')
+    plt.scatter(t_data.cpu(), C_data, s=60, color="white", alpha=0.4, label='Training Data')
     if t_phys is not None:
          # Plot punti fisica sulla riga 0 (o minimo)
          plt.scatter(t_phys.detach().cpu(), torch.zeros_like(t_phys.detach().cpu()), 
@@ -144,7 +144,7 @@ def plot_coupled_result(i, t, C_true, T_true, t_data, C_data_norm, T_data_norm, 
     plt.subplot(1, 2, 2)
     plt.plot(t.cpu(), T_true.cpu(), 'grey', linewidth=2, alpha=0.8, label="Exact Solution")
     plt.plot(t.cpu(), T_pred, 'tab:red', linewidth=4, alpha=0.8, label="NN Prediction")
-    plt.scatter(t_data.cpu(), T_data, s=60, color="tab:orange", alpha=0.4, label='Training Data')
+    plt.scatter(t_data.cpu(), T_data, s=60, color="white", alpha=0.4, label='Training Data')
     plt.xlabel('Time')
     plt.ylabel('Temperature (K)')
     plt.title(f'Temperature (Step {i+1})')
