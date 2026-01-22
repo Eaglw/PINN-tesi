@@ -13,8 +13,10 @@ This plan covers the creation of a maintenance script to clean up `Heat2D` resul
 
 ## Phase 2: Execution and Cleanup
 
-- [ ] Task: Execute the script in Dry Run mode and verify targeted items
-- [ ] Task: Run the cleanup script and confirm deletion
-- [ ] Task: Verify that `results.csv` no longer contains filtered entries
-- [ ] Task: Verify that identified directories have been removed from the filesystem
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Execution and Cleanup' (Protocol in workflow.md)
+- [x] Task: Execute the script in Dry Run mode and verify targeted items
+- [x] Task: Run the cleanup script and confirm deletion
+- [x] Task: Verify that `results.csv` no longer contains filtered entries
+- [x] Task: Verify that identified directories have been removed from the filesystem
+- [x] Task: Update script to scan filesystem for orphan experiment folders (< 10k epochs)
+- [x] Task: Execute updated script to clean orphan folders
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Execution and Cleanup' (Protocol in workflow.md)
