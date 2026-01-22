@@ -117,19 +117,22 @@ def train_modelPINN(
     # Scheduler per il Learning Rate
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6000, gamma=0.4)
 
+    # Pre-generate Collocation Points (Fixed across epochs)
+    if collocation_points is not None:
+        xy_physics = collocation_points.clone()
+        if not xy_physics.requires_grad:
+            xy_physics.requires_grad_(True)
+    else:
+        # Random points in [0, Lx] x [0, Ly], fixed for the whole training
+        xy_physics = torch.rand((Nx_phys * Ny_phys, 2), device=device)
+        xy_physics[:, 0] = xy_physics[:, 0] * Lx
+        xy_physics[:, 1] = xy_physics[:, 1] * Ly
+        xy_physics.requires_grad_(True)
+
     for epoch in pbar:
         
         model.train()
         optimizer.zero_grad()
-
-        # Resampling Collocation Points (Every Epoch)
-        # We keep the same number of points but change their locations
-        if collocation_points is None:
-            # Random points in [0, Lx] x [0, Ly]
-            xy_physics = torch.rand((Nx_phys * Ny_phys, 2), device=device)
-            xy_physics[:, 0] = xy_physics[:, 0] * Lx
-            xy_physics[:, 1] = xy_physics[:, 1] * Ly
-            xy_physics.requires_grad_(True)
         
         # Gestione Warmup e Fisica
         if epoch < warmup_epochs:
@@ -216,13 +219,6 @@ def train_modelPINN(
 
     # --- L-BFGS Optimization Phase ---
     print("\nInizio fase di raffinamento con L-BFGS...")
-    
-    # Re-sample collocation points one last time for a clean L-BFGS surface
-    if collocation_points is None:
-        xy_physics = torch.rand((Nx_phys * Ny_phys, 2), device=device)
-        xy_physics[:, 0] = xy_physics[:, 0] * Lx
-        xy_physics[:, 1] = xy_physics[:, 1] * Ly
-        xy_physics.requires_grad_(True)
 
     optimizer_lbfgs = torch.optim.LBFGS(
         model.parameters(), 

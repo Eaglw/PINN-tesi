@@ -73,3 +73,4 @@ python Heat2D/Heat2D_main.py
 
 ## Note aggiunte
 Prima di scrivere qualsiasi tipo di codice spiegami cosa stai cercando di fare. 
+Se sei su windows non usare && per dare più comandi in uno, usa il modo corretto o runna singolarmente i comandi

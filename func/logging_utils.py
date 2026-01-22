@@ -62,10 +62,9 @@ def update_results_csv(file_path, data_dict):
                    Keys must match the specified columns.
     """
     fieldnames = [
-        'Timestamp', 'Architecture', 'Activation_Func', 'Epochs', 'Run_Type',
+        'Timestamp', 'Max_Relative_Error_Peak', 'Architecture', 'Activation_Func', 'Epochs', 'Run_Type',
         'Optimizer', 'Learning_Rate', 'Loss_Total', 'Loss_Physics', 
-        'Loss_Boundary', 'Loss_Data', 'L2_Relative_Error', 
-        'Max_Relative_Error_Peak', 'Seed'
+        'Loss_Boundary', 'Loss_Data', 'L2_Relative_Error', 'Seed'
     ]
     
     # Ensure directory exists

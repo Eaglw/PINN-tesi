@@ -13,39 +13,17 @@ from func.graphic_func import save_gif_PIL, plot2D_comparison
 from func.logging_utils import compute_metrics, update_results_csv
 from datetime import datetime
 
-def setup_experiment_folder(parent_dir, goal_folder, description, source_script_path=None):
+def setup_experiment_folder(parent_dir, goal_folder, description):
     """
-    Creates experiment folder, plots folder, and copies the training script with a header.
+    Creates experiment folder and plots folder.
     Arguments:
         parent_dir: The parent directory (e.g., experiments/Config_X_Y_Z)
         goal_folder: The specific experiment folder (e.g., 0_NN_Random)
     """
-    base_dir = os.path.dirname(os.path.abspath(__file__))
     exp_dir = os.path.join(parent_dir, goal_folder)
     plots_dir = os.path.join(exp_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
     
-    if source_script_path:
-        # If relative, resolve against base_dir (Heat2D/)
-        if not os.path.isabs(source_script_path):
-            full_source_path = os.path.normpath(os.path.join(base_dir, source_script_path))
-        else:
-            full_source_path = source_script_path
-            
-        script_name = os.path.basename(full_source_path)
-        dest_path = os.path.join(exp_dir, script_name)
-        
-        header = f'"""\nExperiment Goal: {goal_folder}\nDescription: {description}\n"""\n'
-        
-        # Read source
-        if os.path.exists(full_source_path):
-            with open(full_source_path, 'r', encoding='utf-8') as src:
-                content = src.read()
-            with open(dest_path, 'w', encoding='utf-8') as dst:
-                dst.write(header + content)
-        else:
-            print(f"Warning: Source script {full_source_path} not found.")
-
     return exp_dir, plots_dir
 
 # --- 1. DEFINIZIONE DEL PROBLEMA E SOLUZIONE ANALITICA ---
@@ -119,12 +97,12 @@ layers_options = [
 ]
 
 epochs_options = [
-    20000
+    500
 ]
 
 activation_options = [
-    nn.Tanh,
-    # nn.Sigmoid,
+    #nn.Tanh,
+    # nn.SiLU,
     nn.GELU
 ]
 
@@ -144,6 +122,27 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 # Preparazione dati Training (generati una volta per consistenza o rigenerati nel loop se seed cambia)
 # Per semplicità li generiamo una volta qui con seed fisso
 torch.manual_seed(123)
+
+# --- GENERAZIONE GRIGLIE FISICA E DATI ---
+# Griglia 45x45 per Physics (e per NN Grid)
+Nx_train, Ny_train = 45, 45
+x_tr_l = torch.linspace(0, Lx, Nx_train, device=device)
+y_tr_l = torch.linspace(0, Ly, Ny_train, device=device)
+X_tr, Y_tr = torch.meshgrid(x_tr_l, y_tr_l, indexing='xy')
+xy_physics_grid = torch.stack([X_tr.flatten(), Y_tr.flatten()], dim=1)
+
+# 1000 punti random aggiuntivi per la fisica (usati in PINN Data+Phys)
+num_phys_random = 1000
+xy_phys_random = torch.rand((num_phys_random, 2), device=device)
+xy_phys_random[:, 0] *= Lx
+xy_phys_random[:, 1] *= Ly
+xy_physics_mixed = torch.cat([xy_physics_grid, xy_phys_random], dim=0)
+
+# Dati per NN Grid
+T_train_grid = soluzione_analitica(xy_physics_grid[:, 0:1], xy_physics_grid[:, 1:2], Lx, Ly, Nx=Nx_fourier)
+training_data_grid = (xy_physics_grid, T_train_grid)
+
+# Dati Interni e Boundary (Data Loss)
 num_data_internal = 1600
 num_data_boundary = 100
 
@@ -214,8 +213,7 @@ for layers_config in layers_options:
                 exp_dir_0, plots_dir_0 = setup_experiment_folder(
                     config_dir,
                     "0_NN_Random", 
-                    f"NN Random. Config: {config_name}",
-                    "src/Heat2D_NN.py"
+                    f"NN Random. Config: {config_name}"
                 )
                 from Heat2D.src.Heat2D_NN import train_modelNN
                 
@@ -265,20 +263,10 @@ for layers_config in layers_options:
                 exp_dir_1, plots_dir_1 = setup_experiment_folder(
                     config_dir,
                     "1_NN_Grid", 
-                    f"NN Grid. Config: {config_name}",
-                    "src/Heat2D_NN_griglia.py"
+                    f"NN Grid. Config: {config_name}"
                 )
                 from Heat2D.src.Heat2D_NN_griglia import train_modelNN_griglia
                 
-                # Generazione Griglia Train
-                Nx_train, Ny_train = 45, 45
-                x_tr_l = torch.linspace(0, Lx, Nx_train, device=device)
-                y_tr_l = torch.linspace(0, Ly, Ny_train, device=device)
-                X_tr, Y_tr = torch.meshgrid(x_tr_l, y_tr_l, indexing='xy')
-                xy_train_grid = torch.stack([X_tr.flatten(), Y_tr.flatten()], dim=1)
-                T_train_grid = soluzione_analitica(X_tr.flatten().unsqueeze(1), Y_tr.flatten().unsqueeze(1), Lx, Ly, Nx=Nx_fourier)
-                training_data_grid = (xy_train_grid, T_train_grid)
-
                 model_1 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
                 optimizer_1 = torch.optim.Adam(model_1.parameters(), lr=1e-3)
                 
@@ -325,8 +313,7 @@ for layers_config in layers_options:
                 exp_dir_2, plots_dir_2 = setup_experiment_folder(
                     config_dir,
                     "2_PINN_DataPhys", 
-                    f"PINN Data+Phys. Config: {config_name}",
-                    "src/Heat2D_PINN.py"
+                    f"PINN Data+Phys. Config: {config_name}"
                 )
                 from Heat2D.src.Heat2D_PINN import train_modelPINN
                 from Heat2D.src.physics import HeatEquation2D
@@ -345,7 +332,8 @@ for layers_config in layers_options:
                     epochs=epochs,
                     plots_dir=plots_dir_2,
                     final_dir=exp_dir_2,
-                    show_plots_interactively=show_plots_interactively 
+                    show_plots_interactively=show_plots_interactively,
+                    collocation_points=xy_physics_mixed
                 )
                 
                 # --- LOGGING 2_PINN_DataPhys ---
@@ -386,8 +374,7 @@ for layers_config in layers_options:
                 exp_dir_3, plots_dir_3 = setup_experiment_folder(
                     config_dir,
                     "3_PINN_PurePhys", 
-                    f"PINN PurePhys. Config: {config_name}",
-                    "src/Heat2D_PINN.py"
+                    f"PINN PurePhys. Config: {config_name}"
                 )
                 from Heat2D.src.Heat2D_PINN import train_modelPINN
                 from Heat2D.src.physics import HeatEquation2D
@@ -409,7 +396,8 @@ for layers_config in layers_options:
                     final_dir=exp_dir_3,
                     show_plots_interactively=show_plots_interactively,
                     loss_weights=pp_config['loss_weights'],
-                    warmup_epochs=pp_config['warmup_epochs']
+                    warmup_epochs=pp_config['warmup_epochs'],
+                    collocation_points=xy_physics_grid
                 )
 
                 # --- LOGGING 3_PINN_PurePhys ---
@@ -421,11 +409,10 @@ for layers_config in layers_options:
                     'Architecture': str(layers_config),
                     'Activation_Func': get_activation_name(act_fn),
                     'Epochs': epochs,
-                    'Run_Type': 'PINN_PurePhys',
-                    'Optimizer': 'Adam',
-                    'Learning_Rate': 1e-3,
-                    'Loss_Total': get_last(history_3, 'total_loss'),
-                    'Loss_Physics': get_last(history_3, 'pde_loss'),
+                                        'Run_Type': 'PINN_PurePhys',
+                                        'Optimizer': 'Adam + L-BFGS',
+                                        'Learning_Rate': 1e-3, 
+                                        'Loss_Total': get_last(history_3, 'total_loss'),                    'Loss_Physics': get_last(history_3, 'pde_loss'),
                     'Loss_Boundary': get_last(history_3, 'bc_loss'), 
                     'Loss_Data': get_last(history_3, 'data_loss'),
                     'L2_Relative_Error': l2_err,
@@ -446,8 +433,7 @@ for layers_config in layers_options:
                 exp_dir_4, plots_dir_4 = setup_experiment_folder(
                     config_dir,
                     "4_PINN_HardBC", 
-                    f"PINN HardBC. Config: {config_name}",
-                    "src/Heat2D_PINN_hardBC.py"
+                    f"PINN HardBC. Config: {config_name}"
                 )
                 from Heat2D.src.Heat2D_PINN_hardBC import train_modelPINN as train_modelPINN_HardBC
                 from Heat2D.src.physics import HeatEquation2D
@@ -478,11 +464,10 @@ for layers_config in layers_options:
                     'Architecture': str(layers_config),
                     'Activation_Func': get_activation_name(act_fn),
                     'Epochs': epochs,
-                    'Run_Type': 'PINN_HardBC',
-                    'Optimizer': 'Adam',
-                    'Learning_Rate': 1e-3,
-                    'Loss_Total': get_last(history_4, 'total_loss'),
-                    'Loss_Physics': get_last(history_4, 'pde_loss'),
+                                        'Run_Type': 'PINN_HardBC',
+                                        'Optimizer': 'Adam + L-BFGS',
+                                        'Learning_Rate': 1e-3, 
+                                        'Loss_Total': get_last(history_4, 'total_loss'),                    'Loss_Physics': get_last(history_4, 'pde_loss'),
                     'Loss_Boundary': 0, # HardBC enforces boundary, usually no explicit loss or it's 0
                     'Loss_Data': get_last(history_4, 'data_loss'),
                     'L2_Relative_Error': l2_err,
