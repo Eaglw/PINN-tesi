@@ -20,7 +20,7 @@
     - [ ] Create function `plot_hyperparam_heatmap()` to show performance across `Architecture` vs `Activation_Func`.
 - [ ] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
 
-## Phase 3: Refinement and Summary
+## Phase 3: Refinement and Summary [checkpoint: 09497fb]
 - [x] Task: Generate Summary Statistics
     - [ ] Implement a function to print key insights (e.g., "Best performing Run_Type", "Lowest Max Error") to the console.
 - [x] Task: Final Polish and Execution
