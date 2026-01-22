@@ -1,0 +1,8 @@
+{
+  "track_id": "heat2d_cleanup_20260122",
+  "type": "chore",
+  "status": "new",
+  "created_at": "2026-01-22T10:00:00Z",
+  "updated_at": "2026-01-22T10:00:00Z",
+  "description": "Crea uno script per pulire results.csv e rimuovere le cartelle esperimenti Heat2D con < 10k epoche."
+}
