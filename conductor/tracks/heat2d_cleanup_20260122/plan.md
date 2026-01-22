@@ -2,7 +2,7 @@
 
 This plan covers the creation of a maintenance script to clean up `Heat2D` results and experiment folders based on an epoch threshold (< 10,000).
 
-## Phase 1: Script Development & Logic Verification
+## Phase 1: Script Development & Logic Verification [checkpoint: 541bbaf]
 
 - [x] Task: Create `Heat2D/cleanup_experiments.py` with skeleton logic
 - [x] Task: Implement CSV parsing and filtering logic (Epochs < 10,000)
