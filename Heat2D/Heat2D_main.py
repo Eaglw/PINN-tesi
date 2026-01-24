@@ -461,73 +461,12 @@ for layers_config in layers_options:
                     if os.path.exists(plots_dir_3):
                         shutil.rmtree(plots_dir_3)
 
-                # --- 4. PINN HardBC ---
-                # Note: HardBC script was not updated to accept lr_strategy in this phase.
-                # We skip it for 'step_decay' to avoid misleading results.
-                if 4 in goal and lr_strat == 'fixed':
-                    print(f"  > 4. PINN HardBC ({config_name})")
-                    exp_dir_4, plots_dir_4 = setup_experiment_folder(
-                        config_dir,
-                        "4_PINN_HardBC", 
-                        f"PINN HardBC. Config: {config_name}"
-                    )
-                    from Heat2D.src.Heat2D_PINN_hardBC import train_modelPINN as train_modelPINN_HardBC
-                    from Heat2D.src.physics import HeatEquation2D
-                    
-                    heat_physics = HeatEquation2D()
-                    model_4 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
-                    optimizer_4 = torch.optim.Adam(model_4.parameters(), lr=base_lr)
-                    
-                    model_4_wrapped, history_4 = train_modelPINN_HardBC(
-                        model=model_4,
-                        optimizer=optimizer_4,
-                        data_internal=pinn_data_internal,
-                        data_boundary=pinn_data_boundary,
-                        validation_grid=validation_grid_tuple,
-                        physics_problem=heat_physics,
-                        epochs=epochs,
-                        plots_dir=plots_dir_4,
-                        final_dir=exp_dir_4,
-                        show_plots_interactively=show_plots_interactively
-                    )
-                    
-                    # --- LOGGING 4_PINN_HardBC ---
-                    l2_err, max_err = compute_metrics(model_4_wrapped, xy_grid_flat, T_grid)
-                    def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
-
-                    log_data = {
-                        'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        'Architecture': str(layers_config),
-                        'Activation_Func': get_activation_name(act_fn),
-                        'Epochs': epochs,
-                        'Run_Type': 'PINN_HardBC',
-                        'Optimizer': 'Adam + L-BFGS',
-                        'Learning_Rate': lr_log_str, 
-                        'Loss_Total': get_last(history_4, 'total_loss'),                    
-                        'Loss_Physics': get_last(history_4, 'pde_loss'),
-                        'Loss_Boundary': 0, 
-                        'Loss_Data': get_last(history_4, 'data_loss'),
-                        'L2_Relative_Error': l2_err,
-                        'Max_Relative_Error_Peak': max_err,
-                        'Seed': 123
-                    }
-                    update_results_csv(results_csv_path, log_data)
-                    
-                    histories['PINN HardBC'] = history_4
-                    final_models['PINN HardBC'] = model_4
-                    # Cleanup Plots
-                    if os.path.exists(plots_dir_4):
-                        shutil.rmtree(plots_dir_4)
-
-
                 # --- COMPARISON LOGIC (Per Config) ---
                 print(f"  > Generating Comparisons for {config_name}...")
                 results_dir = os.path.join(config_dir, 'comparisons')
                 os.makedirs(results_dir, exist_ok=True)
                 
                 # Unified 2x2 Error Map Comparison
-                # Note: If HardBC is skipped (step_decay), this list might be incomplete if it expected 5 items.
-                # The existing code checks `if all(g in goal for g in [0, 1, 2, 3])`. It doesn't check 4.
                 if all(g in goal for g in [0, 1, 2, 3]):
                     from func.graphic_func import plot2D_unified_comparison
                     from func.logging_utils import extract_hyperparams_from_path
