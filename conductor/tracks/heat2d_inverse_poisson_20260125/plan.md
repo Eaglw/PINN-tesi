@@ -9,13 +9,13 @@ Setup directories and implement the synthetic data generation for the Poisson pr
 - [x] Task: Implement the "Poisson Ground Truth" generator. This will solve the forward problem (T=1 at x=1, else T=0, with Q=1) using a high-precision PINN or numerical method to create a dataset for the inverse solver.
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Infrastructure and Ground Truth Generation' (Protocol in workflow.md)
 
-## Phase 2: Core Inverse Solver Implementation
+## Phase 2: Core Inverse Solver Implementation [checkpoint: bd99fdd]
 Implement the `Heat2D_inverse_main.py` script with the learnable parameter $k$.
 
-- [ ] Task: Implement the `InversePoissonPhysics` class in `Heat2D/src/inverse_physics.py`. It should calculate the residual $k(T_{xx} + T_{yy}) + 1 = 0$.
-- [ ] Task: Implement the training loop in `Heat2D_inverse_main.py` that optimizes both model weights and the $k$ parameter.
-- [ ] Task: Implement a parameter tracking system to record the evolution of $k$ during training.
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Core Inverse Solver Implementation' (Protocol in workflow.md)
+- [x] Task: Implement the `InversePoissonPhysics` class in `Heat2D/src/inverse_physics.py`. It should calculate the residual $k(T_{xx} + T_{yy}) + 1 = 0$.
+- [~] Task: Implement the training loop in `Heat2D_inverse_main.py` that optimizes both model weights and the $k$ parameter.
+- [~] Task: Implement a parameter tracking system to record the evolution of $k$ during training.
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Core Inverse Solver Implementation' (Protocol in workflow.md)
 
 ## Phase 3: Logging, Visualization, and Grid Search
 Integrate specialized plotting and implement the grid search loop.
