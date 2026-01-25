@@ -17,13 +17,13 @@ Implement the `Heat2D_inverse_main.py` script with the learnable parameter $k$.
 - [~] Task: Implement a parameter tracking system to record the evolution of $k$ during training.
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Core Inverse Solver Implementation' (Protocol in workflow.md)
 
-## Phase 3: Logging, Visualization, and Grid Search
+## Phase 3: Logging, Visualization, and Grid Search [checkpoint: 1a07c1f]
 Integrate specialized plotting and implement the grid search loop.
 
-- [ ] Task: Implement specialized visualization: side-by-side comparison of temperature fields and the $k$ convergence plot (Value vs Epoch).
-- [ ] Task: Implement the grid search logic, iterating over noise levels, data density, and network architecture.
-- [ ] Task: Ensure CSV logging correctly calculates the relative error for the estimated $k$.
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: Logging, Visualization, and Grid Search' (Protocol in workflow.md)
+- [x] Task: Implement specialized visualization: side-by-side comparison of temperature fields and the $k$ convergence plot (Value vs Epoch).
+- [x] Task: Implement the grid search logic, iterating over noise levels, data density, and network architecture.
+- [x] Task: Ensure CSV logging correctly calculates the relative error for the estimated $k$.
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Logging, Visualization, and Grid Search' (Protocol in workflow.md)
 
 ## Phase 4: Verification and Finalization
 Validate the solver's performance.
