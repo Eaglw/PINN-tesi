@@ -25,9 +25,9 @@ Integrate specialized plotting and implement the grid search loop.
 - [x] Task: Ensure CSV logging correctly calculates the relative error for the estimated $k$.
 - [x] Task: Conductor - User Manual Verification 'Phase 3: Logging, Visualization, and Grid Search' (Protocol in workflow.md)
 
-## Phase 4: Verification and Finalization
+## Phase 4: Verification and Finalization [checkpoint: 660889b]
 Validate the solver's performance.
 
-- [ ] Task: Run a baseline test with zero noise to verify $k$ recovery within the specified tolerance (<2%).
-- [ ] Task: Execute the full grid search and verify the consistency of `results_inverse.csv`.
-- [ ] Task: Conductor - User Manual Verification 'Phase 4: Verification and Finalization' (Protocol in workflow.md)
+- [x] Task: Run a baseline test with zero noise to verify $k$ recovery within the specified tolerance (<2%).
+- [x] Task: Execute the full grid search and verify the consistency of `results_inverse.csv`.
+- [x] Task: Conductor - User Manual Verification 'Phase 4: Verification and Finalization' (Protocol in workflow.md)
