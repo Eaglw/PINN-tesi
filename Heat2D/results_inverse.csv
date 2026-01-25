@@ -1,0 +1,1 @@
+Experiment_ID,Architecture,Optimizer,Epochs,Activation,Scheduler,Loss_Function,Execution_Time(s),Final_Total_Loss,Final_Physics_Loss,Final_Data_Loss,Final_BC_Loss,MAE,L2_Error,True_Alpha,Estimated_Alpha,Alpha_Relative_Error_Percent,Noise_Level,Data_Points
