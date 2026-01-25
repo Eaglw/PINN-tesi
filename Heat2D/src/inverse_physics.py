@@ -1,52 +1,120 @@
 import torch
 import numpy as np
 
-def analytical_solution_source(x, y, alpha=1.0):
+class InversePoissonPhysics:
     """
-    Computes the analytical solution for the Poisson equation:
-    alpha * (d2T/dx2 + d2T/dy2) = -Q
-    with Q = 2 * pi^2 * alpha * sin(pi*x) * sin(pi*y)
-    
-    The solution is T(x,y) = sin(pi*x) * sin(pi*y)
-    
-    Note: The 'alpha' parameter scales the source term Q to ensure T remains the same 
-    regardless of alpha. This allows us to fix T_observed and estimate alpha
-    from the physics mismatch.
+    Handles physics and data generation for the Heat2D Inverse Poisson problem.
+    Equation: k * laplacian(T) + Q = 0
+    Domain: [0,1]^2
+    BCs: T(1,y)=1, others 0.
+    Q = 1.0 (constant).
     """
-    return torch.sin(np.pi * x) * torch.sin(np.pi * y)
+    def __init__(self, k_param, Q_val=1.0):
+        self.k_param = k_param
+        self.Q_val = Q_val
 
-def source_term(x, y, alpha=1.0):
-    """
-    Returns the source term Q for the equation alpha * laplacian(T) + Q = 0
-    Q = 2 * pi^2 * alpha * sin(pi*x) * sin(pi*y)
-    """
-    return 2 * (np.pi**2) * alpha * torch.sin(np.pi * x) * torch.sin(np.pi * y)
-
-def generate_inverse_data(n_points, noise_level=0.0, alpha_true=1.0, domain_limits=(1.0, 1.0)):
-    """
-    Generates synthetic observation data for the inverse problem.
-    
-    Args:
-        n_points (int): Number of points to sample.
-        noise_level (float): Standard deviation of Gaussian noise to add (as a fraction of max value).
-        alpha_true (float): The true thermal diffusivity used to generate the physics.
-        domain_limits (tuple): (Lx, Ly) dimensions of the domain.
+    def residual(self, model, x_phys):
+        """
+        Computes the physics residual: k * (T_xx + T_yy) + Q = 0
+        """
+        if not x_phys.requires_grad:
+            x_phys.requires_grad_(True)
+            
+        T = model(x_phys)
         
-    Returns:
-        tuple: (xy_data, T_data)
-            - xy_data: torch.Tensor of shape (n_points, 2)
-            - T_data: torch.Tensor of shape (n_points, 1)
+        grads = torch.autograd.grad(T, x_phys, torch.ones_like(T), create_graph=True)[0]
+        dT_dx = grads[:, 0]
+        dT_dy = grads[:, 1]
+        
+        grads2_x = torch.autograd.grad(dT_dx, x_phys, torch.ones_like(dT_dx), create_graph=True, allow_unused=True)[0]
+        d2T_dx2 = grads2_x[:, 0]
+        
+        grads2_y = torch.autograd.grad(dT_dy, x_phys, torch.ones_like(dT_dy), create_graph=True, allow_unused=True)[0]
+        d2T_dy2 = grads2_y[:, 1]
+        
+        laplacian = d2T_dx2 + d2T_dy2
+        
+        # Residual = k * laplacian + Q
+        res = self.k_param * laplacian + self.Q_val
+        return torch.mean(res**2)
+
+def compute_analytical_poisson(x, y, k_true=1.0, n_terms=50):
     """
-    Lx, Ly = domain_limits
+    Computes analytical solution for:
+    k * Laplacian(T) + 1 = 0
+    BCs: T(1,y)=1, others 0.
     
-    # Generate random points in the domain
-    x = torch.rand(n_points, 1) * Lx
-    y = torch.rand(n_points, 1) * Ly
+    Solution T = T_hom + (1/k) * T_part
+    """
+    # Ensure inputs are torch tensors
+    if not isinstance(x, torch.Tensor):
+        x = torch.tensor(x)
+    if not isinstance(y, torch.Tensor):
+        y = torch.tensor(y)
+        
+    # T_hom: Laplace equation with T(1,y)=1
+    # T_hom = sum(A_n * sinh(n*pi*x) * sin(n*pi*y))
+    # A_n = 4 / (n*pi*sinh(n*pi))
+    # Term = 4/(n*pi) * [sinh(n*pi*x)/sinh(n*pi)] * sin(n*pi*y)
     
-    # Calculate true temperature
-    T_exact = analytical_solution_source(x, y, alpha=alpha_true)
+    T_hom = torch.zeros_like(x)
+    pi = np.pi
     
-    # Add noise
+    for n in range(1, n_terms * 2, 2): # Odd terms only
+        # Numerically stable calculation of sinh(a)/sinh(b)
+        # For large b, approx exp(a-b).
+        # We calculate log ratio and exp it.
+        # sinh(z) ~ exp(z)/2. 
+        # ratio ~ exp(n*pi*x - n*pi) = exp(n*pi*(x-1))
+        
+        # Exact ratio using exp to avoid overflow of sinh(b)
+        # sinh(a)/sinh(b) = (e^a - e^-a) / (e^b - e^-b)
+        # = e^(a-b) * (1 - e^-2a) / (1 - e^-2b)
+        
+        arg_x = n * pi * x
+        arg_max = n * pi
+        
+        # We use a simplified stable approach:
+        # If n*pi > 20, use exp approximation.
+        if n * pi > 20:
+             ratio = torch.exp(n * pi * (x - 1))
+        else:
+             ratio = torch.sinh(n * pi * x) / np.sinh(n * pi)
+             
+        coeff = 4.0 / (n * pi)
+        term = coeff * ratio * torch.sin(n * pi * y)
+        T_hom += term
+        
+    # T_part: Poisson equation Laplacian(T) = -1 with zero BCs
+    # T_part = sum(C_nm * sin(n*pi*x) * sin(m*pi*y))
+    # This corresponds to k=1 case. For other k, scale by 1/k.
+    T_part = torch.zeros_like(x)
+    
+    # We can use fewer terms for T_part as it converges faster (1/n^3)
+    for n in range(1, n_terms, 2):
+        for m in range(1, n_terms, 2):
+            denom = n * m * (n**2 + m**2)
+            coeff = 16.0 / (pi**4 * denom)
+            term = coeff * torch.sin(n * pi * x) * torch.sin(m * pi * y)
+            T_part += term
+            
+    # Combine: T = T_hom + (1/k)*T_part
+    # Note: T_part solves Laplacian(T) = -1.
+    # We want k*Laplacian(T_total) = -1 => Laplacian(T_total) = -1/k.
+    # Laplacian(T_hom) = 0.
+    # Laplacian(1/k * T_part) = 1/k * (-1) = -1/k. Correct.
+    
+    return T_hom + (1.0 / k_true) * T_part
+
+def generate_poisson_data(n_points, noise_level=0.0, k_true=1.0):
+    """
+    Generates synthetic data from the analytical solution.
+    """
+    x = torch.rand(n_points, 1)
+    y = torch.rand(n_points, 1)
+    
+    T_exact = compute_analytical_poisson(x, y, k_true)
+    
     if noise_level > 0:
         noise = torch.randn_like(T_exact) * noise_level * T_exact.max().item()
         T_data = T_exact + noise
@@ -54,46 +122,4 @@ def generate_inverse_data(n_points, noise_level=0.0, alpha_true=1.0, domain_limi
         T_data = T_exact
         
     xy_data = torch.cat([x, y], dim=1)
-    
     return xy_data, T_data
-
-class InverseHeatPhysics:
-    """
-    Implements the physics loss for the inverse Heat2D problem.
-    The equation is: alpha * (d2T/dx2 + d2T/dy2) + Q = 0
-    where Q is the source term.
-    """
-    def __init__(self, alpha_param):
-        self.alpha_param = alpha_param
-        
-    def __call__(self, model, xy_p):
-        """
-        Computes the physics residual: alpha * Laplacian(T) + Q
-        """
-        if not xy_p.requires_grad:
-            xy_p.requires_grad_(True)
-            
-        T = model(xy_p)
-        
-        # Gradients
-        grads = torch.autograd.grad(T, xy_p, torch.ones_like(T), create_graph=True)[0]
-        dT_dx = grads[:, 0]
-        dT_dy = grads[:, 1]
-        
-        grads2_x = torch.autograd.grad(dT_dx, xy_p, torch.ones_like(dT_dx), create_graph=True, allow_unused=True)[0]
-        d2T_dx2 = grads2_x[:, 0] if grads2_x is not None else torch.zeros_like(dT_dx)
-        
-        grads2_y = torch.autograd.grad(dT_dy, xy_p, torch.ones_like(dT_dy), create_graph=True, allow_unused=True)[0]
-        d2T_dy2 = grads2_y[:, 1] if grads2_y is not None else torch.zeros_like(dT_dy)
-        
-        laplacian = d2T_dx2 + d2T_dy2
-        
-        # Source term Q (calculated with true alpha=1.0 in our synthetic case)
-        # Note: In a real case, Q would be a known function or data.
-        Q = source_term(xy_p[:, 0], xy_p[:, 1], alpha=1.0) 
-        
-        # Residual: alpha * Laplacian + Q
-        # We want this to be zero when alpha == alpha_true (which is 1.0)
-        res = self.alpha_param * laplacian + Q
-        
-        return torch.mean(res**2)
