@@ -2,12 +2,12 @@
 
 This plan outlines the steps to implement the inverse problem solver for the 2D Heat Transfer equation, including data generation, parameter estimation, logging, and visualization.
 
-## Phase 1: Infrastructure and Data Generation
+## Phase 1: Infrastructure and Data Generation [checkpoint: 88d37ad]
 Setup the necessary directories and utility functions to generate synthetic, noisy observation data.
 
 - [x] Task: Create output directories `Heat2D/experiments_inverse/` and initialize `Heat2D/results_inverse.csv`.
 - [x] Task: Implement a data generation utility in `Heat2D/src/physics.py` or within the new script that samples exact solution points and adds Gaussian noise.
-- [~] Task: Conductor - User Manual Verification 'Phase 1: Infrastructure and Data Generation' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Infrastructure and Data Generation' (Protocol in workflow.md)
 
 ## Phase 2: Core Inverse Solver Implementation
 Implement the `Heat2D_inverse_main.py` script with the learnable parameter $\alpha$.
