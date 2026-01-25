@@ -297,20 +297,15 @@ if __name__ == "__main__":
             print(f"\n--- Running Experiment: {exp_name} ---")
 
             run_inverse_experiment(
-
                 layers=layers_options[0],
-
-                epochs=5000, 
-
+                epochs=2000, 
                 n_points=pts,
-
                 noise_level=noise,
-
                 exp_name=exp_name,
-
                 use_lbfgs=True
-
             )
+
+            
 
 
 
