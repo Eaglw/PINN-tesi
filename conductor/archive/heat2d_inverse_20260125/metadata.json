@@ -1,0 +1,8 @@
+{
+  "track_id": "heat2d_inverse_20260125",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-01-25T15:00:00Z",
+  "updated_at": "2026-01-25T15:00:00Z",
+  "description": "Crea un nuovo script Heat2D_inverse_main.py per risolvere il problema inverso stimando la diffusività termica alpha."
+}
