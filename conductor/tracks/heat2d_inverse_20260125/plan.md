@@ -12,23 +12,23 @@ Setup the necessary directories and utility functions to generate synthetic, noi
 ## Phase 2: Core Inverse Solver Implementation
 Implement the `Heat2D_inverse_main.py` script with the learnable parameter $\alpha$.
 
-- [ ] Task: Define the `Heat2D_PINN_Inverse` model (or adapt existing) where `alpha` is an `nn.Parameter`.
-- [ ] Task: Implement the training loop supporting separate learning rates for network weights and the `alpha` parameter.
-- [ ] Task: Implement the physics loss calculation using the learnable `alpha`.
-- [ ] Task: Implement the logic to track the history of the `alpha` parameter during training.
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Core Inverse Solver Implementation' (Protocol in workflow.md)
+- [x] Task: Define the `Heat2D_PINN_Inverse` model (or adapt existing) where `alpha` is an `nn.Parameter`.
+- [x] Task: Implement the training loop supporting separate learning rates for network weights and the `alpha` parameter.
+- [x] Task: Implement the physics loss calculation using the learnable $\alpha$.
+- [x] Task: Implement the logic to track the history of the `alpha` parameter during training.
+- [~] Task: Conductor - User Manual Verification 'Phase 2: Core Inverse Solver Implementation' (Protocol in workflow.md)
 
 ## Phase 3: Logging, Visualization, and Grid Search
 Integrate the logging system and implement the grid search for hyperparameters.
 
-- [ ] Task: Implement the specialized plotting function for parameter convergence (Value vs. Epoch).
-- [ ] Task: Update the CSV logging to include the relative error of the estimated $\alpha$.
-- [ ] Task: Implement the grid search loop to iterate over architecture, noise levels, and data density.
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: Logging, Visualization, and Grid Search' (Protocol in workflow.md)
+- [x] Task: Implement the specialized plotting function for parameter convergence (Value vs. Epoch).
+- [x] Task: Update the CSV logging to include the relative error of the estimated $\alpha$.
+- [x] Task: Implement the grid search loop to iterate over architecture, noise levels, and data density.
+- [~] Task: Conductor - User Manual Verification 'Phase 3: Logging, Visualization, and Grid Search' (Protocol in workflow.md)
 
-## Phase 4: Verification and Finalization
+## Phase 4: Verification and Finalization [checkpoint: (to be added)]
 Verify the inverse solver performance and ensure all artifacts are correctly generated.
 
-- [ ] Task: Run a baseline inverse experiment with zero noise to confirm parameter recovery.
-- [ ] Task: Run a full grid search and verify the results in `results_inverse.csv`.
-- [ ] Task: Conductor - User Manual Verification 'Phase 4: Verification and Finalization' (Protocol in workflow.md)
+- [x] Task: Run a baseline inverse experiment with zero noise to confirm parameter recovery.
+- [x] Task: Run a full grid search and verify the results in `results_inverse.csv`.
+- [x] Task: Conductor - User Manual Verification 'Phase 4: Verification and Finalization' (Protocol in workflow.md)

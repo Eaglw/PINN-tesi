@@ -56,3 +56,44 @@ def generate_inverse_data(n_points, noise_level=0.0, alpha_true=1.0, domain_limi
     xy_data = torch.cat([x, y], dim=1)
     
     return xy_data, T_data
+
+class InverseHeatPhysics:
+    """
+    Implements the physics loss for the inverse Heat2D problem.
+    The equation is: alpha * (d2T/dx2 + d2T/dy2) + Q = 0
+    where Q is the source term.
+    """
+    def __init__(self, alpha_param):
+        self.alpha_param = alpha_param
+        
+    def __call__(self, model, xy_p):
+        """
+        Computes the physics residual: alpha * Laplacian(T) + Q
+        """
+        if not xy_p.requires_grad:
+            xy_p.requires_grad_(True)
+            
+        T = model(xy_p)
+        
+        # Gradients
+        grads = torch.autograd.grad(T, xy_p, torch.ones_like(T), create_graph=True)[0]
+        dT_dx = grads[:, 0]
+        dT_dy = grads[:, 1]
+        
+        grads2_x = torch.autograd.grad(dT_dx, xy_p, torch.ones_like(dT_dx), create_graph=True, allow_unused=True)[0]
+        d2T_dx2 = grads2_x[:, 0] if grads2_x is not None else torch.zeros_like(dT_dx)
+        
+        grads2_y = torch.autograd.grad(dT_dy, xy_p, torch.ones_like(dT_dy), create_graph=True, allow_unused=True)[0]
+        d2T_dy2 = grads2_y[:, 1] if grads2_y is not None else torch.zeros_like(dT_dy)
+        
+        laplacian = d2T_dx2 + d2T_dy2
+        
+        # Source term Q (calculated with true alpha=1.0 in our synthetic case)
+        # Note: In a real case, Q would be a known function or data.
+        Q = source_term(xy_p[:, 0], xy_p[:, 1], alpha=1.0) 
+        
+        # Residual: alpha * Laplacian + Q
+        # We want this to be zero when alpha == alpha_true (which is 1.0)
+        res = self.alpha_param * laplacian + Q
+        
+        return torch.mean(res**2)
