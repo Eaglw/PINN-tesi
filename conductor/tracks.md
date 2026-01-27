@@ -9,5 +9,6 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [~] **Track: Espandere la Grid Search nel caso 2D heat diretto con numero ridotto di punti (~500) e aggiornamento logging.**
+- [x] **Track: Espandere la Grid Search nel caso 2D heat diretto con numero ridotto di punti (~500) e aggiornamento logging.**
 *Link: [./tracks/heat2d_reduced_points_20260127/](./tracks/heat2d_reduced_points_20260127/)*
+`n---`n`n- [ ] **Track: Implement static loss weighting (BC=1, PHYS=10, DATA=50) for Heat2D PINNs**`n*Link: [./tracks/heat2d_loss_weighting_20260127/](./tracks/heat2d_loss_weighting_20260127/)*
