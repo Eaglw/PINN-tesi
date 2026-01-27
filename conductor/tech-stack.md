@@ -15,7 +15,8 @@
 
 ## Utilities
 - **tqdm:** Progress bars for monitoring training loops.
-- **CSV:** Standard library for structured logging of experiment metrics.
+- **Data Management**: `CSV` for experiment logging.
+- **Logging Schema**: Includes `n_points` to track dataset size in `results.csv`.
 - **JSON/Markdown:** For configuration state and documentation.
 
 ## Development Environment
