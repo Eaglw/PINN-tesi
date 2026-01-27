@@ -39,12 +39,11 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     # Calcolo Errori
     abs_error = torch.abs(T_pred - T_true)
     
-    # Errore Relativo normalizzato sul valore massimo per evitare divisioni per zero ai bordi
-    T_max = torch.max(torch.abs(T_true)).item()
-    if T_max > 1e-10:
-        rel_error = (abs_error / T_max) * 100
-    else:
-        rel_error = torch.zeros_like(T_true)
+    # Errore Relativo Standard (diviso per valore locale) con masking
+    rel_error = torch.zeros_like(T_true)
+    mask = torch.abs(T_true) > 0.01
+    if mask.sum() > 0:
+        rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
     
     # Setup plot
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
@@ -93,13 +92,12 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, data_points=None
     Left: Solution u(x,y) with overlaid training points (Data & Physics).
     Right: Relative Error Map %.
     """
-    # Calculate Relative Error normalized on max
+    # Calculate Relative Error Standard (diviso per valore locale) con masking
     abs_error = torch.abs(T_pred - T_true)
-    T_max = torch.max(torch.abs(T_true)).item()
-    if T_max > 1e-10:
-        rel_error = (abs_error / T_max) * 100
-    else:
-        rel_error = torch.zeros_like(T_true)
+    rel_error = torch.zeros_like(T_true)
+    mask = torch.abs(T_true) > 0.01
+    if mask.sum() > 0:
+        rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
     
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
@@ -176,10 +174,13 @@ def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_pat
         label = res['label']
         
         abs_error = torch.abs(T_pred - T_true)
-        if T_max > 1e-10:
-            rel_error = (abs_error / T_max) * 100
-        else:
-            rel_error = torch.zeros_like(T_true)
+        
+        # Errore Relativo Standard con masking
+        rel_error = torch.zeros_like(T_true)
+        mask = torch.abs(T_true) > 0.01
+        if mask.sum() > 0:
+            rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
+            
         rel_error_np = rel_error.detach().cpu().numpy()
         
         # Plot with individual colorbar
@@ -219,10 +220,13 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
         ax = axes[i]
         
         abs_error = torch.abs(T_pred - T_true)
-        if T_max > 1e-10:
-            rel_error = (abs_error / T_max) * 100
-        else:
-            rel_error = torch.zeros_like(T_true)
+        
+        # Errore Relativo Standard con masking
+        rel_error = torch.zeros_like(T_true)
+        mask = torch.abs(T_true) > 0.01
+        if mask.sum() > 0:
+            rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
+            
         rel_error_np = rel_error.detach().cpu().numpy()
         
         # Use vmin/vmax to handle outliers in relative error

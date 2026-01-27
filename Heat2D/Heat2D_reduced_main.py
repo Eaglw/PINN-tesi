@@ -226,105 +226,118 @@ for layers_config in layers_options:
 
                 # --- 0. NN Random ---
                 if 0 in goal:
-                    print(f"  > 0. NN Random ({config_name})")
-                    exp_dir_0, plots_dir_0 = setup_experiment_folder(
-                        config_dir,
-                        "0_NN_Random", 
-                        f"NN Random. Config: {config_name}"
-                    )
-                    from Heat2D.src.Heat2D_NN import train_modelNN
-                    
-                    model_0 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
-                    optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=base_lr)
-                    
-                    history_0 = train_modelNN(
-                        model=model_0,
-                        optimizer=optimizer_0,
-                        training_data=training_data_0,
-                        validation_grid=validation_grid_tuple,
-                        epochs=epochs,
-                        plots_dir=plots_dir_0,
-                        final_dir=exp_dir_0,
-                        show_plots_interactively=show_plots_interactively,
-                        lr_strategy=lr_strat
-                    )
-                    
-                    # --- LOGGING 0_NN_Random ---
-                    l2_err, max_err = compute_metrics(model_0, xy_grid_flat, T_grid)
-                    log_data = {
-                        'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        'Architecture': str(layers_config),
-                        'Activation_Func': get_activation_name(act_fn),
-                        'Epochs': epochs,
-                        'Run_Type': 'NN_Random_Red',
-                        'Optimizer': 'Adam', 
-                        'Learning_Rate': lr_log_str, 
-                        'Loss_Total': history_0.losses['total_loss'][-1] if history_0.losses['total_loss'] else 0,
-                        'Loss_Physics': 0,
-                        'Loss_Boundary': 0,
-                        'Loss_Data': history_0.losses['total_loss'][-1] if history_0.losses['total_loss'] else 0, 
-                        'L2_Relative_Error': l2_err,
-                        'Max_Relative_Error_Peak': max_err,
-                        'Seed': 123,
-                        'n_points': n_points_random
-                    }
-                    update_results_csv(results_csv_path, log_data)
+                    if os.path.exists(os.path.join(config_dir, "0_NN_Random")):
+                        print(f"  > 0. NN Random ({config_name}) - SKIPPING (Already exists)")
+                        # Load model for comparison if needed? For now just skip training.
+                        # To ensure comparison logic works, we might need to load the model. 
+                        # But for now let's just assume if it exists we don't re-run.
+                        #Comparison logic requires 'final_models' to be populated.
+                        # If we skip, we won't have the model in memory.
+                        # We can simply skip comparison generation for skipped runs or try to load.
+                        # Given the user just wants the CSV logs and folders, skipping is fine.
+                    else:
+                        print(f"  > 0. NN Random ({config_name})")
+                        exp_dir_0, plots_dir_0 = setup_experiment_folder(
+                            config_dir,
+                            "0_NN_Random", 
+                            f"NN Random. Config: {config_name}"
+                        )
+                        from Heat2D.src.Heat2D_NN import train_modelNN
+                        
+                        model_0 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
+                        optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=base_lr)
+                        
+                        history_0 = train_modelNN(
+                            model=model_0,
+                            optimizer=optimizer_0,
+                            training_data=training_data_0,
+                            validation_grid=validation_grid_tuple,
+                            epochs=epochs,
+                            plots_dir=plots_dir_0,
+                            final_dir=exp_dir_0,
+                            show_plots_interactively=show_plots_interactively,
+                            lr_strategy=lr_strat
+                        )
+                        
+                        # --- LOGGING 0_NN_Random ---
+                        l2_err, max_err = compute_metrics(model_0, xy_grid_flat, T_grid)
+                        log_data = {
+                            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'Architecture': str(layers_config),
+                            'Activation_Func': get_activation_name(act_fn),
+                            'Epochs': epochs,
+                            'Run_Type': 'NN_Random_Red',
+                            'Optimizer': 'Adam', 
+                            'Learning_Rate': lr_log_str, 
+                            'Loss_Total': history_0.losses['total_loss'][-1] if history_0.losses['total_loss'] else 0,
+                            'Loss_Physics': 0,
+                            'Loss_Boundary': 0,
+                            'Loss_Data': history_0.losses['total_loss'][-1] if history_0.losses['total_loss'] else 0, 
+                            'L2_Relative_Error': l2_err,
+                            'Max_Relative_Error_Peak': max_err,
+                            'Seed': 123,
+                            'n_points': n_points_random
+                        }
+                        update_results_csv(results_csv_path, log_data)
 
-                    histories['NN Random'] = history_0
-                    final_models['NN Random'] = model_0
-                    if os.path.exists(plots_dir_0):
-                        shutil.rmtree(plots_dir_0)
+                        histories['NN Random'] = history_0
+                        final_models['NN Random'] = model_0
+                        if os.path.exists(plots_dir_0):
+                            shutil.rmtree(plots_dir_0)
 
                 # --- 1. NN Grid ---
                 if 1 in goal:
-                    print(f"  > 1. NN Grid ({config_name})")
-                    exp_dir_1, plots_dir_1 = setup_experiment_folder(
-                        config_dir,
-                        "1_NN_Grid", 
-                        f"NN Grid. Config: {config_name}"
-                    )
-                    from Heat2D.src.Heat2D_NN_griglia import train_modelNN_griglia
-                    
-                    model_1 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
-                    optimizer_1 = torch.optim.Adam(model_1.parameters(), lr=base_lr)
-                    
-                    history_1 = train_modelNN_griglia(
-                        model=model_1,
-                        optimizer=optimizer_1,
-                        training_data=training_data_1,
-                        validation_grid=validation_grid_tuple,
-                        epochs=epochs,
-                        plots_dir=plots_dir_1,
-                        final_dir=exp_dir_1,
-                        show_plots_interactively=show_plots_interactively,
-                        lr_strategy=lr_strat
-                    )
-                    
-                    # --- LOGGING 1_NN_Grid ---
-                    l2_err, max_err = compute_metrics(model_1, xy_grid_flat, T_grid)
-                    log_data = {
-                        'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        'Architecture': str(layers_config),
-                        'Activation_Func': get_activation_name(act_fn),
-                        'Epochs': epochs,
-                        'Run_Type': 'NN_Grid_Red',
-                        'Optimizer': 'Adam',
-                        'Learning_Rate': lr_log_str,
-                        'Loss_Total': history_1.losses['total_loss'][-1] if history_1.losses['total_loss'] else 0,
-                        'Loss_Physics': 0,
-                        'Loss_Boundary': 0,
-                        'Loss_Data': history_1.losses['total_loss'][-1] if history_1.losses['total_loss'] else 0,
-                        'L2_Relative_Error': l2_err,
-                        'Max_Relative_Error_Peak': max_err,
-                        'Seed': 123,
-                        'n_points': n_points_grid
-                    }
-                    update_results_csv(results_csv_path, log_data)
-                    
-                    histories['NN Grid'] = history_1
-                    final_models['NN Grid'] = model_1
-                    if os.path.exists(plots_dir_1):
-                        shutil.rmtree(plots_dir_1)
+                    if os.path.exists(os.path.join(config_dir, "1_NN_Grid")):
+                        print(f"  > 1. NN Grid ({config_name}) - SKIPPING (Already exists)")
+                    else:
+                        print(f"  > 1. NN Grid ({config_name})")
+                        exp_dir_1, plots_dir_1 = setup_experiment_folder(
+                            config_dir,
+                            "1_NN_Grid", 
+                            f"NN Grid. Config: {config_name}"
+                        )
+                        from Heat2D.src.Heat2D_NN_griglia import train_modelNN_griglia
+                        
+                        model_1 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
+                        optimizer_1 = torch.optim.Adam(model_1.parameters(), lr=base_lr)
+                        
+                        history_1 = train_modelNN_griglia(
+                            model=model_1,
+                            optimizer=optimizer_1,
+                            training_data=training_data_1,
+                            validation_grid=validation_grid_tuple,
+                            epochs=epochs,
+                            plots_dir=plots_dir_1,
+                            final_dir=exp_dir_1,
+                            show_plots_interactively=show_plots_interactively,
+                            lr_strategy=lr_strat
+                        )
+                        
+                        # --- LOGGING 1_NN_Grid ---
+                        l2_err, max_err = compute_metrics(model_1, xy_grid_flat, T_grid)
+                        log_data = {
+                            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'Architecture': str(layers_config),
+                            'Activation_Func': get_activation_name(act_fn),
+                            'Epochs': epochs,
+                            'Run_Type': 'NN_Grid_Red',
+                            'Optimizer': 'Adam',
+                            'Learning_Rate': lr_log_str,
+                            'Loss_Total': history_1.losses['total_loss'][-1] if history_1.losses['total_loss'] else 0,
+                            'Loss_Physics': 0,
+                            'Loss_Boundary': 0,
+                            'Loss_Data': history_1.losses['total_loss'][-1] if history_1.losses['total_loss'] else 0,
+                            'L2_Relative_Error': l2_err,
+                            'Max_Relative_Error_Peak': max_err,
+                            'Seed': 123,
+                            'n_points': n_points_grid
+                        }
+                        update_results_csv(results_csv_path, log_data)
+                        
+                        histories['NN Grid'] = history_1
+                        final_models['NN Grid'] = model_1
+                        if os.path.exists(plots_dir_1):
+                            shutil.rmtree(plots_dir_1)
 
                 # --- COMPARISON LOGIC (Per Config) ---
                 print(f"  > Generating Comparisons for {config_name}...")
@@ -333,35 +346,38 @@ for layers_config in layers_options:
                 
                 # Unified Error Map Comparison
                 if 0 in goal and 1 in goal:
-                    from func.graphic_func import plot2D_unified_comparison
-                    from func.logging_utils import extract_hyperparams_from_path
-                    
-                    model_results = []
-                    for label in ['NN Random', 'NN Grid']:
-                        if label in final_models:
-                            model = final_models[label]
-                            model.eval()
-                            with torch.no_grad():
-                                pred = model(xy_grid_flat).reshape(Nx_dom, Ny_dom)
-                            model_results.append({'T_pred': pred, 'label': label})
-                    
-                    arch, epochs_str, act = extract_hyperparams_from_path(config_dir)
-                    hparams = {'arch': arch, 'epochs': epochs_str, 'act': act, 'lr_strategy': lr_strat}
-                    
-                    if model_results:
-                        plot2D_unified_comparison(
-                            X, Y, T_grid, 
-                            model_results, 
-                            hparams, 
-                            save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png')
-                        )
+                    if 'NN Random' in final_models and 'NN Grid' in final_models:
+                        from func.graphic_func import plot2D_unified_comparison
+                        from func.logging_utils import extract_hyperparams_from_path
+                        
+                        model_results = []
+                        for label in ['NN Random', 'NN Grid']:
+                            if label in final_models:
+                                model = final_models[label]
+                                model.eval()
+                                with torch.no_grad():
+                                    pred = model(xy_grid_flat).reshape(Nx_dom, Ny_dom)
+                                model_results.append({'T_pred': pred, 'label': label})
+                        
+                        arch, epochs_str, act = extract_hyperparams_from_path(config_dir)
+                        hparams = {'arch': arch, 'epochs': epochs_str, 'act': act, 'lr_strategy': lr_strat}
+                        
+                        if model_results:
+                            plot2D_unified_comparison(
+                                X, Y, T_grid, 
+                                model_results, 
+                                hparams, 
+                                save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png')
+                            )
 
-                    # Pairwise Loss Comparisons
-                    from func.graphic_func import plot_loss_comparison
-                    plot_loss_comparison(
-                        [histories['NN Random'], histories['NN Grid']],
-                        ['NN Random', 'NN Grid'],
-                        save_path=os.path.join(results_dir, 'Comparison_Loss_Random_vs_Grid.png')
-                    )
+                        # Pairwise Loss Comparisons
+                        from func.graphic_func import plot_loss_comparison
+                        plot_loss_comparison(
+                            [histories['NN Random'], histories['NN Grid']],
+                            ['NN Random', 'NN Grid'],
+                            save_path=os.path.join(results_dir, 'Comparison_Loss_Random_vs_Grid.png')
+                        )
+                    else:
+                        print(f"  > Skipping comparisons for {config_name} (Models not loaded)")
                         
 print("\nAll Reduced Points Grid Search configurations completed.")
