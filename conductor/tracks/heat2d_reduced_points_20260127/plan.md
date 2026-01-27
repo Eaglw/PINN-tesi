@@ -8,14 +8,14 @@ Update the logging system and prepare the results file for the new schema.
 - [x] Task: Create `Heat2D/experiments_reduced_points/` directory.
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Infrastructure & Data Migration' (Protocol in workflow.md)
 
-## Phase 2: Implementation of Reduced Points Runner
+## Phase 2: Implementation of Reduced Points Runner [checkpoint: c34f97c]
 Create the script to handle the reduced dataset and the specific grid search.
 
 - [x] Task: Create `Heat2D/Heat2D_reduced_main.py` based on `Heat2D/Heat2D_main.py`.
 - [x] Task: Implement reduced dataset generation in `Heat2D/Heat2D_reduced_main.py` (300 internal, 200 boundary).
 - [x] Task: Configure Grid Search in `Heat2D/Heat2D_reduced_main.py` (Exclude 80x6, include all other hparams).
 - [x] Task: Ensure logging in `Heat2D/Heat2D_reduced_main.py` correctly reports `n_points` as ~500.
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Implementation of Reduced Points Runner' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Implementation of Reduced Points Runner' (Protocol in workflow.md)
 
 ## Phase 3: Execution & Verification
 Run the experiments and verify the results.
