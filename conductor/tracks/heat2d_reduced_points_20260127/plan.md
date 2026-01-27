@@ -17,10 +17,10 @@ Create the script to handle the reduced dataset and the specific grid search.
 - [x] Task: Ensure logging in `Heat2D/Heat2D_reduced_main.py` correctly reports `n_points` as ~500.
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Implementation of Reduced Points Runner' (Protocol in workflow.md)
 
-## Phase 3: Execution & Verification
+## Phase 3: Execution & Verification [checkpoint: d4de304]
 Run the experiments and verify the results.
 
-- [~] Task: Execute the reduced points grid search using `Heat2D/Heat2D_reduced_main.py`.
-- [ ] Task: Verify that results are correctly saved in `Heat2D/experiments_reduced_points/`.
-- [ ] Task: Verify that `Heat2D/results.csv` contains the new entries with `n_points` ≈ 500.
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: Execution & Verification' (Protocol in workflow.md)
+- [x] Task: Execute the reduced points grid search using `Heat2D/Heat2D_reduced_main.py`.
+- [x] Task: Verify that results are correctly saved in `Heat2D/experiments_reduced_points/`.
+- [x] Task: Verify that `Heat2D/results.csv` contains the new entries with `n_points` ≈ 500.
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Execution & Verification' (Protocol in workflow.md)
