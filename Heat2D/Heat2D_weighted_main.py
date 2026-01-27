@@ -228,11 +228,10 @@ for layers_config in layers_options:
                         'Loss_Total': get_last(history_2, 'total_loss'),
                         'Loss_Physics': get_last(history_2, 'pde_loss'),
                         'Loss_Boundary': get_last(history_2, 'bc_loss'), 
-                        'Loss_Data': get_last(history_2, 'data_loss'),
                         'L2_Relative_Error': l2_err,
                         'Max_Relative_Error_Peak': max_err,
                         'Seed': 123,
-                        'n_points': xy_train_nn_random.shape[0],
+                        'n_points': xy_pinn_data.shape[0],
                         'Loss_Weight': WEIGHT_STR
                     }
                     update_results_csv(results_csv_path, log_data)
@@ -288,7 +287,7 @@ for layers_config in layers_options:
                         'L2_Relative_Error': l2_err,
                         'Max_Relative_Error_Peak': max_err,
                         'Seed': 123,
-                        'n_points': xy_train_nn_random.shape[0],
+                        'n_points': 0,
                         'Loss_Weight': WEIGHT_STR
                     }
                     update_results_csv(results_csv_path, log_data)
