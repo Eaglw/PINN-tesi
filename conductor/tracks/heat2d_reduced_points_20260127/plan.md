@@ -1,12 +1,12 @@
 # Implementation Plan: Reduced Points Grid Search (Heat2D Direct)
 
-## Phase 1: Infrastructure & Data Migration
+## Phase 1: Infrastructure & Data Migration [checkpoint: 62f2add]
 Update the logging system and prepare the results file for the new schema.
 
 - [x] Task: Update `Heat2D/results.csv` schema. Add `n_points` column and migrate existing data (set to 2000).
 - [x] Task: Modify `func/logging_utils.py` to support `n_points` in `update_results_csv`.
 - [x] Task: Create `Heat2D/experiments_reduced_points/` directory.
-- [ ] Task: Conductor - User Manual Verification 'Phase 1: Infrastructure & Data Migration' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Infrastructure & Data Migration' (Protocol in workflow.md)
 
 ## Phase 2: Implementation of Reduced Points Runner
 Create the script to handle the reduced dataset and the specific grid search.
