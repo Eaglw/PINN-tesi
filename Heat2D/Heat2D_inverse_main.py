@@ -53,7 +53,7 @@ def update_inverse_results_csv(file_path, data_dict):
     # Correct order from spec/plan
     fieldnames = [
         'Experiment_ID', 'Architecture', 'Optimizer', 'Epochs', 'Activation',
-        'Scheduler', 'Loss_Function', 'Noise_Level', 'Data_Points', 'Execution_Time(s)',
+        'Scheduler', 'Loss_Function', 'Noise_Level', 'Data_Points', 'Balanced_Loss', 'Execution_Time(s)',
         'Final_Total_Loss', 'Final_Physics_Loss', 'Final_Data_Loss', 'Final_BC_Loss',
         'MAE', 'L2_Error', 'True_K', 'Estimated_K', 'Rel_Error_K'
     ]
@@ -69,12 +69,14 @@ def run_inverse_experiment(
     epochs, 
     n_points, 
     noise_level, 
+    activation_fn=nn.Tanh,
     lr_weights=1e-3, 
     lr_k=1e-2,
     k_init=0.5,
     true_k=1.0,
     exp_name="Inverse_Exp",
-    use_lbfgs=True
+    use_lbfgs=True,
+    balanced_loss=False
 ):
     # Setup folders
     exp_dir = os.path.join("Heat2D/experiments_inverse", exp_name)
@@ -94,7 +96,7 @@ def run_inverse_experiment(
     T_exact_grid = compute_analytical_poisson(X, Y, k_true=true_k).to(device)
     
     # 3. Initialize Model and Parameter
-    model = FCN(layers).to(device)
+    model = FCN(layers, activation_fn=activation_fn).to(device)
     k_train = nn.Parameter(torch.tensor([k_init], device=device, requires_grad=True))
     
     # 4. Optimizer
@@ -104,7 +106,7 @@ def run_inverse_experiment(
     ])
     
     # Physics helper
-    physics_fn = InversePoissonPhysics(k_train, Q_val=1.0)
+    physics_fn = InversePoissonPhysics(k_train, Q0=1.0)
     
     # 5. Training Loop (Adam)
     history = TrainingHistory()
@@ -117,28 +119,19 @@ def run_inverse_experiment(
     # Fixed physics points for consistency/stability
     xy_phys = torch.rand((2000, 2), device=device, requires_grad=True)
 
-    # Generate BC points
+    # Generate BC points (All T=0)
     n_bc = 200
-    # Right (x=1) -> T=1
     y_bc = torch.rand(n_bc, 1)
-    bc_right = torch.cat([torch.ones(n_bc, 1), y_bc], dim=1).to(device)
-    val_right = torch.ones(n_bc, 1).to(device)
-    
-    # Left (x=0) -> T=0
-    bc_left = torch.cat([torch.zeros(n_bc, 1), y_bc], dim=1).to(device)
-    val_left = torch.zeros(n_bc, 1).to(device)
-    
-    # Top (y=1) -> T=0
     x_bc_pts = torch.rand(n_bc, 1)
-    bc_top = torch.cat([x_bc_pts, torch.ones(n_bc, 1)], dim=1).to(device)
-    val_top = torch.zeros(n_bc, 1).to(device)
     
-    # Bottom (y=0) -> T=0
+    # All boundaries -> T=0
+    bc_right = torch.cat([torch.ones(n_bc, 1), y_bc], dim=1).to(device)
+    bc_left = torch.cat([torch.zeros(n_bc, 1), y_bc], dim=1).to(device)
+    bc_top = torch.cat([x_bc_pts, torch.ones(n_bc, 1)], dim=1).to(device)
     bc_bottom = torch.cat([x_bc_pts, torch.zeros(n_bc, 1)], dim=1).to(device)
-    val_bottom = torch.zeros(n_bc, 1).to(device)
     
     all_bc_x = torch.cat([bc_right, bc_left, bc_top, bc_bottom], dim=0)
-    all_bc_val = torch.cat([val_right, val_left, val_top, val_bottom], dim=0)
+    all_bc_val = torch.zeros((n_bc * 4, 1), device=device) # T=0 everywhere on BC
     
     for epoch in pbar:
         model.train()
@@ -146,7 +139,12 @@ def run_inverse_experiment(
         
         # Data Loss
         T_pred_data = model(xy_data)
-        loss_data = torch.mean((T_pred_data - T_data)**2)
+        if balanced_loss:
+            # Explicitly normalized on number of points
+            loss_data = torch.sum((T_pred_data - T_data)**2) / n_points
+        else:
+            # Standard MSE
+            loss_data = torch.mean((T_pred_data - T_data)**2)
         
         # BC Loss
         T_pred_bc = model(all_bc_x)
@@ -176,7 +174,7 @@ def run_inverse_experiment(
                 T_pred_grid = model(xy_grid).reshape(X.shape)
             
             plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
-            # Using physics_points arg to pass data points for visualization
+            # Visualizing the experimental data points on the prediction map
             plot2D_comparison(X.cpu(), Y.cpu(), T_exact_grid.cpu(), T_pred_grid.cpu(), epoch+1, plot_path, physics_points=xy_data.cpu())
             plot_files.append(plot_path)
 
@@ -196,7 +194,10 @@ def run_inverse_experiment(
         def closure():
             optimizer_lbfgs.zero_grad()
             T_pred_data = model(xy_data)
-            loss_data = torch.mean((T_pred_data - T_data)**2)
+            if balanced_loss:
+                loss_data = torch.sum((T_pred_data - T_data)**2) / n_points
+            else:
+                loss_data = torch.mean((T_pred_data - T_data)**2)
             
             T_pred_bc = model(all_bc_x)
             loss_bc = torch.mean((T_pred_bc - all_bc_val)**2)
@@ -213,7 +214,10 @@ def run_inverse_experiment(
         model.eval()
         with torch.no_grad():
              T_pred_data = model(xy_data)
-             loss_data_final = torch.mean((T_pred_data - T_data)**2).item()
+             if balanced_loss:
+                loss_data_final = (torch.sum((T_pred_data - T_data)**2) / n_points).item()
+             else:
+                loss_data_final = torch.mean((T_pred_data - T_data)**2).item()
              T_pred_bc = model(all_bc_x)
              loss_bc_final = torch.mean((T_pred_bc - all_bc_val)**2).item()
         
@@ -254,11 +258,12 @@ def run_inverse_experiment(
         'Architecture': f"{layers}",
         'Optimizer': 'Adam+LBFGS' if use_lbfgs else 'Adam',
         'Epochs': epochs,
-        'Activation': 'Tanh',
+        'Activation': activation_fn.__name__,
         'Scheduler': 'None',
         'Loss_Function': 'MSE',
         'Noise_Level': noise_level,
         'Data_Points': n_points,
+        'Balanced_Loss': balanced_loss,
         'Execution_Time(s)': execution_time,
         'Final_Total_Loss': history.losses['total_loss'][-1],
         'Final_Physics_Loss': history.losses['pde_loss'][-1],
@@ -279,31 +284,31 @@ def run_inverse_experiment(
 if __name__ == "__main__":
 
     # Grid Search
-
     layers_options = [[2, 50, 50, 50, 50, 1]]
+    noise_options = [0.0, 0.01, 0.02, 0.05, 0.10]
+    points_options = [50, 100, 500]
+    activation_options = [nn.Tanh, nn.GELU, nn.SiLU]
+    balanced_options = [False, True]
 
-    noise_options = [0.0, 0.05]
+    for act_fn in activation_options:
+        for noise in noise_options:
+            for pts in points_options:
+                for balanced in balanced_options:
+                    act_name = act_fn.__name__
+                    bal_str = "Bal" if balanced else "Std"
+                    exp_name = f"Poisson_Inverse_{act_name}_N{int(noise*100)}_P{pts}_{bal_str}"
+                    print(f"\n--- Running Experiment: {exp_name} ---")
 
-    points_options = [100, 500]
-
-    
-
-    for noise in noise_options:
-
-        for pts in points_options:
-
-            exp_name = f"Poisson_Inverse_N{int(noise*100)}_P{pts}"
-
-            print(f"\n--- Running Experiment: {exp_name} ---")
-
-            run_inverse_experiment(
-                layers=layers_options[0],
-                epochs=2000, 
-                n_points=pts,
-                noise_level=noise,
-                exp_name=exp_name,
-                use_lbfgs=True
-            )
+                    run_inverse_experiment(
+                        layers=layers_options[0],
+                        epochs=5000, 
+                        n_points=pts,
+                        noise_level=noise,
+                        activation_fn=act_fn,
+                        exp_name=exp_name,
+                        use_lbfgs=True,
+                        balanced_loss=balanced
+                    )
 
             
 

@@ -39,11 +39,12 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     # Calcolo Errori
     abs_error = torch.abs(T_pred - T_true)
     
-    # Errore Relativo (Gestione della divisione per zero)
-    # Calcoliamo l'errore relativo solo dove T_true è significativo (> 0.01)
-    mask = torch.abs(T_true) > 0.01
-    rel_error = torch.zeros_like(T_true)
-    rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
+    # Errore Relativo normalizzato sul valore massimo per evitare divisioni per zero ai bordi
+    T_max = torch.max(torch.abs(T_true)).item()
+    if T_max > 1e-10:
+        rel_error = (abs_error / T_max) * 100
+    else:
+        rel_error = torch.zeros_like(T_true)
     
     # Setup plot
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
@@ -70,14 +71,12 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     ax.set_title('Errore Assoluto |T_pred - T_true|')
     ax.set_xlabel('x')
 
-    # 3. Errore Relativo (Mascherato)
+    # 3. Errore Relativo (Normalizzato su max)
     ax = axes[2]
     # Usiamo vmin/vmax per evitare saturazione da outlier
     c3 = ax.contourf(X_np, Y_np, rel_error.detach().cpu().numpy(), levels=50, cmap='jet', vmin=0, vmax=10) 
-    cbar = plt.colorbar(c3, ax=ax, label='% Errore')
-    # Coloriamo di grigio le zone escluse (dove T_true ~ 0)
-    ax.set_facecolor('lightgray') 
-    ax.set_title('Errore Relativo % (dove T_true > 0.01)')
+    cbar = plt.colorbar(c3, ax=ax, label='% Errore (Norm. su max)')
+    ax.set_title('Errore Relativo % (|err| / max|T_true|)')
     ax.set_xlabel('x')
 
     plt.tight_layout()
@@ -94,11 +93,13 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, data_points=None
     Left: Solution u(x,y) with overlaid training points (Data & Physics).
     Right: Relative Error Map %.
     """
-    # Calculate Relative Error
+    # Calculate Relative Error normalized on max
     abs_error = torch.abs(T_pred - T_true)
-    mask = torch.abs(T_true) > 0.01
-    rel_error = torch.zeros_like(T_true)
-    rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
+    T_max = torch.max(torch.abs(T_true)).item()
+    if T_max > 1e-10:
+        rel_error = (abs_error / T_max) * 100
+    else:
+        rel_error = torch.zeros_like(T_true)
     
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
@@ -126,9 +127,8 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, data_points=None
     # 2. Relative Error
     ax = axes[1]
     c2 = ax.contourf(X_np, Y_np, rel_error.detach().cpu().numpy(), levels=50, cmap='jet', vmin=0, vmax=10)
-    plt.colorbar(c2, ax=ax, label='% Error')
-    ax.set_facecolor('lightgray')
-    ax.set_title('Relative Error % (where T_true > 0.01)')
+    plt.colorbar(c2, ax=ax, label='% Error (Norm. su max)')
+    ax.set_title('Relative Error % (|err| / max|T_true|)')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
 
@@ -158,8 +158,8 @@ def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_pat
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
     X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
     
-    # Mask for relative error
-    mask = torch.abs(T_true) > 0.01
+    # Max for normalization
+    T_max = torch.max(torch.abs(T_true)).item()
     
     arch = hyperparams.get('arch', 'N/A')
     epochs = hyperparams.get('epochs', 'N/A')
@@ -176,14 +176,16 @@ def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_pat
         label = res['label']
         
         abs_error = torch.abs(T_pred - T_true)
-        rel_error = torch.zeros_like(T_true)
-        rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
+        if T_max > 1e-10:
+            rel_error = (abs_error / T_max) * 100
+        else:
+            rel_error = torch.zeros_like(T_true)
         rel_error_np = rel_error.detach().cpu().numpy()
         
         # Plot with individual colorbar
         c = ax.contourf(X_np, Y_np, rel_error_np, levels=50, cmap='jet', vmin=0, vmax=10)
         cbar = plt.colorbar(c, ax=ax)
-        cbar.set_label('% Error', rotation=270, labelpad=15)
+        cbar.set_label('% Error (Norm. su max)', rotation=270, labelpad=15)
         
         ax.set_facecolor('lightgray')
         ax.set_title(label, fontsize=14)
@@ -210,22 +212,24 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
         
     X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
     
-    # Mask for relative error calculation to avoid division by zero
-    mask = torch.abs(T_true) > 0.01
+    # Max for normalization
+    T_max = torch.max(torch.abs(T_true)).item()
     
     for i, (T_pred, label) in enumerate(zip(T_preds, labels)):
         ax = axes[i]
         
         abs_error = torch.abs(T_pred - T_true)
-        rel_error = torch.zeros_like(T_true)
-        rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
+        if T_max > 1e-10:
+            rel_error = (abs_error / T_max) * 100
+        else:
+            rel_error = torch.zeros_like(T_true)
         rel_error_np = rel_error.detach().cpu().numpy()
         
         # Use vmin/vmax to handle outliers in relative error
         c = ax.contourf(X_np, Y_np, rel_error_np, levels=50, cmap='jet', vmin=0, vmax=10)
-        plt.colorbar(c, ax=ax, label='% Error')
+        plt.colorbar(c, ax=ax, label='% Error (Norm. su max)')
         ax.set_facecolor('lightgray') # Color excluded regions
-        ax.set_title(f'{label} - Relative Error %')
+        ax.set_title(f'{label} - Rel Error %')
         ax.set_xlabel('x')
         if i == 0:
             ax.set_ylabel('y')
