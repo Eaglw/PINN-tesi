@@ -70,12 +70,12 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     ax.set_title('Errore Assoluto |T_pred - T_true|')
     ax.set_xlabel('x')
 
-    # 3. Errore Relativo (Normalizzato su max)
+    # 3. Errore Relativo (Locale)
     ax = axes[2]
     # Usiamo vmin/vmax per evitare saturazione da outlier
     c3 = ax.contourf(X_np, Y_np, rel_error.detach().cpu().numpy(), levels=50, cmap='jet', vmin=0, vmax=10) 
-    cbar = plt.colorbar(c3, ax=ax, label='% Errore (Norm. su max)')
-    ax.set_title('Errore Relativo % (|err| / max|T_true|)')
+    cbar = plt.colorbar(c3, ax=ax, label='% Errore Relativo (|err|/|T_true|)')
+    ax.set_title('Errore Relativo % (|err| / |T_true|)')
     ax.set_xlabel('x')
 
     plt.tight_layout()
@@ -125,8 +125,8 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, data_points=None
     # 2. Relative Error
     ax = axes[1]
     c2 = ax.contourf(X_np, Y_np, rel_error.detach().cpu().numpy(), levels=50, cmap='jet', vmin=0, vmax=10)
-    plt.colorbar(c2, ax=ax, label='% Error (Norm. su max)')
-    ax.set_title('Relative Error % (|err| / max|T_true|)')
+    plt.colorbar(c2, ax=ax, label='% Relative Error (|err|/|T_true|)')
+    ax.set_title('Relative Error % (|err| / |T_true|)')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
 
@@ -186,7 +186,7 @@ def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_pat
         # Plot with individual colorbar
         c = ax.contourf(X_np, Y_np, rel_error_np, levels=50, cmap='jet', vmin=0, vmax=10)
         cbar = plt.colorbar(c, ax=ax)
-        cbar.set_label('% Error (Norm. su max)', rotation=270, labelpad=15)
+        cbar.set_label('% Relative Error (|err|/|T_true|)', rotation=270, labelpad=15)
         
         ax.set_facecolor('lightgray')
         ax.set_title(label, fontsize=14)
@@ -231,7 +231,7 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
         
         # Use vmin/vmax to handle outliers in relative error
         c = ax.contourf(X_np, Y_np, rel_error_np, levels=50, cmap='jet', vmin=0, vmax=10)
-        plt.colorbar(c, ax=ax, label='% Error (Norm. su max)')
+        plt.colorbar(c, ax=ax, label='% Relative Error (|err|/|T_true|)')
         ax.set_facecolor('lightgray') # Color excluded regions
         ax.set_title(f'{label} - Rel Error %')
         ax.set_xlabel('x')
