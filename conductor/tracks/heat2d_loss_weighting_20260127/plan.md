@@ -8,12 +8,12 @@ This plan outlines the steps to introduce static loss weighting in the 2D Heat T
 - [x] Task: Create the `Heat2D/experiments_weighted/` directory.
 - [x] Task: Conductor - User Manual Verification 'Infrastructure and Data Migration' (Protocol in workflow.md)
 
-## Phase 2: Core Implementation
-- [ ] Task: Create `Heat2D/Heat2D_weighted_main.py` by adapting `Heat2D/Heat2D_main.py`.
-- [ ] Task: Implement the loss weighting logic in the training loop using $\lambda_{bc}=1, \lambda_{phys}=10, \lambda_{data}=50$.
-- [ ] Task: Configure the grid search in the new script (Architecture: 4x50; Activations: Tanh, SiLU, GELU; Epochs: 20k, 40k; LR: Fixed, Step Decay; Types: DataPhys, PurePhys).
-- [ ] Task: Update the CSV logging logic in `Heat2D/Heat2D_weighted_main.py` to record the weight string `BC=1-PHYS=10-DATA=50`.
-- [ ] Task: Conductor - User Manual Verification 'Core Implementation' (Protocol in workflow.md)
+## Phase 2: Core Implementation [checkpoint: 0ee210a]
+- [x] Task: Create `Heat2D/Heat2D_weighted_main.py` by adapting `Heat2D_main.py`.
+- [x] Task: Implement the loss weighting logic in the training loop using $\lambda_{bc}=1, \lambda_{phys}=10, \lambda_{data}=50$.
+- [x] Task: Configure the grid search in the new script (Architecture: 4x50; Activations: Tanh, SiLU, GELU; Epochs: 20k, 40k; LR: Fixed, Step Decay; Types: DataPhys, PurePhys).
+- [x] Task: Update the CSV logging logic in `Heat2D/Heat2D_weighted_main.py` to record the weight string `BC=1-PHYS=10-DATA=50`.
+- [x] Task: Conductor - User Manual Verification 'Core Implementation' (Protocol in workflow.md)
 
 ## Phase 3: Grid Search Execution and Validation
 - [ ] Task: Execute the comprehensive grid search using `Heat2D/Heat2D_weighted_main.py`.
