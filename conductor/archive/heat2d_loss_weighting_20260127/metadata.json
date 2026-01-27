@@ -1,0 +1,8 @@
+{
+  "track_id": "heat2d_loss_weighting_20260127",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-01-27T23:08:00Z",
+  "updated_at": "2026-01-27T23:08:00Z",
+  "description": "Implement static loss weighting (BC=1, PHYS=10, DATA=50) for Heat2D PINNs to improve convergence, update results.csv schema, and run a comprehensive grid search."
+}
