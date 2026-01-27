@@ -15,8 +15,8 @@ This plan outlines the steps to introduce static loss weighting in the 2D Heat T
 - [x] Task: Update the CSV logging logic in `Heat2D/Heat2D_weighted_main.py` to record the weight string `BC=1-PHYS=10-DATA=50`.
 - [x] Task: Conductor - User Manual Verification 'Core Implementation' (Protocol in workflow.md)
 
-## Phase 3: Grid Search Execution and Validation
-- [ ] Task: Execute the comprehensive grid search using `Heat2D/Heat2D_weighted_main.py`.
-- [ ] Task: Verify that `results.csv` is correctly updated and that all artifacts are saved in `Heat2D/experiments/weighted/`.
-- [ ] Task: Perform a brief manual comparison of the weighted results against the non-weighted ones for the 2000 points case.
-- [ ] Task: Conductor - User Manual Verification 'Grid Search Execution and Validation' (Protocol in workflow.md)
+## Phase 3: Grid Search Execution and Validation [checkpoint: dac8ccd]
+- [x] Task: Execute the comprehensive grid search using `Heat2D/Heat2D_weighted_main.py`.
+- [x] Task: Verify that `results.csv` is correctly updated and that all artifacts are saved in `Heat2D/experiments_weighted/`.
+- [x] Task: Perform a brief manual comparison of the weighted results against the non-weighted ones for the 2000 points case.
+- [x] Task: Conductor - User Manual Verification 'Grid Search Execution and Validation' (Protocol in workflow.md)
