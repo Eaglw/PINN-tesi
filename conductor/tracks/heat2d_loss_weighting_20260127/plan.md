@@ -2,11 +2,11 @@
 
 This plan outlines the steps to introduce static loss weighting in the 2D Heat Transfer PINN experiments, including data migration, script updates, and a new grid search.
 
-## Phase 1: Infrastructure and Data Migration
-- [ ] Task: Update `Heat2D/results.csv` schema to include the `Loss_Weight` column and label all existing entries as `not_weighted`.
-- [ ] Task: Audit and update existing scripts (e.g., `Heat2D/Heat2D_main.py`, `Heat2D/Heat2D_reduced_main.py`, etc.) to ensure they support the new `Loss_Weight` column when logging.
-- [ ] Task: Create the `Heat2D/experiments/weighted/` directory.
-- [ ] Task: Conductor - User Manual Verification 'Infrastructure and Data Migration' (Protocol in workflow.md)
+## Phase 1: Infrastructure and Data Migration [checkpoint: b9bbb35]
+- [x] Task: Update `Heat2D/results.csv` schema to include the `Loss_Weight` column and label all existing entries as `not_weighted`.
+- [x] Task: Audit and update existing scripts (e.g., `Heat2D/Heat2D_main.py`, `Heat2D/Heat2D_reduced_main.py`, etc.) to ensure they support the new `Loss_Weight` column when logging.
+- [x] Task: Create the `Heat2D/experiments_weighted/` directory.
+- [x] Task: Conductor - User Manual Verification 'Infrastructure and Data Migration' (Protocol in workflow.md)
 
 ## Phase 2: Core Implementation
 - [ ] Task: Create `Heat2D/Heat2D_weighted_main.py` by adapting `Heat2D/Heat2D_main.py`.
