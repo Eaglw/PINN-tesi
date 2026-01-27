@@ -64,7 +64,7 @@ def update_results_csv(file_path, data_dict):
     fieldnames = [
         'Timestamp', 'Max_Relative_Error_Peak', 'Architecture', 'Activation_Func', 'Epochs', 'Run_Type',
         'Optimizer', 'Learning_Rate', 'Loss_Total', 'Loss_Physics', 
-        'Loss_Boundary', 'Loss_Data', 'L2_Relative_Error', 'Seed', 'n_points'
+        'Loss_Boundary', 'Loss_Data', 'L2_Relative_Error', 'Seed', 'n_points', 'Loss_Weight'
     ]
     
     # Ensure directory exists

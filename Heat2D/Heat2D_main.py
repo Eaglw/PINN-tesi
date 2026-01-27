@@ -280,7 +280,8 @@ for layers_config in layers_options:
                         'Loss_Data': history_0.losses['total_loss'][-1] if history_0.losses['total_loss'] else 0, 
                         'L2_Relative_Error': l2_err,
                         'Max_Relative_Error_Peak': max_err,
-                        'Seed': 123
+                        'Seed': 123,
+                        'Loss_Weight': 'not_weighted'
                     }
                     update_results_csv(results_csv_path, log_data)
 
@@ -331,7 +332,8 @@ for layers_config in layers_options:
                         'Loss_Data': history_1.losses['total_loss'][-1] if history_1.losses['total_loss'] else 0,
                         'L2_Relative_Error': l2_err,
                         'Max_Relative_Error_Peak': max_err,
-                        'Seed': 123
+                        'Seed': 123,
+                        'Loss_Weight': 'not_weighted'
                     }
                     update_results_csv(results_csv_path, log_data)
                     
@@ -390,7 +392,8 @@ for layers_config in layers_options:
                         'Loss_Data': get_last(history_2, 'data_loss'),
                         'L2_Relative_Error': l2_err,
                         'Max_Relative_Error_Peak': max_err,
-                        'Seed': 123
+                        'Seed': 123,
+                        'Loss_Weight': 'not_weighted'
                     }
                     update_results_csv(results_csv_path, log_data)
 
@@ -451,7 +454,8 @@ for layers_config in layers_options:
                         'Loss_Data': get_last(history_3, 'data_loss'),
                         'L2_Relative_Error': l2_err,
                         'Max_Relative_Error_Peak': max_err,
-                        'Seed': 123
+                        'Seed': 123,
+                        'Loss_Weight': 'not_weighted'
                     }
                     update_results_csv(results_csv_path, log_data)
                     

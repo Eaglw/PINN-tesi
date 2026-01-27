@@ -276,7 +276,8 @@ for layers_config in layers_options:
                             'L2_Relative_Error': l2_err,
                             'Max_Relative_Error_Peak': max_err,
                             'Seed': 123,
-                            'n_points': n_points_random
+                            'n_points': n_points_random,
+                            'Loss_Weight': 'not_weighted'
                         }
                         update_results_csv(results_csv_path, log_data)
 
@@ -330,7 +331,8 @@ for layers_config in layers_options:
                             'L2_Relative_Error': l2_err,
                             'Max_Relative_Error_Peak': max_err,
                             'Seed': 123,
-                            'n_points': n_points_grid
+                            'n_points': n_points_grid,
+                            'Loss_Weight': 'not_weighted'
                         }
                         update_results_csv(results_csv_path, log_data)
                         

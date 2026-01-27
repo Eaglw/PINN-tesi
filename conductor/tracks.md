@@ -8,4 +8,4 @@ This file tracks all major tracks for the project. Each track has its own detail
 *Link: [./tracks/heat2d_audit_20260127/](./tracks/heat2d_audit_20260127/)*
 
 
-`n---`n`n- [ ] **Track: Implement static loss weighting (BC=1, PHYS=10, DATA=50) for Heat2D PINNs**`n*Link: [./tracks/heat2d_loss_weighting_20260127/](./tracks/heat2d_loss_weighting_20260127/)*
+`n---`n`n- [~] **Track: Implement static loss weighting (BC=1, PHYS=10, DATA=50) for Heat2D PINNs**`n*Link: [./tracks/heat2d_loss_weighting_20260127/](./tracks/heat2d_loss_weighting_20260127/)*
