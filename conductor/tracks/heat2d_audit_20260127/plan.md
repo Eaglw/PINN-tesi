@@ -7,12 +7,12 @@
 - [x] Task: Conductor - User Manual Verification 'Historical Context & Progress Analysis' (Protocol in workflow.md)
 
 ## Phase 2: Metric Definition & Code Consistency Audit
-- [~] Task: Analyze `Heat2D_main.py` (Forward) to map mathematically defined metrics vs. actual implemented logic.
-- [ ] Task: Analyze `Heat2D_inverse_main.py` (Inverse) to map defined metrics vs. implemented logic.
-- [ ] Task: Verify `func/history_tracker.py` and `func/logging_utils.py` for data integrity, aggregation logic, and potential data loss.
-- [ ] Task: Check `Heat2D/analyze_results.py` to ensure post-processing metrics match raw log definitions.
-- [ ] Task: Draft "Metric Dictionary" (definitions & formulas) and "Consistency Check" (pass/fail) sections in the report.
-- [ ] Task: Conductor - User Manual Verification 'Metric Definition & Code Consistency Audit' (Protocol in workflow.md)
+- [x] Task: Analyze `Heat2D_main.py` (Forward) to map mathematically defined metrics vs. actual implemented logic.
+- [x] Task: Analyze `Heat2D_inverse_main.py` (Inverse) to map defined metrics vs. implemented logic.
+- [x] Task: Verify `func/history_tracker.py` and `func/logging_utils.py` for data integrity, aggregation logic, and potential data loss.
+- [x] Task: Check `Heat2D/analyze_results.py` to ensure post-processing metrics match raw log definitions.
+- [x] Task: Draft "Metric Dictionary" (definitions & formulas) and "Consistency Check" (pass/fail) sections in the report.
+- [~] Task: Conductor - User Manual Verification 'Metric Definition & Code Consistency Audit' (Protocol in workflow.md)
 
 ## Phase 3: Critical Review & Report Finalization
 - [ ] Task: Conduct the "Tough Reviewer" critique identifying theoretical discrepancies, experimental weaknesses, and software risks.
