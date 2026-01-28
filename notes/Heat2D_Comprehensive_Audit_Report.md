@@ -1,23 +1,23 @@
 # Heat 2D Comprehensive Audit Report
 
-## 2. Metric Dictionary & Code Consistency Audit
+## 3. Critical Review & Defense Strategy
 
-This section rigorously defines the metrics used to evaluate the PINN and standard NN models, providing mathematical formulas and verifying their implementation in the codebase.
+This section provides a "Tough Reviewer" critique of the project's current state, identifying potential weaknesses and providing strategic defenses or actionable recommendations.
 
-### Evaluation Metrics
+### 3.1 Reviewer's Critique
 
-| Metric | Formula | Code Reference | Description |
-| :--- | :--- | :--- | :--- |
-| **L2 Relative Error** | $\frac{\|T_{pred} - T_{true}\|_2}{\|T_{true}\|_2}$ | `func/logging_utils.py` -> `compute_metrics` | Global norm-based error measuring the overall reconstruction quality. |
-| **Max Relative Error Peak** | $\max \left( \frac{\|T_{pred} - T_{true}\|}{\|T_{true}\|} \right) \times 100$ | `func/logging_utils.py` -> `compute_metrics` | Pointwise maximum percentage error, masked for $|T_{true}| > 0.01$ to avoid singularity at boundaries. |
-| **PDE Residual Loss** | $\frac{1}{N_{phys}} \sum \|T_{xx} + T_{yy}\|^2$ | `Heat2D/src/Heat2D_PINN.py` -> `heat2d_physics_loss` | Measures how well the neural network satisfies the Laplace equation. |
-| **Boundary Loss (BC)** | $\frac{1}{N_{bc}} \sum \|T_{pred} - T_{bc}\|^2$ | `func/history_tracker.py` -> `compute_pinn_loss` | Measures adherence to Dirichlet boundary conditions. |
-
-### Consistency Audit Results
-
-| Component | Status | Finding |
+| Category | Critique / Potential Objection | Severity |
 | :--- | :--- | :--- |
-| **Relative Error Calculation** | **PASS** | `graphic_func.py` and `logging_utils.py` were updated (Commit `d4de304`) to use local relative error with a $0.01$ threshold mask, replacing the previous global-max normalization. |
-| **Logging Schema** | **PASS** | `results.csv` correctly tracks `Loss_Weight`, `n_points`, and `Run_Type`, allowing for fair comparison across grid-searches. |
-| **Data Integrity** | **PASS** | `history_tracker.py` handles `None` values during warmup phases correctly, preventing data misalignment in loss plots. |
-| **Training Consistency** | **PASS** | `Heat2D_main.py` uses "Master Sets" (1600 points) and fixed seeds (`123`) to ensure reproducibility across all 4 benchmark goals. |
+| **Theoretical** | **"The PINN consistently underperforms compared to a pure NN in high-data regimes."** This suggests the physics constraint is acting as a noise source or "soft" regularizer that prevents the network from fitting the data as closely as a standard MSE loss. | **High** |
+| **Experimental** | **"Boundary error dominance."** Previous logs showed that $\mathcal{L}_{BC}$ was often an order of magnitude higher than $\mathcal{L}_{Phys}$, leading the optimizer to prioritize the edges over the domain interior. | **Medium** |
+| **Experimental** | **"Activation function sensitivity."** While GELU/SiLU outperform Tanh in deep networks, the project observes higher oscillations with non-saturating activations in the small 4x50 architecture. | **Low** |
+| **Software** | **"Redundancy in Training Scripts."** The proliferation of `Heat2D_main.py`, `Heat2D_weighted_main.py`, and `Heat2D_reduced_main.py` creates a maintenance burden and risk of logic drift. | **Medium** |
+
+### 3.2 Defense Strategy & Recommendations
+
+| Critique | Defense / Action Plan |
+| :--- | :--- |
+| **PINN Underperformance** | **Defense:** The value of a PINN is not to beat a data-rich NN, but to maintain accuracy as data becomes sparse. **Action:** Focus on the results from `Heat2D_reduced_main.py` where the "Physics-Informed" advantage is quantifiable. |
+| **Boundary Dominance** | **Action:** The current implementation of static weighting ($\lambda_{BC}=1, \lambda_{Phys}=10$) in Phase 4 is a direct response. If issues persist, investigate **Adaptive Loss Weighting** (e.g., using the Neural Tangent Kernel or GradNorm). |
+| **Activation Oscillations** | **Defense:** Tanh provides a "natural brake" (saturation) that stabilizes small networks. GELU is preferred for scalability. **Action:** Standardize on Tanh for the 4x50 baseline but document the trade-offs for future deeper architectures. |
+| **Logic Drift** | **Action:** Consolidate runners into a single, highly configurable script using a CLI interface (e.g., `argparse`) or a config file (YAML/JSON) to manage modes (Normal, Weighted, Reduced). |

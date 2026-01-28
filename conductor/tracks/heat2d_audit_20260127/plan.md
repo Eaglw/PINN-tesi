@@ -15,7 +15,7 @@
 - [x] Task: Conductor - User Manual Verification 'Metric Definition & Code Consistency Audit' (Protocol in workflow.md)
 
 ## Phase 3: Critical Review & Report Finalization
-- [~] Task: Conduct the "Tough Reviewer" critique identifying theoretical discrepancies, experimental weaknesses, and software risks.
-- [ ] Task: Develop "Defense Strategy" and actionable recommendations for each identified issue.
-- [ ] Task: Finalize and polish `notes/Heat2D_Comprehensive_Audit_Report.md` with all sections integrated.
-- [ ] Task: Conductor - User Manual Verification 'Critical Review & Report Finalization' (Protocol in workflow.md)
+- [x] Task: Conduct the "Tough Reviewer" critique identifying theoretical discrepancies, experimental weaknesses, and software risks.
+- [x] Task: Develop "Defense Strategy" and actionable recommendations for each identified issue.
+- [x] Task: Finalize and polish `notes/Heat2D_Comprehensive_Audit_Report.md` with all sections integrated.
+- [~] Task: Conductor - User Manual Verification 'Critical Review & Report Finalization' (Protocol in workflow.md)
