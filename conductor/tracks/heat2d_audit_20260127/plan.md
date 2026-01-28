@@ -1,10 +1,10 @@
 # Implementation Plan - Heat 2D Comprehensive Report & Audit
 
 ## Phase 1: Historical Context & Progress Analysis
-- [ ] Task: Analyze `conductor/archive` for Heat2D tracks to reconstruct experiment timeline and goals.
-- [ ] Task: Analyze Git commit history for `Heat2D/` and `func/` to identify key code evolution points and refactors.
-- [ ] Task: Draft the "Progress Timeline" section in `notes/Heat2D_Comprehensive_Audit_Report.md` summarizing findings.
-- [ ] Task: Conductor - User Manual Verification 'Historical Context & Progress Analysis' (Protocol in workflow.md)
+- [x] Task: Analyze conductor/archive for Heat2D tracks to reconstruct experiment timeline and goals.
+- [x] Task: Analyze Git commit history for Heat2D/ and func/ to identify key code evolution points and refactors.
+- [x] Task: Draft the "Progress Timeline" section in notes/Heat2D_Comprehensive_Audit_Report.md summarizing findings.
+- [~] Task: Conductor - User Manual Verification 'Historical Context & Progress Analysis' (Protocol in workflow.md)
 
 ## Phase 2: Metric Definition & Code Consistency Audit
 - [ ] Task: Analyze `Heat2D_main.py` (Forward) to map mathematically defined metrics vs. actual implemented logic.
