@@ -85,7 +85,6 @@ Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero:
 1. NN con dati su griglia
 2. PINN con dati e fisica
 3. PINN solo fisica
-4. PINN con BC hardcoded (con dati e fisica)
 """
 goal = [0, 1, 2, 3]
 
