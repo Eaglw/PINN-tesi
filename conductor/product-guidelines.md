@@ -9,6 +9,7 @@
 - **Experiment Hierarchy:** Organise results hierarchically: `Results/<Problem_Type>/<Specific_Experiment>/`.
 - **Run Identification:** Use timestamped or uniquely ID'd subfolders for each training session to prevent overwriting results and ensure reproducibility.
 - **Performance Logging:** Every significant experiment should update a centralized log or summary table (e.g., within `notes/`) to track progress across different architectures (activation functions, optimizer strategies).
+- **Sampling Integrity:** When generating training points, ensure spatial disjointness between different functional sets (e.g., collocation vs. data points) using a minimum distance threshold ($d_{min} \approx 10^{-4}$). Internal points must also maintain a safety margin from boundaries ($\epsilon \approx 10^{-5}$) to prevent gradient instability at the edges.
 
 ## Development Workflow
 - **Precision:** Default to `torch.float64` for all scientific calculations to avoid accumulation of numerical errors in stiff physical systems.
