@@ -1,0 +1,8 @@
+{
+  "track_id": "heat2d_point_disjointness_20260204",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-02-04T12:00:00Z",
+  "updated_at": "2026-02-04T12:00:00Z",
+  "description": "Assicurarsi che nel caso Heat2D non ci sia mai sovrapposizione tra i collocation points e i data points, sia nel caso griglia, sia nel caso random. Sia nel dominio che nelle BC."
+}

@@ -185,7 +185,7 @@ Before requesting review:
    - Interactions feel native
 
 ## Commit Guidelines
-
+Do not insert "conductor" reference
 ### Message Format
 ```
 <type>(<scope>): <description>
