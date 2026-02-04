@@ -120,10 +120,10 @@ torch.manual_seed(123)
 
 # --- GENERAZIONE GRIGLIE FISICA E DATI (Master Sets) ---
 Nx_grid_master, Ny_grid_master = 40, 40
-xy_master_grid = generate_grid_points(Nx_grid_master, Ny_grid_master, Lx, Ly, margin=1e-5)
+xy_master_grid = generate_grid_points(Nx_grid_master, Ny_grid_master, Lx, Ly, margin=1e-5, device=device)
 
 num_master_random = 1600
-xy_master_random = generate_internal_points(num_master_random, Lx, Ly, margin=1e-5)
+xy_master_random = generate_internal_points(num_master_random, Lx, Ly, margin=1e-5, device=device)
 
 num_b_side = 100
 x_b_l = torch.zeros(num_b_side, 1, device=device)
@@ -147,7 +147,7 @@ T_master_boundary = soluzione_analitica(xy_master_boundary[:, 0:1], xy_master_bo
 
 # PINN Data+Phys Setup
 num_subset = 1000
-generator_fn = lambda n: generate_internal_points(n, Lx, Ly, margin=1e-5)
+generator_fn = lambda n: generate_internal_points(n, Lx, Ly, margin=1e-5, device=device)
 xy_pinn_data = filter_and_refill(xy_master_grid, generator_fn, num_subset, d_min=1e-4)
 T_pinn_data = soluzione_analitica(xy_pinn_data[:, 0:1], xy_pinn_data[:, 1:2], Lx, Ly, Nx=Nx_fourier)
 pinn_data_internal = (xy_pinn_data, T_pinn_data)

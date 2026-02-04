@@ -129,11 +129,11 @@ torch.manual_seed(123)
 # --- GENERAZIONE GRIGLIE FISICA E DATI (Reduced Sets) ---
 # 1. Grid Points (Internal): ~300 points (approx 17x17 = 289)
 Nx_grid_red, Ny_grid_red = 17, 18 # 17*18 = 306 points
-xy_red_grid = generate_grid_points(Nx_grid_red, Ny_grid_red, Lx, Ly, margin=1e-5)
+xy_red_grid = generate_grid_points(Nx_grid_red, Ny_grid_red, Lx, Ly, margin=1e-5, device=device)
 
 # 2. Random Points (Internal): 300 points
 num_red_random = 300
-xy_red_random = generate_internal_points(num_red_random, Lx, Ly, margin=1e-5)
+xy_red_random = generate_internal_points(num_red_random, Lx, Ly, margin=1e-5, device=device)
 
 # 3. Boundary Points: 200 points (50 per side) - Equidistant
 num_b_side = 50
