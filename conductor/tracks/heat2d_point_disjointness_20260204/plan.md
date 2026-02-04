@@ -25,9 +25,9 @@ Integrating the new utilities into the main execution flow.
 - [x] Task: Ensure consistency in `Heat2D_NN_griglia.py` and other source files if they perform independent sampling.
 - [x] Task: Conductor - User Manual Verification 'Integration and Refactoring' (Protocol in workflow.md)
 
-## Phase 3: Diagnostics and Training Verification
+## Phase 3: Diagnostics and Training Verification [checkpoint: e5bd992]
 Final validation through visualization and empirical testing.
 
-- [ ] Task: Implement a diagnostic plot in `Heat2D_main.py` (or a separate script) that highlights overlapping points (if any) and boundary margins.
-- [ ] Task: Run a benchmark comparison of `PINN_DataPhys` before and after the change to verify that training remains stable or improves.
-- [ ] Task: Conductor - User Manual Verification 'Diagnostics and Training Verification' (Protocol in workflow.md)
+- [x] Task: Implement a diagnostic plot in `Heat2D_main.py` (or a separate script) that highlights overlapping points (if any) and boundary margins.
+- [x] Task: Run a benchmark comparison of `PINN_DataPhys` before and after the change to verify that training remains stable or improves.
+- [x] Task: Conductor - User Manual Verification 'Diagnostics and Training Verification' (Protocol in workflow.md)
