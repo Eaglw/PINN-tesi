@@ -15,15 +15,15 @@ Focuses on creating robust, reusable logic for constrained point sampling.
     - Test iterative regeneration to reach target counts.
 - [x] Task: Conductor - User Manual Verification 'Sampling Utilities and Unit Testing' (Protocol in workflow.md)
 
-## Phase 2: Integration and Refactoring
+## Phase 2: Integration and Refactoring [checkpoint: 7bfc23b]
 Integrating the new utilities into the main execution flow.
 
-- [ ] Task: Refactor `Heat2D/Heat2D_main.py` point generation logic:
+- [x] Task: Refactor `Heat2D/Heat2D_main.py` point generation logic:
     - Update Master Grid Set generation using `sampling_utils`.
     - Update Master Random Set generation using `sampling_utils`.
     - Implement `filter_and_refill` for the `PINN Data+Phys` case (Data points must not overlap Collocation points).
-- [ ] Task: Ensure consistency in `Heat2D_NN_griglia.py` and other source files if they perform independent sampling.
-- [ ] Task: Conductor - User Manual Verification 'Integration and Refactoring' (Protocol in workflow.md)
+- [x] Task: Ensure consistency in `Heat2D_NN_griglia.py` and other source files if they perform independent sampling.
+- [x] Task: Conductor - User Manual Verification 'Integration and Refactoring' (Protocol in workflow.md)
 
 ## Phase 3: Diagnostics and Training Verification
 Final validation through visualization and empirical testing.
