@@ -5,15 +5,15 @@ Ensuring spatial disjointness between collocation and data points, and maintaini
 ## Phase 1: Sampling Utilities and Unit Testing
 Focuses on creating robust, reusable logic for constrained point sampling.
 
-- [ ] Task: Create `Heat2D/src/sampling_utils.py` containing:
+- [x] Task: Create `Heat2D/src/sampling_utils.py` containing:
     - `generate_internal_points(num_points, Lx, Ly, margin=1e-5)`: Random sampling within margins.
     - `generate_grid_points(Nx, Ny, Lx, Ly, margin=1e-5)`: Grid sampling shifted away from boundaries.
     - `filter_and_refill(primary_set, secondary_set_generator, target_count, d_min=1e-4)`: Logic to ensure disjointness and maintain target count.
-- [ ] Task: Create `Heat2D/tests/test_sampling_utils.py` and implement:
+- [x] Task: Create `Heat2D/tests/test_sampling_utils.py` and implement:
     - Test boundary safety margin enforcement.
     - Test Euclidean distance filtering between sets.
     - Test iterative regeneration to reach target counts.
-- [ ] Task: Conductor - User Manual Verification 'Sampling Utilities and Unit Testing' (Protocol in workflow.md)
+- [~] Task: Conductor - User Manual Verification 'Sampling Utilities and Unit Testing' (Protocol in workflow.md)
 
 ## Phase 2: Integration and Refactoring
 Integrating the new utilities into the main execution flow.
