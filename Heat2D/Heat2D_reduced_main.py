@@ -11,6 +11,7 @@ import shutil
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
 from func.logging_utils import compute_metrics, update_results_csv
+from func.sampling_utils import generate_internal_points, generate_grid_points
 from datetime import datetime
 
 def setup_experiment_folder(parent_dir, goal_folder, description):
@@ -128,16 +129,11 @@ torch.manual_seed(123)
 # --- GENERAZIONE GRIGLIE FISICA E DATI (Reduced Sets) ---
 # 1. Grid Points (Internal): ~300 points (approx 17x17 = 289)
 Nx_grid_red, Ny_grid_red = 17, 18 # 17*18 = 306 points
-x_grid_int = torch.linspace(0, Lx, Nx_grid_red + 2, device=device)[1:-1]
-y_grid_int = torch.linspace(0, Ly, Ny_grid_red + 2, device=device)[1:-1]
-X_grid_int, Y_grid_int = torch.meshgrid(x_grid_int, y_grid_int, indexing='xy')
-xy_red_grid = torch.stack([X_grid_int.flatten(), Y_grid_int.flatten()], dim=1)
+xy_red_grid = generate_grid_points(Nx_grid_red, Ny_grid_red, Lx, Ly, margin=1e-5)
 
 # 2. Random Points (Internal): 300 points
 num_red_random = 300
-xy_red_random = torch.rand((num_red_random, 2), device=device)
-xy_red_random[:, 0] *= Lx
-xy_red_random[:, 1] *= Ly
+xy_red_random = generate_internal_points(num_red_random, Lx, Ly, margin=1e-5)
 
 # 3. Boundary Points: 200 points (50 per side) - Equidistant
 num_b_side = 50

@@ -86,3 +86,25 @@ def filter_and_refill(primary_set, secondary_set_generator, target_count, d_min=
         print(f"Warning: Could only generate {final_set.shape[0]}/{target_count} points after {max_iters} iterations.")
         
     return final_set
+
+def check_overlaps(points, threshold=1e-7, label="Points"):
+    """
+    Checks if there are any points too close to each other in the given set.
+    """
+    if points.shape[0] < 2:
+        return True
+        
+    # Compute pairwise distances
+    dists = torch.cdist(points, points)
+    
+    # Fill diagonal with a value larger than threshold to ignore self-distance
+    dists.fill_diagonal_(threshold * 10 + 1.0)
+    
+    min_dist = torch.min(dists).item()
+    
+    if min_dist < threshold:
+        print(f"⚠️  [{label}] Overlap detected! Min distance: {min_dist:.2e}")
+        return False
+    else:
+        print(f"✅ [{label}] No overlaps. Min distance: {min_dist:.2e}")
+        return True

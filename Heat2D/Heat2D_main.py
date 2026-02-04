@@ -11,6 +11,7 @@ import shutil
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
 from func.logging_utils import compute_metrics, update_results_csv
+from func.sampling_utils import generate_internal_points, generate_grid_points, filter_and_refill, check_overlaps
 from datetime import datetime
 
 def setup_experiment_folder(parent_dir, goal_folder, description):
@@ -130,16 +131,11 @@ torch.manual_seed(123)
 # --- GENERAZIONE GRIGLIE FISICA E DATI (Master Sets) ---
 # 1. Grid Points (Internal): 40x40 = 1600 points
 Nx_grid_master, Ny_grid_master = 40, 40
-x_grid_int = torch.linspace(0, Lx, Nx_grid_master + 2, device=device)[1:-1]
-y_grid_int = torch.linspace(0, Ly, Ny_grid_master + 2, device=device)[1:-1]
-X_grid_int, Y_grid_int = torch.meshgrid(x_grid_int, y_grid_int, indexing='xy')
-xy_master_grid = torch.stack([X_grid_int.flatten(), Y_grid_int.flatten()], dim=1)
+xy_master_grid = generate_grid_points(Nx_grid_master, Ny_grid_master, Lx, Ly, margin=1e-4)
 
 # 2. Random Points (Internal): 1600 points
 num_master_random = 1600
-xy_master_random = torch.rand((num_master_random, 2), device=device)
-xy_master_random[:, 0] *= Lx
-xy_master_random[:, 1] *= Ly
+xy_master_random = generate_internal_points(num_master_random, Lx, Ly, margin=1e-4)
 
 # 3. Boundary Points: 400 points (100 per side) - Equidistant
 num_b_side = 100
@@ -163,31 +159,43 @@ xy_master_boundary = torch.cat([
     torch.cat([x_b_t, y_b_t], dim=1)
 ], dim=0)
 
+# Rimozione duplicati (corner) dai bordi
+xy_master_boundary = torch.unique(xy_master_boundary, dim=0)
+
 # Pre-calcolo Soluzione Analitica per i Master Sets
 T_master_grid = soluzione_analitica(xy_master_grid[:, 0:1], xy_master_grid[:, 1:2], Lx, Ly, Nx=Nx_fourier)
 T_master_random = soluzione_analitica(xy_master_random[:, 0:1], xy_master_random[:, 1:2], Lx, Ly, Nx=Nx_fourier)
 T_master_boundary = soluzione_analitica(xy_master_boundary[:, 0:1], xy_master_boundary[:, 1:2], Lx, Ly, Nx=Nx_fourier)
 
 # --- CONFIGURAZIONE CASI ---
-# 0. NN Random: 1600 Random + 400 Boundary
+# 0. NN Random: 1600 Random + Boundary
 xy_train_nn_random = torch.cat([xy_master_random, xy_master_boundary], dim=0)
 T_train_nn_random = torch.cat([T_master_random, T_master_boundary], dim=0)
 training_data_0 = (xy_train_nn_random, T_train_nn_random)
 
-# 1. NN Grid: 1600 Grid + 400 Boundary
+# 1. NN Grid: 1600 Grid + Boundary
 xy_train_nn_grid = torch.cat([xy_master_grid, xy_master_boundary], dim=0)
 T_train_nn_grid = torch.cat([T_master_grid, T_master_boundary], dim=0)
 training_data_1 = (xy_train_nn_grid, T_train_nn_grid)
 
-# 2. PINN Data+Phys: Phys=Grid(1600), BC=Boundary(400), Data=RandomSubset(1000)
+# 2. PINN Data+Phys: Phys=Grid(1600), BC=Boundary, Data=FilteredRandom(1000)
 num_subset = 1000
-xy_pinn_data = xy_master_random[:num_subset]
-T_pinn_data = T_master_random[:num_subset]
-# Per PINN Data+Phys, data_internal riceve i 1000 punti random
+generator_fn = lambda n: generate_internal_points(n, Lx, Ly, margin=1e-4)
+xy_pinn_data = filter_and_refill(xy_master_grid, generator_fn, num_subset, d_min=1e-4)
+T_pinn_data = soluzione_analitica(xy_pinn_data[:, 0:1], xy_pinn_data[:, 1:2], Lx, Ly, Nx=Nx_fourier)
+
+# Per PINN Data+Phys, data_internal riceve i 1000 punti random filtrati
 pinn_data_internal = (xy_pinn_data, T_pinn_data)
 pinn_data_boundary = (xy_master_boundary, T_master_boundary)
 
-# 3. PINN Pure Phys: Phys=Grid(1600), BC=Boundary(400)
+# --- VERIFICA DISGIUNZIONE E OVERLAP ---
+print("\n--- Point Overlap Verification ---")
+check_overlaps(xy_train_nn_random, label="NN Random Set")
+check_overlaps(xy_train_nn_grid, label="NN Grid Set")
+check_overlaps(torch.cat([xy_master_grid, xy_pinn_data, xy_master_boundary], dim=0), label="PINN Full Set")
+print("----------------------------------\n")
+
+# 3. PINN Pure Phys: Phys=Grid(1600), BC=Boundary
 # Usa gli stessi pinn_data_boundary, ma data_internal viene ignorato se peso=0
 
 print(f"Punti generati per esperimenti:")

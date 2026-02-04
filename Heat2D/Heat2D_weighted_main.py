@@ -11,6 +11,7 @@ import shutil
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
 from func.logging_utils import compute_metrics, update_results_csv
+from func.sampling_utils import generate_internal_points, generate_grid_points, filter_and_refill
 from datetime import datetime
 
 def setup_experiment_folder(parent_dir, goal_folder, description):
@@ -119,15 +120,10 @@ torch.manual_seed(123)
 
 # --- GENERAZIONE GRIGLIE FISICA E DATI (Master Sets) ---
 Nx_grid_master, Ny_grid_master = 40, 40
-x_grid_int = torch.linspace(0, Lx, Nx_grid_master + 2, device=device)[1:-1]
-y_grid_int = torch.linspace(0, Ly, Ny_grid_master + 2, device=device)[1:-1]
-X_grid_int, Y_grid_int = torch.meshgrid(x_grid_int, y_grid_int, indexing='xy')
-xy_master_grid = torch.stack([X_grid_int.flatten(), Y_grid_int.flatten()], dim=1)
+xy_master_grid = generate_grid_points(Nx_grid_master, Ny_grid_master, Lx, Ly, margin=1e-5)
 
 num_master_random = 1600
-xy_master_random = torch.rand((num_master_random, 2), device=device)
-xy_master_random[:, 0] *= Lx
-xy_master_random[:, 1] *= Ly
+xy_master_random = generate_internal_points(num_master_random, Lx, Ly, margin=1e-5)
 
 num_b_side = 100
 x_b_l = torch.zeros(num_b_side, 1, device=device)
@@ -151,8 +147,9 @@ T_master_boundary = soluzione_analitica(xy_master_boundary[:, 0:1], xy_master_bo
 
 # PINN Data+Phys Setup
 num_subset = 1000
-xy_pinn_data = xy_master_random[:num_subset]
-T_pinn_data = T_master_random[:num_subset]
+generator_fn = lambda n: generate_internal_points(n, Lx, Ly, margin=1e-5)
+xy_pinn_data = filter_and_refill(xy_master_grid, generator_fn, num_subset, d_min=1e-4)
+T_pinn_data = soluzione_analitica(xy_pinn_data[:, 0:1], xy_pinn_data[:, 1:2], Lx, Ly, Nx=Nx_fourier)
 pinn_data_internal = (xy_pinn_data, T_pinn_data)
 pinn_data_boundary = (xy_master_boundary, T_master_boundary)
 
