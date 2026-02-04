@@ -1,0 +1,7 @@
+numpy
+torch==2.5.0
+matplotlib
+Pillow
+tqdm
+pandas
+seaborn
