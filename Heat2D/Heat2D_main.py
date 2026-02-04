@@ -93,7 +93,8 @@ goal = [0, 1, 2, 3]
 # Opzioni per la Grid Search
 layers_options = [
     [2, 50, 50, 50, 50, 1], # Configurazione Originale
-    [2, 80, 80, 80, 80, 80, 80, 1]      
+    [2, 80, 80, 80, 80, 80, 80, 1],
+    [2, 100, 100, 100, 100, 100, 100, 100, 100]   
 ]
 
 epochs_options = [
