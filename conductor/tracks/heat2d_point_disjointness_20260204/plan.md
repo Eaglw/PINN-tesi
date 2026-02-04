@@ -2,7 +2,7 @@
 
 Ensuring spatial disjointness between collocation and data points, and maintaining a safety margin from boundaries to enhance training stability.
 
-## Phase 1: Sampling Utilities and Unit Testing
+## Phase 1: Sampling Utilities and Unit Testing [checkpoint: cbe1af9]
 Focuses on creating robust, reusable logic for constrained point sampling.
 
 - [x] Task: Create `Heat2D/src/sampling_utils.py` containing:
@@ -13,7 +13,7 @@ Focuses on creating robust, reusable logic for constrained point sampling.
     - Test boundary safety margin enforcement.
     - Test Euclidean distance filtering between sets.
     - Test iterative regeneration to reach target counts.
-- [~] Task: Conductor - User Manual Verification 'Sampling Utilities and Unit Testing' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Sampling Utilities and Unit Testing' (Protocol in workflow.md)
 
 ## Phase 2: Integration and Refactoring
 Integrating the new utilities into the main execution flow.
