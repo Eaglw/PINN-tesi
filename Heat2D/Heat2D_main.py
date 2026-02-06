@@ -87,8 +87,8 @@ Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero:
 2. PINN con dati e fisica
 3. PINN solo fisica
 """
-#goal = [0, 1, 2, 3]
-goal = [3]
+goal = [0, 1, 2, 3]
+#goal = [3]
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
 # Opzioni per la Grid Search
 layers_options = [
@@ -104,12 +104,12 @@ epochs_options = [
 
 activation_options = [
     #nn.Tanh,
-    nn.SiLU,
-    #nn.GELU
+    #nn.SiLU,
+    nn.GELU
 ]
 
 lr_strategies = [
-    #'fixed',
+    'fixed',
     'step_decay'
 ]
 
