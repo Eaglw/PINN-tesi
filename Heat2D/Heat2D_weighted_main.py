@@ -11,7 +11,7 @@ import shutil
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison
 from func.logging_utils import compute_metrics, update_results_csv
-from func.sampling_utils import generate_internal_points, generate_grid_points, filter_and_refill
+from func.sampling_utils import generate_internal_points, generate_grid_points, filter_and_refill, check_overlaps
 from datetime import datetime
 
 def setup_experiment_folder(parent_dir, goal_folder, description):
@@ -96,7 +96,6 @@ lr_strategies = [
     'step_decay'
 ]
 
-goal = [2, 3]
 
 # TARGET WEIGHTS
 STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 50.0}
