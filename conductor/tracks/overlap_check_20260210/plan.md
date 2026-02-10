@@ -6,13 +6,13 @@
     - [x] Ensure `sys` is imported for script termination
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Preparation' (Protocol in workflow.md)
 
-## Phase 2: Implementation
-- [ ] Task: Implement Overlap Verification Logic
-    - [ ] Locate the section after master sets generation
-    - [ ] Add `check_overlaps` calls for `xy_master_grid`, `xy_pinn_data`, and `xy_master_boundary`
-    - [ ] Add a combined check for the full PINN set
-    - [ ] Implement conditional `sys.exit(1)` if any check fails
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Implementation' (Protocol in workflow.md)
+## Phase 2: Implementation [checkpoint: 84b4e89]
+- [x] Task: Implement Overlap Verification Logic
+    - [x] Locate the section after master sets generation
+    - [x] Add `check_overlaps` calls for `xy_master_grid`, `xy_pinn_data`, and `xy_master_boundary`
+    - [x] Add a combined check for the full PINN set
+    - [x] Implement conditional `sys.exit(1)` if any check fails
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Implementation' (Protocol in workflow.md)
 
 ## Phase 3: Verification
 - [ ] Task: Verify successful execution
