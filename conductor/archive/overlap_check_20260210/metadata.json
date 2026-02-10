@@ -1,0 +1,8 @@
+{
+  "track_id": "overlap_check_20260210",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-02-10T16:00:00Z",
+  "updated_at": "2026-02-10T16:00:00Z",
+  "description": "Implement same safety overlap checks in Heat2D_weighted_main as in Heat2D_main"
+}
