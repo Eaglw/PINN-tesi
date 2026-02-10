@@ -245,6 +245,11 @@ def train_modelPINN(
             scheduler.step()
         
         # Aggiornamento history
+        loss_dict.update({
+            'weight_data': lambda_data,
+            'weight_bc': lambda_bc,
+            'weight_phys': lambda_physics
+        })
         loss_history.update(epoch, loss_dict)
         
         # Monitoraggio e Plotting periodico
@@ -351,6 +356,9 @@ def train_modelPINN(
     # Plot Gradient History if available
     loss_history.plot_gradients(save_path=os.path.join(final_dir, 'PINN_gradients.png'), experiment_name="Heat2D PINN Gradients", show_plot=show_plots_interactively)
     
+    # Plot Weight History if available
+    loss_history.plot_weights(save_path=os.path.join(final_dir, 'PINN_weights.png'), experiment_name="Heat2D PINN Weights", show_plot=show_plots_interactively)
+
     if show_plots_interactively:
         plt.show()
     else:
