@@ -12,14 +12,14 @@ abla}_{	heta} \lambda_{p} \mathcal{L}_{p}$).
         - Repeat for Data loss if applicable.
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Implementation of Dynamic Weighting (LR Annealing)' (Protocol in workflow.md)
 
-## Phase 2: Refactoring Heat2D_weighted_main.py for Comparative Runs
-- [ ] Task: Expand the Grid Search loop to handle different weighting strategies.
-    - [ ] Add `weighting_options = ['static', 'dynamic']` to the grid search.
-    - [ ] Configure `STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}`.
-    - [ ] Implement logic to switch between `loss_weights` dictionaries and `dynamic_weighting` flags in the training call.
-- [ ] Task: Update the logging mechanism.
-    - [ ] Ensure `Loss_Weight` column correctly records `"BC=1-PHYS=10-DATA=100"` or `"Dynamic-Annealing"`.
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Refactoring Heat2D_weighted_main.py for Comparative Runs' (Protocol in workflow.md)
+## Phase 2: Refactoring Heat2D_weighted_main.py for Comparative Runs [checkpoint: cc11375]
+- [x] Task: Expand the Grid Search loop to handle different weighting strategies.
+    - [x] Add `weighting_options = ['static', 'dynamic']` to the grid search.
+    - [x] Configure `STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}`.
+    - [x] Implement logic to switch between `loss_weights` dictionaries and `dynamic_weighting` flags in the training call.
+- [x] Task: Update the logging mechanism.
+    - [x] Ensure `Loss_Weight` column correctly records `"BC=1-PHYS=10-DATA=100"` or `"Dynamic-Annealing"`.
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Refactoring Heat2D_weighted_main.py for Comparative Runs' (Protocol in workflow.md)
 
 ## Phase 3: Verification, Documentation, and Integration
 - [ ] Task: Verify the "Static" weighting run.
