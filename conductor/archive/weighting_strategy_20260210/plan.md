@@ -1,0 +1,36 @@
+# Plan: Dynamic and Static Weighting Strategy in Heat2D
+
+## Phase 1: Implementation of Dynamic Weighting (LR Annealing) [checkpoint: 434e768]
+- [x] Task: Update `Heat2D_PINN.py` to support dynamic weighting (LR Annealing).
+    - [x] Modify `train_modelPINN` to include an `update_weights_every` parameter.
+    - [ ] Implement the gradient-based weight update logic (Wang et al.):
+        - Calculate grad norms for BC loss ($\bar{
+abla}_{	heta} \mathcal{L}_{bc}$).
+        - Calculate grad norms for Physics loss ($\hat{
+abla}_{	heta} \lambda_{p} \mathcal{L}_{p}$).
+        - Update $\lambda_{p}$ using the ratio of moving averages of these norms.
+        - Repeat for Data loss if applicable.
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Implementation of Dynamic Weighting (LR Annealing)' (Protocol in workflow.md)
+
+## Phase 2: Refactoring Heat2D_weighted_main.py for Comparative Runs [checkpoint: cc11375]
+- [x] Task: Expand the Grid Search loop to handle different weighting strategies.
+    - [x] Add `weighting_options = ['static', 'dynamic']` to the grid search.
+    - [x] Configure `STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}`.
+    - [x] Implement logic to switch between `loss_weights` dictionaries and `dynamic_weighting` flags in the training call.
+- [x] Task: Update the logging mechanism.
+    - [x] Ensure `Loss_Weight` column correctly records `"BC=1-PHYS=10-DATA=100"` or `"Dynamic-Annealing"`.
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Refactoring Heat2D_weighted_main.py for Comparative Runs' (Protocol in workflow.md)
+
+## Phase 3: Verification, Documentation, and Integration
+- [x] Task: Verify the "Static" weighting run.
+    - [x] Execute a limited run (few epochs) of `Heat2D_weighted_main.py` in static mode.
+    - [x] Confirm `results.csv` logging and loss balancing.
+- [x] Task: Verify the "Dynamic" weighting run.
+    - [x] Execute a limited run in dynamic mode.
+    - [x] Monitor weight evolution (logs or print statements) to ensure LR Annealing is active.
+- [x] Task: Create Documentation Note.
+    - [x] Create `notes/Dynamic_Weighting_Implementation.md`.
+    - [x] Document the mathematical foundation of LR Annealing and the specifics of its implementation in this project.
+- [x] Task: Final full-scale test.
+    - [x] Run a representative configuration to ensure stability and accuracy.
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Verification, Documentation, and Integration' (Protocol in workflow.md)
