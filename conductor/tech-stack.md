@@ -27,5 +27,5 @@
 
 ### Deviations & Updates
 
-#### 2026-01-22
-- Added **Pandas** and **Seaborn** to support the new `Heat2D/analyze_results.py` script for advanced data analysis and visualization of experiment results.
+#### 2026-02-10
+- Implemented **Learning Rate Annealing** (Wang et al.) as a dynamic weighting strategy in the training loop to balance physics, data, and boundary loss components based on gradient magnitudes.
