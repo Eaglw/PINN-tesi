@@ -98,8 +98,11 @@ lr_strategies = [
 
 
 # TARGET WEIGHTS
-STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 50.0}
-WEIGHT_STR = "BC=1-PHYS=10-DATA=50"
+STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}
+STATIC_WEIGHT_STR = "BC=1-PHYS=10-DATA=100"
+DYNAMIC_WEIGHT_STR = "Dynamic-Annealing"
+
+weighting_options = ['static', 'dynamic']
 
 base_output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'experiments_weighted')
 results_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results.csv')
@@ -171,162 +174,175 @@ print("----------------------------------\n")
 validation_grid_tuple = (xy_grid_flat, T_grid, X, Y)
 
 # --- GRID SEARCH EXECUTION ---
-total_configs = len(layers_options) * len(epochs_options) * len(activation_options) * len(lr_strategies)
+total_configs = len(layers_options) * len(epochs_options) * len(activation_options) * len(lr_strategies) * len(weighting_options)
 print(f"Starting Weighted Grid Search over {total_configs} configurations...")
 
 for layers_config in layers_options:
     for epochs in epochs_options:
         for act_fn in activation_options:
             for lr_strat in lr_strategies:
+                for weight_mode in weighting_options:
             
-                layers_str = format_layers_name(layers_config)
-                act_str = get_activation_name(act_fn)
-                config_name = f"L{layers_str}_E{epochs}_{act_str}_{lr_strat}"
-                
-                config_dir = os.path.join(base_output_dir, config_name)
-                os.makedirs(config_dir, exist_ok=True)
-                
-                print(f"\n=== Running Weighted Configuration: {config_name} ===")
-                
-                histories = {}
-                final_models = {}
+                    layers_str = format_layers_name(layers_config)
+                    act_str = get_activation_name(act_fn)
+                    config_name = f"L{layers_str}_E{epochs}_{act_str}_{lr_strat}_{weight_mode}"
+                    
+                    config_dir = os.path.join(base_output_dir, config_name)
+                    os.makedirs(config_dir, exist_ok=True)
+                    
+                    print(f"\n=== Running Configuration: {config_name} ===")
+                    
+                    histories = {}
+                    final_models = {}
 
-                base_lr = 1e-3
-                if lr_strat == 'step_decay':
-                    final_lr = base_lr * (0.5**4) 
-                    lr_log_str = f"[{base_lr} -> {final_lr}]"
-                else:
-                    lr_log_str = str(base_lr)
+                    base_lr = 1e-3
+                    if lr_strat == 'step_decay':
+                        final_lr = base_lr * (0.5**4) 
+                        lr_log_str = f"[{base_lr} -> {final_lr}]"
+                    else:
+                        lr_log_str = str(base_lr)
 
-                # --- 2. PINN Data+Phys ---
-                if 2 in goal:
-                    print(f"  > 2. PINN Data+Phys ({config_name}) - Weighted")
-                    exp_dir_2, plots_dir_2 = setup_experiment_folder(config_dir, "2_PINN_DataPhys", f"PINN Data+Phys Weighted")
-                    from Heat2D.src.Heat2D_PINN import train_modelPINN
-                    from Heat2D.src.physics import HeatEquation2D
-                    
-                    heat_physics = HeatEquation2D()
-                    model_2 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
-                    optimizer_2 = torch.optim.Adam(model_2.parameters(), lr=base_lr)
-                    
-                    history_2 = train_modelPINN(
-                        model=model_2,
-                        optimizer=optimizer_2,
-                        data_internal=pinn_data_internal,
-                        data_boundary=pinn_data_boundary,
-                        validation_grid=validation_grid_tuple,
-                        physics_problem=heat_physics,
-                        epochs=epochs,
-                        plots_dir=plots_dir_2,
-                        final_dir=exp_dir_2,
-                        show_plots_interactively=show_plots_interactively,
-                        collocation_points=xy_master_grid,
-                        lr_strategy=lr_strat,
-                        loss_weights=STATIC_WEIGHTS, # STATIC WEIGHTING
-                        warmup_epochs=0 # No warmup, apply physics from start
-                    )
-                    
-                    l2_err, max_err = compute_metrics(model_2, xy_grid_flat, T_grid)
-                    def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
-                    
-                    log_data = {
-                        'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        'Architecture': str(layers_config),
-                        'Activation_Func': get_activation_name(act_fn),
-                        'Epochs': epochs,
-                        'Run_Type': 'PINN_DataPhys',
-                        'Optimizer': 'Adam',
-                        'Learning_Rate': lr_log_str,
-                        'Loss_Total': get_last(history_2, 'total_loss'),
-                        'Loss_Physics': get_last(history_2, 'pde_loss'),
-                        'Loss_Boundary': get_last(history_2, 'bc_loss'), 
-                        'L2_Relative_Error': l2_err,
-                        'Max_Relative_Error_Peak': max_err,
-                        'Seed': 123,
-                        'n_points': xy_pinn_data.shape[0],
-                        'Loss_Weight': WEIGHT_STR
-                    }
-                    update_results_csv(results_csv_path, log_data)
-                    histories['PINN Data+Phys'] = history_2
-                    final_models['PINN Data+Phys'] = model_2
-                    if os.path.exists(plots_dir_2): shutil.rmtree(plots_dir_2)
+                    is_dynamic = (weight_mode == 'dynamic')
+                    current_weight_str = DYNAMIC_WEIGHT_STR if is_dynamic else STATIC_WEIGHT_STR
 
-                # --- 3. PINN PurePhys ---
-                if 3 in goal:
-                    print(f"  > 3. PINN PurePhys ({config_name}) - Weighted")
-                    exp_dir_3, plots_dir_3 = setup_experiment_folder(config_dir, "3_PINN_PurePhys", f"PINN PurePhys Weighted")
-                    from Heat2D.src.Heat2D_PINN import train_modelPINN
-                    from Heat2D.src.physics import HeatEquation2D
-                    
-                    # For Pure Physics, data weight is 0. 
-                    # Use provided physics and bc weights.
-                    pp_weights = {'data': 0.0, 'bc': STATIC_WEIGHTS['bc'], 'physics': STATIC_WEIGHTS['physics']}
-                    
-                    heat_physics = HeatEquation2D()
-                    model_3 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
-                    optimizer_3 = torch.optim.Adam(model_3.parameters(), lr=base_lr)
-                    
-                    history_3 = train_modelPINN(
-                        model=model_3,
-                        optimizer=optimizer_3,
-                        data_internal=pinn_data_internal,
-                        data_boundary=pinn_data_boundary,
-                        validation_grid=validation_grid_tuple,
-                        physics_problem=heat_physics,
-                        epochs=epochs,
-                        plots_dir=plots_dir_3,
-                        final_dir=exp_dir_3,
-                        show_plots_interactively=show_plots_interactively,
-                        collocation_points=xy_master_grid,
-                        lr_strategy=lr_strat,
-                        loss_weights=pp_weights,
-                        warmup_epochs=0
-                    )
+                    # --- 2. PINN Data+Phys ---
+                    if 2 in goal:
+                        print(f"  > 2. PINN Data+Phys ({config_name})")
+                        exp_dir_2, plots_dir_2 = setup_experiment_folder(config_dir, "2_PINN_DataPhys", f"PINN Data+Phys {weight_mode}")
+                        from Heat2D.src.Heat2D_PINN import train_modelPINN
+                        from Heat2D.src.physics import HeatEquation2D
+                        
+                        heat_physics = HeatEquation2D()
+                        model_2 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
+                        optimizer_2 = torch.optim.Adam(model_2.parameters(), lr=base_lr)
+                        
+                        # Use unit weights for dynamic mode, STATIC_WEIGHTS for static mode
+                        w_2 = {'bc': 1.0, 'physics': 1.0, 'data': 1.0} if is_dynamic else STATIC_WEIGHTS
 
-                    l2_err, max_err = compute_metrics(model_3, xy_grid_flat, T_grid)
-                    log_data = {
-                        'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        'Architecture': str(layers_config),
-                        'Activation_Func': get_activation_name(act_fn),
-                        'Epochs': epochs,
-                        'Run_Type': 'PINN_PurePhys',
-                        'Optimizer': 'Adam + L-BFGS',
-                        'Learning_Rate': lr_log_str, 
-                        'Loss_Total': get_last(history_3, 'total_loss'),                    
-                        'Loss_Physics': get_last(history_3, 'pde_loss'),
-                        'Loss_Boundary': get_last(history_3, 'bc_loss'), 
-                        'Loss_Data': get_last(history_3, 'data_loss'),
-                        'L2_Relative_Error': l2_err,
-                        'Max_Relative_Error_Peak': max_err,
-                        'Seed': 123,
-                        'n_points': 0,
-                        'Loss_Weight': WEIGHT_STR
-                    }
-                    update_results_csv(results_csv_path, log_data)
-                    histories['PINN PurePhys'] = history_3
-                    final_models['PINN PurePhys'] = model_3
-                    if os.path.exists(plots_dir_3): shutil.rmtree(plots_dir_3)
+                        history_2 = train_modelPINN(
+                            model=model_2,
+                            optimizer=optimizer_2,
+                            data_internal=pinn_data_internal,
+                            data_boundary=pinn_data_boundary,
+                            validation_grid=validation_grid_tuple,
+                            physics_problem=heat_physics,
+                            epochs=epochs,
+                            plots_dir=plots_dir_2,
+                            final_dir=exp_dir_2,
+                            show_plots_interactively=show_plots_interactively,
+                            collocation_points=xy_master_grid,
+                            lr_strategy=lr_strat,
+                            loss_weights=w_2,
+                            dynamic_weighting=is_dynamic,
+                            update_weights_every=100,
+                            warmup_epochs=0 
+                        )
+                        
+                        l2_err, max_err = compute_metrics(model_2, xy_grid_flat, T_grid)
+                        def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
+                        
+                        log_data = {
+                            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'Architecture': str(layers_config),
+                            'Activation_Func': get_activation_name(act_fn),
+                            'Epochs': epochs,
+                            'Run_Type': 'PINN_DataPhys',
+                            'Optimizer': 'Adam',
+                            'Learning_Rate': lr_log_str,
+                            'Loss_Total': get_last(history_2, 'total_loss'),
+                            'Loss_Physics': get_last(history_2, 'pde_loss'),
+                            'Loss_Boundary': get_last(history_2, 'bc_loss'), 
+                            'L2_Relative_Error': l2_err,
+                            'Max_Relative_Error_Peak': max_err,
+                            'Seed': 123,
+                            'n_points': xy_pinn_data.shape[0],
+                            'Loss_Weight': current_weight_str
+                        }
+                        update_results_csv(results_csv_path, log_data)
+                        histories['PINN Data+Phys'] = history_2
+                        final_models['PINN Data+Phys'] = model_2
+                        if os.path.exists(plots_dir_2): shutil.rmtree(plots_dir_2)
 
-                # --- COMPARISON LOGIC ---
-                print(f"  > Generating Comparisons for {config_name}...")
-                results_dir = os.path.join(config_dir, 'comparisons')
-                os.makedirs(results_dir, exist_ok=True)
-                
-                if 'PINN Data+Phys' in final_models and 'PINN PurePhys' in final_models:
-                    from func.graphic_func import plot2D_unified_comparison
-                    model_results = []
-                    for label in ['PINN Data+Phys', 'PINN PurePhys']:
-                        model = final_models[label]
-                        model.eval()
-                        with torch.no_grad():
-                            pred = model(xy_grid_flat).reshape(Nx_dom, Ny_dom)
-                        model_results.append({'T_pred': pred, 'label': label})
+                    # --- 3. PINN PurePhys ---
+                    if 3 in goal:
+                        print(f"  > 3. PINN PurePhys ({config_name})")
+                        exp_dir_3, plots_dir_3 = setup_experiment_folder(config_dir, "3_PINN_PurePhys", f"PINN PurePhys {weight_mode}")
+                        from Heat2D.src.Heat2D_PINN import train_modelPINN
+                        from Heat2D.src.physics import HeatEquation2D
+                        
+                        heat_physics = HeatEquation2D()
+                        model_3 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
+                        optimizer_3 = torch.optim.Adam(model_3.parameters(), lr=base_lr)
+                        
+                        # For Pure Physics, data weight is always 0.
+                        if is_dynamic:
+                            w_3 = {'bc': 1.0, 'physics': 1.0, 'data': 0.0}
+                        else:
+                            w_3 = {'bc': STATIC_WEIGHTS['bc'], 'physics': STATIC_WEIGHTS['physics'], 'data': 0.0}
+
+                        history_3 = train_modelPINN(
+                            model=model_3,
+                            optimizer=optimizer_3,
+                            data_internal=pinn_data_internal,
+                            data_boundary=pinn_data_boundary,
+                            validation_grid=validation_grid_tuple,
+                            physics_problem=heat_physics,
+                            epochs=epochs,
+                            plots_dir=plots_dir_3,
+                            final_dir=exp_dir_3,
+                            show_plots_interactively=show_plots_interactively,
+                            collocation_points=xy_master_grid,
+                            lr_strategy=lr_strat,
+                            loss_weights=w_3,
+                            dynamic_weighting=is_dynamic,
+                            update_weights_every=100,
+                            warmup_epochs=0
+                        )
+
+                        l2_err, max_err = compute_metrics(model_3, xy_grid_flat, T_grid)
+                        log_data = {
+                            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'Architecture': str(layers_config),
+                            'Activation_Func': get_activation_name(act_fn),
+                            'Epochs': epochs,
+                            'Run_Type': 'PINN_PurePhys',
+                            'Optimizer': 'Adam + L-BFGS',
+                            'Learning_Rate': lr_log_str, 
+                            'Loss_Total': get_last(history_3, 'total_loss'),                    
+                            'Loss_Physics': get_last(history_3, 'pde_loss'),
+                            'Loss_Boundary': get_last(history_3, 'bc_loss'), 
+                            'Loss_Data': get_last(history_3, 'data_loss'),
+                            'L2_Relative_Error': l2_err,
+                            'Max_Relative_Error_Peak': max_err,
+                            'Seed': 123,
+                            'n_points': 0,
+                            'Loss_Weight': current_weight_str
+                        }
+                        update_results_csv(results_csv_path, log_data)
+                        histories['PINN PurePhys'] = history_3
+                        final_models['PINN PurePhys'] = model_3
+                        if os.path.exists(plots_dir_3): shutil.rmtree(plots_dir_3)
+
+                    # --- COMPARISON LOGIC ---
+                    print(f"  > Generating Comparisons for {config_name}...")
+                    results_dir = os.path.join(config_dir, 'comparisons')
+                    os.makedirs(results_dir, exist_ok=True)
                     
-                    hparams = {'arch': layers_str, 'epochs': str(epochs), 'act': act_str, 'lr_strategy': lr_strat, 'weight': WEIGHT_STR}
-                    plot2D_unified_comparison(X, Y, T_grid, model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
+                    if 'PINN Data+Phys' in final_models and 'PINN PurePhys' in final_models:
+                        from func.graphic_func import plot2D_unified_comparison
+                        model_results = []
+                        for label in ['PINN Data+Phys', 'PINN PurePhys']:
+                            model = final_models[label]
+                            model.eval()
+                            with torch.no_grad():
+                                pred = model(xy_grid_flat).reshape(Nx_dom, Ny_dom)
+                            model_results.append({'T_pred': pred, 'label': label})
+                        
+                        hparams = {'arch': layers_str, 'epochs': str(epochs), 'act': act_str, 'lr_strategy': lr_strat, 'weight': current_weight_str}
+                        plot2D_unified_comparison(X, Y, T_grid, model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
 
-                from func.graphic_func import plot_loss_comparison
-                if 'PINN Data+Phys' in histories and 'PINN PurePhys' in histories:
-                    plot_loss_comparison([histories['PINN Data+Phys'], histories['PINN PurePhys']], ['PINN Data+Phys', 'PINN PurePhys'], save_path=os.path.join(results_dir, 'Comparison_Loss_DataPhys_vs_PurePhys.png'))
+                    from func.graphic_func import plot_loss_comparison
+                    if 'PINN Data+Phys' in histories and 'PINN PurePhys' in histories:
+                        plot_loss_comparison([histories['PINN Data+Phys'], histories['PINN PurePhys']], ['PINN Data+Phys', 'PINN PurePhys'], save_path=os.path.join(results_dir, 'Comparison_Loss_DataPhys_vs_PurePhys.png'))
                         
 print("\nWeighted Grid Search configurations completed.")
