@@ -141,6 +141,9 @@ xy_master_boundary = torch.cat([
     torch.cat([x_b_t, y_b_t], dim=1)
 ], dim=0)
 
+# Rimozione duplicati (corner) dai bordi
+xy_master_boundary = torch.unique(xy_master_boundary, dim=0)
+
 T_master_random = soluzione_analitica(xy_master_random[:, 0:1], xy_master_random[:, 1:2], Lx, Ly, Nx=Nx_fourier)
 T_master_boundary = soluzione_analitica(xy_master_boundary[:, 0:1], xy_master_boundary[:, 1:2], Lx, Ly, Nx=Nx_fourier)
 
