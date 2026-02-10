@@ -14,11 +14,11 @@
     - [x] Implement conditional `sys.exit(1)` if any check fails
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Implementation' (Protocol in workflow.md)
 
-## Phase 3: Verification
-- [ ] Task: Verify successful execution
-    - [ ] Run `Heat2D_weighted_main.py` and confirm it passes the checks and starts training
-- [ ] Task: Verify failure handling (Negative Test)
-    - [ ] Temporarily modify the script to inject overlapping points
-    - [ ] Confirm the script prints the warning and terminates correctly
-    - [ ] Revert the temporary modification
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: Verification' (Protocol in workflow.md)
+## Phase 3: Verification [checkpoint: 31a6060]
+- [x] Task: Verify successful execution
+    - [x] Run `Heat2D_weighted_main.py` and confirm it passes the checks and starts training
+- [x] Task: Verify failure handling (Negative Test)
+    - [x] Temporarily modify the script to inject overlapping points
+    - [x] Confirm the script prints the warning and terminates correctly
+    - [x] Revert the temporary modification
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Verification' (Protocol in workflow.md)
