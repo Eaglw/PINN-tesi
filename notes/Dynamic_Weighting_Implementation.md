@@ -4,50 +4,69 @@ This note documents the implementation of the **Learning Rate Annealing** strate
 
 ## Mathematical Foundation
 
-The Learning Rate Annealing strategy, proposed by **Wang et al. (2021)**, aims to mitigate gradient pathologies in PINNs by balancing the contributions of different loss terms (data, boundary, and physics) based on their gradient magnitudes.
+The Learning Rate Annealing strategy, proposed by **Wang et al. (2021)**, aims to mitigate *gradient pathologies* in PINNs. These pathologies occur when the gradients of different loss components (Boundary Conditions, Initial Conditions, and PDE Residuals) have vastly different magnitudes, causing the optimizer to prioritize the term with the steepest gradient (often the boundary condition) while ignoring the underlying physics.
 
 The total loss is defined as:
-$$\mathcal{L}(	heta) = \lambda_{bc} \mathcal{L}_{bc}(	heta) + \lambda_{data} \mathcal{L}_{data}(	heta) + \lambda_{pde} \mathcal{L}_{pde}(	heta)$$
 
-To ensure balanced training, we want the gradients of each component with respect to the network parameters $	heta$ to be on a similar scale. Fixing $\lambda_{bc}$ as the anchor (reference), we update the other weights $\hat{\lambda}_k$ such that:
+$$
+\mathcal{L}(\theta) = \lambda_{bc} \mathcal{L}_{bc}(\theta) + \lambda_{data} \mathcal{L}_{data}(\theta) + \lambda_{pde} \mathcal{L}_{pde}(\theta)
+$$
 
-$$\hat{\lambda}_k^{(n)} = \frac{\max_{	heta} |
-abla_{	heta} \lambda_{bc} \mathcal{L}_{bc}|}{\overline{|
-abla_{	heta} \mathcal{L}_k|}}$$
+To ensure balanced training, we enforce that the gradients of each weighted loss component with respect to the network parameters $\theta$ have similar statistical magnitudes. Fixing $\lambda_{bc}$ as the **anchor** (reference term, usually because BCs are the "hard" constraints), we dynamically update the other weights $\hat{\lambda}_k$ at each training step $n$ (or epoch interval) such that:
 
-where:
-- $
-abla_{	heta}$ is the gradient with respect to model parameters.
-- $\max$ is the maximum absolute value of the gradient components.
-- $\overline{|\cdot|}$ is the mean absolute value of the gradient components.
+$$
+\hat{\lambda}_k^{(n)} = \frac{\max_{\theta} \left| \nabla_{\theta} (\lambda_{bc} \mathcal{L}_{bc}) \right|}{\overline{\left| \nabla_{\theta} \mathcal{L}_k \right|}}
+$$
 
-In this implementation, we use the **maximum of the L2 norms** of the gradients of the parameter tensors as a robust heuristic for the gradient magnitude.
+Where:
+- $\nabla_{\theta}$ denotes the gradient with respect to the model parameters (weights and biases).
+- $\max_{\theta} |\cdot|$ is the maximum absolute value among the gradient components (or the maximum norm across layers).
+- $\overline{|\cdot|}$ represents the mean absolute value of the gradient components for the specific loss term $k$ (e.g., PDE or Data).
+
+In this specific implementation, we use the **maximum of the L2 norms** of the gradients per layer as a robust heuristic for the gradient magnitude.
 
 ## Implementation Details
 
 The strategy is implemented in `src/Heat2D_PINN.py` within the `train_modelPINN` function.
 
-### 1. Parameters
+### 1. Hyperparameters
 - `dynamic_weighting`: Boolean flag to enable the strategy.
-- `update_weights_every`: Frequency (in epochs) of the weight updates. Default is 100.
-- `alpha_dynamic`: Smoothing factor for the moving average of weights (set to 0.9).
+- `update_weights_every`: Frequency (in epochs) of the weight updates. Default is **100**. Frequent updates can lead to instability; sporadic updates fail to adapt to the changing loss landscape.
+- `alpha_dynamic` ($\alpha$): Smoothing factor for the moving average (set to **0.9**).
 
-### 2. Update Logic
-Every `update_weights_every` epochs, after the warmup phase:
-1. **Compute Gradients**:
-   - The gradients of the unweighted BC loss, Physics loss, and Data loss are computed using `torch.autograd.grad` with `retain_graph=True`.
-2. **Calculate Norms**:
-   - For each loss component, we find the maximum L2 norm among all model parameter gradients.
-3. **Calculate Target Weights**:
-   - $	ext{Target} \lambda_{pde} = \frac{\max(	ext{GradNorm}_{bc})}{\max(	ext{GradNorm}_{pde})} 	imes \lambda_{bc}$
-   - $	ext{Target} \lambda_{data} = \frac{\max(	ext{GradNorm}_{bc})}{\max(	ext{GradNorm}_{data})} 	imes \lambda_{bc}$
-4. **Moving Average Update**:
-   - $\lambda_{new} = \alpha \lambda_{old} + (1 - \alpha) 	ext{Target} \lambda$
+### 2. Update Logic & Algorithm
+Every `update_weights_every` epochs, the following procedure is triggered:
 
-### 3. Integration in Grid Search
-The `Heat2D_weighted_main.py` script executes comparative runs:
-- **Static**: Uses fixed weights `BC=1.0, PHYS=10.0, DATA=100.0`.
-- **Dynamic**: Starts with unit weights and evolves them using the annealing logic.
+1.  **Compute Individual Gradients**:
+    We compute gradients for each loss term independently.
+    *Note: This requires `retain_graph=True` in PyTorch, which increases VRAM usage significantly.*
+    $$
+    G_{bc} = \nabla_\theta \mathcal{L}_{bc}, \quad G_{pde} = \nabla_\theta \mathcal{L}_{pde}, \quad G_{data} = \nabla_\theta \mathcal{L}_{data}
+    $$
+2.  **Calculate Norm Metrics**:
+    For each loss component, we compute the statistical metric (Max or Mean of L2 norms) across the network's parameter vector.
+3.  **Calculate Target Weights**:
+    We calculate the instantaneous target weight required to balance the gradients against the anchor ($\lambda_{bc}$):
+    $$
+    \hat{\lambda}_{pde} = \frac{\max(G_{bc})}{\overline{G_{pde}}} \times \lambda_{bc}
+    $$
+    $$
+    \hat{\lambda}_{data} = \frac{\max(G_{bc})}{\overline{G_{data}}} \times \lambda_{bc}
+    $$
+4.  **Moving Average Update (Smoothing)**:
+    To prevent oscillation and abrupt jumps in the loss landscape, we apply an Exponential Moving Average (EMA):
+    $$
+    \lambda_{new} = \alpha \cdot \lambda_{old} + (1 - \alpha) \cdot \hat{\lambda}_{target}
+    $$
+
+### 3. Integration & Grid Search
+The `Heat2D_weighted_main.py` script facilitates comparative analysis:
+- **Static Regime**: Fixed weights (e.g., `BC=1.0, PHYS=10.0, DATA=100.0`). Weights are chosen based on order-of-magnitude estimates of the residuals.
+- **Dynamic Regime**: Starts with unit weights (`1.0`) and evolves via the annealing logic. This allows the network to "focus" on the physics term once the boundary conditions are sufficiently learned.
+
+## Technical Considerations
+* **Computational Overhead**: Calculating gradients for each loss term individually essentially triples the backward pass cost.
+* **Stiffness Ratio**: The ratio $\frac{\max(G_{bc})}{\overline{G_{pde}}}$ is essentially a measure of the stiffness of the optimization problem. If this ratio explodes, the PDE is ill-conditioned relative to the boundary.
 
 ## References
 - Wang, S., Teng, Y., & Perdikaris, P. (2021). *Understanding and mitigating gradient pathologies in physics-informed neural networks*. SIAM Journal on Scientific Computing, 43(5), A3055-A3081.

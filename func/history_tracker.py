@@ -48,38 +48,70 @@ class TrainingHistory:
     def plot_losses(self, last_adam_epoch=0, save_path=None, experiment_name="", show_plot=True):
         """
         Genera un grafico con l'andamento di tutte le loss registrate.
+        Se rileva una fase L-BFGS (ultimo punto con epoch > epochs del loop), 
+        divide il grafico in due subplot per migliorare la leggibilità.
         """
-        plt.figure(figsize=(8, 4))
-        ax = plt.gca()
-        for name, values in self.losses.items():
-            # Filtra i None per evitare warning, anche se matplotlib li gestisce, 
-            # ma dobbiamo assicurarci che epochs e values abbiano stessa lunghezza logica.
-            # Matplotlib plotta (x, y) saltando i punti dove y è None/NaN.
-            # Qui passiamo direttamente le liste complete (con None).
-            # Convertiamo None in np.nan per compatibilità sicura.
-            
-            # Skip gradient logs in loss plot
-            if name.startswith('grad_'): continue
-            
-            clean_values = [v if v is not None else np.nan for v in values]
-            
-            if name == "total_loss":
-                plt.plot(self.epochs, clean_values, linewidth=4, label=name)
-            else:
-                plt.plot(self.epochs, clean_values, label=name)
+        # Identifichiamo se c'è una fase L-BFGS
+        # Di solito Adam finisce a 'epochs-1', e L-BFGS viene loggato come 'epochs + 1'
+        has_lbfgs = len(self.epochs) > 0 and any(e > self.epochs[-2] for e in [self.epochs[-1]]) if len(self.epochs) > 1 else False
         
-        plt.title(f'Andamento Loss - {experiment_name}')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss Value')
-        plt.yscale('log')
-        plt.grid(True, which="both", ls="--", alpha=0.5)
-        if last_adam_epoch != 0:
-            plt.axvline(last_adam_epoch, color="r", linestyle="--", label="End Warmup/Adam")
-        # Stile coerente con plot_result
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        l = plt.legend(loc='upper right', frameon=False, fontsize="large")
-        plt.setp(l.get_texts(), color="k")
+        # In realtà, un modo più robusto è vedere se l'ultimo step è "isolato" o se vogliamo
+        # forzare la visualizzazione degli ultimi N punti (L-BFGS spesso è solo 1 punto finale di log)
+        
+        if has_lbfgs:
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4), gridspec_kw={'width_ratios': [3, 1]})
+            fig.subplots_adjust(wspace=0.3)
+        else:
+            plt.figure(figsize=(8, 4))
+            ax1 = plt.gca()
+            ax2 = None
+
+        def plot_on_ax(ax, epoch_range_indices, title_suffix=""):
+            for name, values in self.losses.items():
+                if name.startswith('grad_'): continue
+                
+                # Prendi solo il range richiesto
+                r_epochs = [self.epochs[i] for i in epoch_range_indices]
+                r_values = [values[i] if values[i] is not None else np.nan for i in epoch_range_indices]
+                
+                # Se tutti i valori sono NaN, salta
+                if all(np.isnan(r_values)): continue
+
+                linewidth = 3 if name == "total_loss" else 1.5
+                ax.plot(r_epochs, r_values, linewidth=linewidth, label=name)
+            
+            ax.set_title(f'Loss {title_suffix}')
+            ax.set_xlabel('Epoch/Iter')
+            ax.set_ylabel('Loss')
+            ax.set_yscale('log')
+            ax.grid(True, which="both", ls="--", alpha=0.5)
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
+        if has_lbfgs:
+            # Adam: tutti tranne l'ultimo
+            adam_indices = list(range(len(self.epochs) - 1))
+            plot_on_ax(ax1, adam_indices, "(Adam Phase)")
+            
+            # L-BFGS: ultimi due punti per mostrare la discesa (o solo l'ultimo se vogliamo un bar/point)
+            # Mostriamo l'ultimo punto di Adam e il punto finale L-BFGS
+            lbfgs_indices = [len(self.epochs) - 2, len(self.epochs) - 1]
+            plot_on_ax(ax2, lbfgs_indices, "(L-BFGS Refinement)")
+            
+            # Linea verticale per warmup su ax1
+            if last_adam_epoch != 0:
+                ax1.axvline(last_adam_epoch, color="r", linestyle="--", label="End Warmup")
+            
+            ax1.legend(loc='upper right', frameon=False, fontsize="small")
+            # Su ax2 mettiamo le labels delle x come 'Adam End' e 'L-BFGS'
+            ax2.set_xticks([self.epochs[-2], self.epochs[-1]])
+            ax2.set_xticklabels(['Adam', 'L-BFGS'])
+        else:
+            # Plot standard
+            plot_on_ax(ax1, range(len(self.epochs)), f"- {experiment_name}")
+            if last_adam_epoch != 0:
+                ax1.axvline(last_adam_epoch, color="r", linestyle="--", label="End Warmup")
+            ax1.legend(loc='upper right', frameon=False, fontsize="large")
 
         if save_path:
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -89,7 +121,7 @@ class TrainingHistory:
         if show_plot:
             plt.show()
         
-        plt.close() # Chiude la figura per liberare memoria
+        plt.close()
 
     def plot_gradients(self, save_path=None, experiment_name="", show_plot=True):
         """

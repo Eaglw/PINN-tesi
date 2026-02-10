@@ -392,7 +392,7 @@ for layers_config in layers_options:
                         'Activation_Func': get_activation_name(act_fn),
                         'Epochs': epochs,
                         'Run_Type': 'PINN_DataPhys',
-                        'Optimizer': 'Adam',
+                        'Optimizer': 'Adam + L-BFGS',
                         'Learning_Rate': lr_log_str,
                         'Loss_Total': get_last(history_2, 'total_loss'),
                         'Loss_Physics': get_last(history_2, 'pde_loss'),
