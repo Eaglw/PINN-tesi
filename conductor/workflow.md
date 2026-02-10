@@ -9,9 +9,6 @@
 5. **User Experience First:** Every decision should prioritize user experience
 6. **Non-Interactive & CI-Aware:** Prefer non-interactive commands. Use `CI=true` for watch-mode tools (tests, linters) to ensure single execution.
 
-## Task Workflow
-
-All tasks follow a strict lifecycle:
 
 ## Task Workflow
 
@@ -70,7 +67,7 @@ All tasks follow a strict lifecycle:
 
 5.  **Create Checkpoint Commit:**
     -   Stage all changes. If no changes occurred in this step, proceed with an empty commit.
-    -   Perform the commit with a clear and concise message (e.g., `conductor(checkpoint): Checkpoint end of Phase X`).
+    -   Perform the commit with a clear and concise message (e.g., `Checkpoint end of Phase X`). Do not mention conductor. 
 
 6.  **Attach Auditable Verification Report using Git Notes:**
     -   **Step 6.1: Draft Note Content:** Create a detailed verification report including the manual verification steps, and the user's confirmation.
