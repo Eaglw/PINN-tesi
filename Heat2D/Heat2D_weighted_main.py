@@ -152,6 +152,19 @@ T_pinn_data = soluzione_analitica(xy_pinn_data[:, 0:1], xy_pinn_data[:, 1:2], Lx
 pinn_data_internal = (xy_pinn_data, T_pinn_data)
 pinn_data_boundary = (xy_master_boundary, T_master_boundary)
 
+# --- VERIFICA DISGIUNZIONE E OVERLAP ---
+print("\n--- Point Overlap Verification ---")
+check_overlaps(xy_master_grid, label="Master Grid")
+check_overlaps(xy_pinn_data, label="PINN Data Set")
+check_overlaps(xy_master_boundary, label="Master Boundary")
+check_overlaps(xy_master_random, label="Master Random")
+ok_pinn = check_overlaps(torch.cat([xy_master_grid, xy_pinn_data, xy_master_boundary], dim=0), label="PINN Full Set")
+
+if not ok_pinn:
+    print("❌ Critical Overlap detected in PINN Full Set. Terminating.")
+    sys.exit(1)
+print("----------------------------------\n")
+
 validation_grid_tuple = (xy_grid_flat, T_grid, X, Y)
 
 # --- GRID SEARCH EXECUTION ---
