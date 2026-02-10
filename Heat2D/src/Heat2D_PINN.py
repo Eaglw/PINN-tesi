@@ -57,7 +57,9 @@ def train_modelPINN(
     warmup_epochs=None,
     n_collocation=(50, 50),
     collocation_points=None,
-    lr_strategy='fixed'
+    lr_strategy='fixed',
+    dynamic_weighting=False,
+    update_weights_every=100
 ):
     """
     Esegue il training della PINN.
@@ -76,6 +78,8 @@ def train_modelPINN(
         collocation_points: (Opzionale) Tensor (N, 2) con i punti di collocazione espliciti.
                             Se fornito, ignora n_collocation.
         lr_strategy: Strategia di learning rate ('fixed' o 'step_decay').
+        dynamic_weighting: (Bool) Se True, attiva il Learning Rate Annealing per i pesi.
+        update_weights_every: (Int) Frequenza aggiornamento pesi dinamici (epoche).
     """
     
     # Unpack dei dati
@@ -134,6 +138,9 @@ def train_modelPINN(
         xy_physics[:, 1] = xy_physics[:, 1] * Ly
         xy_physics.requires_grad_(True)
 
+    # Dynamic Weighting Variables
+    alpha_dynamic = 0.9
+    
     for epoch in pbar:
         
         model.train()
@@ -168,6 +175,41 @@ def train_modelPINN(
             lambda_physics=lambda_physics
         )
         
+        # --- Dynamic Weighting Logic (LR Annealing) ---
+        if dynamic_weighting and epoch >= warmup_epochs and (epoch + 1) % update_weights_every == 0:
+            # We use the MAX gradient norm heuristic (Wang et al.)
+            # Target: Gradient norms of Physics and Data should match Gradient norm of BC
+            
+            # 1. BC Gradient (Reference)
+            max_norm_bc = 0.0
+            if 'bc_loss' in loss_dict:
+                grads_bc = torch.autograd.grad(loss_dict['bc_loss'], model.parameters(), retain_graph=True, allow_unused=True)
+                norms_bc = [g.norm(2) for g in grads_bc if g is not None]
+                if norms_bc:
+                    max_norm_bc = max(norms_bc).item()
+            
+            # 2. Physics Gradient
+            if 'pde_loss' in loss_dict and lambda_physics > 0:
+                grads_phys = torch.autograd.grad(loss_dict['pde_loss'], model.parameters(), retain_graph=True, allow_unused=True)
+                norms_phys = [g.norm(2) for g in grads_phys if g is not None]
+                if norms_phys:
+                    max_norm_phys = max(norms_phys).item()
+                    if max_norm_phys > 1e-12:
+                        # Ratio of gradients * current lambda_bc
+                        new_lambda_phys = (max_norm_bc / max_norm_phys) * lambda_bc
+                        # Update with moving average
+                        target_lambda_physics = alpha_dynamic * target_lambda_physics + (1 - alpha_dynamic) * new_lambda_phys
+
+            # 3. Data Gradient
+            if 'data_loss' in loss_dict and lambda_data > 0:
+                 grads_data = torch.autograd.grad(loss_dict['data_loss'], model.parameters(), retain_graph=True, allow_unused=True)
+                 norms_data = [g.norm(2) for g in grads_data if g is not None]
+                 if norms_data:
+                     max_norm_data = max(norms_data).item()
+                     if max_norm_data > 1e-12:
+                         new_lambda_data = (max_norm_bc / max_norm_data) * lambda_bc
+                         lambda_data = alpha_dynamic * lambda_data + (1 - alpha_dynamic) * new_lambda_data
+
         # Gradient Logging Logic
         if log_gradients_every > 0 and (epoch + 1) % log_gradients_every == 0:
             grad_norms = {}
