@@ -96,13 +96,15 @@ lr_strategies = [
     'step_decay'
 ]
 
+weighting_options = [
+    'static',
+    'dynamic'
+    ]
 
 # TARGET WEIGHTS
 STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}
 STATIC_WEIGHT_STR = "BC=1-PHYS=10-DATA=100"
 DYNAMIC_WEIGHT_STR = "Dynamic-Annealing"
-
-weighting_options = ['static', 'dynamic']
 
 base_output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'experiments_weighted')
 results_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results.csv')

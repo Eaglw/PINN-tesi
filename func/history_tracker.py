@@ -45,18 +45,13 @@ class TrainingHistory:
             
             self.losses[name].append(val)
 
-    def plot_losses(self, last_adam_epoch=0, save_path=None, experiment_name="", show_plot=True):
+    def plot_losses(self, warmup_epoch=0, adam_epochs=None, save_path=None, experiment_name="", show_plot=True):
         """
         Genera un grafico con l'andamento di tutte le loss registrate.
-        Se rileva una fase L-BFGS (ultimo punto con epoch > epochs del loop), 
-        divide il grafico in due subplot per migliorare la leggibilità.
+        Divide il grafico in due subplot se viene fornito adam_epochs, separando la fase Adam da L-BFGS.
         """
-        # Identifichiamo se c'è una fase L-BFGS
-        # Di solito Adam finisce a 'epochs-1', e L-BFGS viene loggato come 'epochs + 1'
-        has_lbfgs = len(self.epochs) > 0 and any(e > self.epochs[-2] for e in [self.epochs[-1]]) if len(self.epochs) > 1 else False
-        
-        # In realtà, un modo più robusto è vedere se l'ultimo step è "isolato" o se vogliamo
-        # forzare la visualizzazione degli ultimi N punti (L-BFGS spesso è solo 1 punto finale di log)
+        # Se non fornito, proviamo a dedurlo o trattiamo tutto come fase unica
+        has_lbfgs = adam_epochs is not None and any(e >= adam_epochs for e in self.epochs)
         
         if has_lbfgs:
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4), gridspec_kw={'width_ratios': [3, 1]})
@@ -68,7 +63,7 @@ class TrainingHistory:
 
         def plot_on_ax(ax, epoch_range_indices, title_suffix=""):
             for name, values in self.losses.items():
-                if name.startswith('grad_'): continue
+                if name.startswith('grad_') or name.startswith('weight_'): continue
                 
                 # Prendi solo il range richiesto
                 r_epochs = [self.epochs[i] for i in epoch_range_indices]
@@ -89,28 +84,31 @@ class TrainingHistory:
             ax.spines['right'].set_visible(False)
 
         if has_lbfgs:
-            # Adam: tutti tranne l'ultimo
-            adam_indices = list(range(len(self.epochs) - 1))
-            plot_on_ax(ax1, adam_indices, "(Adam Phase)")
+            # Adam: indici dove epoch < adam_epochs
+            adam_indices = [i for i, e in enumerate(self.epochs) if e < adam_epochs]
+            # Aggiungiamo il primo punto di L-BFGS per dare continuità visiva se possibile
+            lbfgs_indices = [i for i, e in enumerate(self.epochs) if e >= adam_epochs]
             
-            # L-BFGS: ultimi due punti per mostrare la discesa (o solo l'ultimo se vogliamo un bar/point)
-            # Mostriamo l'ultimo punto di Adam e il punto finale L-BFGS
-            lbfgs_indices = [len(self.epochs) - 2, len(self.epochs) - 1]
-            plot_on_ax(ax2, lbfgs_indices, "(L-BFGS Refinement)")
-            
-            # Linea verticale per warmup su ax1
-            if last_adam_epoch != 0:
-                ax1.axvline(last_adam_epoch, color="r", linestyle="--", label="End Warmup")
-            
-            ax1.legend(loc='upper right', frameon=False, fontsize="small")
-            # Su ax2 mettiamo le labels delle x come 'Adam End' e 'L-BFGS'
-            ax2.set_xticks([self.epochs[-2], self.epochs[-1]])
-            ax2.set_xticklabels(['Adam', 'L-BFGS'])
+            if adam_indices:
+                plot_on_ax(ax1, adam_indices, "(Adam Phase)")
+                if warmup_epoch != 0:
+                    ax1.axvline(warmup_epoch, color="r", linestyle="--", label="End Warmup")
+                ax1.legend(loc='upper right', frameon=False, fontsize="small")
+
+            if lbfgs_indices:
+                # Per continuità, includiamo l'ultimo punto di Adam nel plot L-BFGS
+                if adam_indices:
+                    lbfgs_plot_indices = [adam_indices[-1]] + lbfgs_indices
+                else:
+                    lbfgs_plot_indices = lbfgs_indices
+                
+                plot_on_ax(ax2, lbfgs_plot_indices, "(L-BFGS Refinement)")
+                ax2.set_xlabel('Iter')
         else:
             # Plot standard
             plot_on_ax(ax1, range(len(self.epochs)), f"- {experiment_name}")
-            if last_adam_epoch != 0:
-                ax1.axvline(last_adam_epoch, color="r", linestyle="--", label="End Warmup")
+            if warmup_epoch != 0:
+                ax1.axvline(warmup_epoch, color="r", linestyle="--", label="End Warmup")
             ax1.legend(loc='upper right', frameon=False, fontsize="large")
 
         if save_path:

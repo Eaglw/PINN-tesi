@@ -209,7 +209,10 @@ for experiment in experiments_to_run:
     os.makedirs(plot_dir, exist_ok=True)
     
     loss_plot_path = os.path.join(plot_dir, "loss_trends.png")
-    history.plot_losses(last_adam_epoch,save_path=loss_plot_path, experiment_name=exp_name,)
+    # Usiamo adam_epochs per dividere il grafico solo se abbiamo avuto entrambe le fasi
+    history.plot_losses(adam_epochs=last_adam_epoch if last_adam_epoch > 0 else None, 
+                        save_path=loss_plot_path, 
+                        experiment_name=exp_name)
    
 
     pinn.eval()

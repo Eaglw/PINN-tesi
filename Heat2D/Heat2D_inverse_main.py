@@ -191,6 +191,7 @@ def run_inverse_experiment(
             line_search_fn="strong_wolfe"
         )
         
+        lbfgs_iter = [0]
         def closure():
             optimizer_lbfgs.zero_grad()
             T_pred_data = model(xy_data)
@@ -206,6 +207,15 @@ def run_inverse_experiment(
             
             total_loss = loss_data + loss_bc + loss_phys
             total_loss.backward()
+            
+            if lbfgs_iter[0] % 10 == 0:
+                history.update(epochs + lbfgs_iter[0], {
+                    'total_loss': total_loss.item(),
+                    'data_loss': loss_data.item(),
+                    'bc_loss': loss_bc.item(),
+                    'pde_loss': loss_phys.item()
+                })
+            lbfgs_iter[0] += 1
             return total_loss
             
         optimizer_lbfgs.step(closure)
@@ -226,7 +236,7 @@ def run_inverse_experiment(
         
         total_loss_final = loss_data_final + loss_bc_final + loss_phys_final
         
-        history.update(epochs + 1, {
+        history.update(epochs + lbfgs_iter[0], {
             'total_loss': total_loss_final,
             'data_loss': loss_data_final,
             'bc_loss': loss_bc_final,
@@ -243,7 +253,10 @@ def run_inverse_experiment(
         final_k = k_train.item()
     
     plot_k_convergence(k_history, true_k, os.path.join(exp_dir, "k_convergence.png"))
-    history.plot_losses(save_path=os.path.join(exp_dir, "loss_history.png"), experiment_name=exp_name, show_plot=False)
+    history.plot_losses(adam_epochs=epochs if use_lbfgs else None, 
+                        save_path=os.path.join(exp_dir, "loss_history.png"), 
+                        experiment_name=exp_name, 
+                        show_plot=False)
     
     if plot_files:
         save_gif_PIL(os.path.join(exp_dir, "training_evolution.gif"), plot_files, fps=5, loop=0, delete_files=True)

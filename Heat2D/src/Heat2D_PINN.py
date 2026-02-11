@@ -284,7 +284,7 @@ def train_modelPINN(
         line_search_fn="strong_wolfe"
     )
 
-    # Closure function richiesta da L-BFGS
+    lbfgs_iter = [0]
     def closure():
         optimizer_lbfgs.zero_grad()
         loss, loss_dict = compute_pinn_loss(
@@ -301,11 +301,17 @@ def train_modelPINN(
             lambda_physics=target_lambda_physics
         )
         loss.backward()
+        
+        # Log every 10 iterations to keep the history manageable but detailed
+        if lbfgs_iter[0] % 10 == 0:
+            loss_history.update(epochs + lbfgs_iter[0], loss_dict)
+        
+        lbfgs_iter[0] += 1
         return loss
 
     optimizer_lbfgs.step(closure)
     
-    # Calcolo loss finale dopo L-BFGS per aggiornare history
+    # Final loss check after L-BFGS
     final_loss, final_loss_dict = compute_pinn_loss(
             model, 
             x_data=xy_int, 
@@ -319,8 +325,8 @@ def train_modelPINN(
             lambda_bc=lambda_bc,
             lambda_physics=target_lambda_physics
     )
-    loss_history.update(epochs + 1, final_loss_dict) 
-    print(f"Loss finale dopo L-BFGS: {final_loss.item():.2e}")
+    loss_history.update(epochs + lbfgs_iter[0], final_loss_dict) 
+    print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss.item():.2e}")
 
     # Plot Finale Interattivo
     print("Training completato. Generazione plot finale...")
@@ -350,8 +356,14 @@ def train_modelPINN(
         gif_path = os.path.join(final_dir, 'PINNtraining_evolution.gif')
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
-    # Plot Loss History con linea verticale per fine warmup
-    loss_history.plot_losses(last_adam_epoch=warmup_epochs, save_path=os.path.join(final_dir, 'PINNloss_history.png'), experiment_name="Heat2D PINN", show_plot=show_plots_interactively)
+    # Plot Loss History con split tra Adam e L-BFGS
+    loss_history.plot_losses(
+        warmup_epoch=warmup_epochs, 
+        adam_epochs=epochs,
+        save_path=os.path.join(final_dir, 'PINNloss_history.png'), 
+        experiment_name="Heat2D PINN", 
+        show_plot=show_plots_interactively
+    )
     
     # Plot Gradient History if available
     loss_history.plot_gradients(save_path=os.path.join(final_dir, 'PINN_gradients.png'), experiment_name="Heat2D PINN Gradients", show_plot=show_plots_interactively)
