@@ -140,18 +140,18 @@ xy_master_random = generate_internal_points(num_master_random, Lx, Ly, margin=1e
 
 # 3. Boundary Points: 400 points (100 per side) - Equidistant
 num_b_side = 100
-# Left (x=0)
-x_b_l = torch.zeros(num_b_side, 1, device=device)
-y_b_l = torch.linspace(0, Ly, num_b_side, device=device).reshape(-1, 1)
-# Right (x=Lx)
-x_b_r = torch.ones(num_b_side, 1, device=device) * Lx
-y_b_r = torch.linspace(0, Ly, num_b_side, device=device).reshape(-1, 1)
-# Bottom (y=0)
-x_b_b = torch.linspace(0, Lx, num_b_side, device=device).reshape(-1, 1)
-y_b_b = torch.zeros(num_b_side, 1, device=device)
-# Top (y=Ly)
-x_b_t = torch.linspace(0, Lx, num_b_side, device=device).reshape(-1, 1)
-y_b_t = torch.ones(num_b_side, 1, device=device) * Ly
+# Left (x=0) - Esclude angoli
+x_b_l = torch.zeros(num_b_side - 2, 1, device=device)
+y_b_l = torch.linspace(0, Ly, num_b_side, device=device)[1:-1].reshape(-1, 1)
+# Right (x=Lx) - Esclude angoli
+x_b_r = torch.ones(num_b_side - 2, 1, device=device) * Lx
+y_b_r = torch.linspace(0, Ly, num_b_side, device=device)[1:-1].reshape(-1, 1)
+# Bottom (y=0) - Esclude angoli
+x_b_b = torch.linspace(0, Lx, num_b_side, device=device)[1:-1].reshape(-1, 1)
+y_b_b = torch.zeros(num_b_side - 2, 1, device=device)
+# Top (y=Ly) - Esclude angoli
+x_b_t = torch.linspace(0, Lx, num_b_side, device=device)[1:-1].reshape(-1, 1)
+y_b_t = torch.ones(num_b_side - 2, 1, device=device) * Ly
 
 xy_master_boundary = torch.cat([
     torch.cat([x_b_l, y_b_l], dim=1),
@@ -160,7 +160,7 @@ xy_master_boundary = torch.cat([
     torch.cat([x_b_t, y_b_t], dim=1)
 ], dim=0)
 
-# Rimozione duplicati (corner) dai bordi
+# Rimozione duplicati (corner) dai bordi - mantenuto come richiesto
 xy_master_boundary = torch.unique(xy_master_boundary, dim=0)
 
 # Pre-calcolo Soluzione Analitica per i Master Sets

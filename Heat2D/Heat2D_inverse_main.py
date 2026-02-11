@@ -119,19 +119,20 @@ def run_inverse_experiment(
     # Fixed physics points for consistency/stability
     xy_phys = torch.rand((2000, 2), device=device, requires_grad=True)
 
-    # Generate BC points (All T=0)
+    # Generate BC points (All T=0) - Equidistanti senza angoli
     n_bc = 200
-    y_bc = torch.rand(n_bc, 1)
-    x_bc_pts = torch.rand(n_bc, 1)
+    # Usiamo linspace[1:-1] per escludere 0.0 e 1.0 (gli angoli)
+    pts = torch.linspace(0, 1, n_bc, device=device)[1:-1].reshape(-1, 1)
+    num_pts = pts.shape[0]
     
     # All boundaries -> T=0
-    bc_right = torch.cat([torch.ones(n_bc, 1), y_bc], dim=1).to(device)
-    bc_left = torch.cat([torch.zeros(n_bc, 1), y_bc], dim=1).to(device)
-    bc_top = torch.cat([x_bc_pts, torch.ones(n_bc, 1)], dim=1).to(device)
-    bc_bottom = torch.cat([x_bc_pts, torch.zeros(n_bc, 1)], dim=1).to(device)
+    bc_right = torch.cat([torch.ones(num_pts, 1, device=device), pts], dim=1)
+    bc_left = torch.cat([torch.zeros(num_pts, 1, device=device), pts], dim=1)
+    bc_top = torch.cat([pts, torch.ones(num_pts, 1, device=device)], dim=1)
+    bc_bottom = torch.cat([pts, torch.zeros(num_pts, 1, device=device)], dim=1)
     
     all_bc_x = torch.cat([bc_right, bc_left, bc_top, bc_bottom], dim=0)
-    all_bc_val = torch.zeros((n_bc * 4, 1), device=device) # T=0 everywhere on BC
+    all_bc_val = torch.zeros((all_bc_x.shape[0], 1), device=device) # T=0 everywhere on BC
     
     for epoch in pbar:
         model.train()

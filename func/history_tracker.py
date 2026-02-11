@@ -72,8 +72,15 @@ class TrainingHistory:
                 # Se tutti i valori sono NaN, salta
                 if all(np.isnan(r_values)): continue
 
-                linewidth = 3 if name == "total_loss" else 1.5
-                ax.plot(r_epochs, r_values, linewidth=linewidth, label=name)
+                # Specifica nel label se la loss è pesata o pura
+                if name == "total_loss":
+                    label = f"{name} (weighted)"
+                    linewidth = 3
+                else:
+                    label = f"{name} (pure)"
+                    linewidth = 1.5
+
+                ax.plot(r_epochs, r_values, linewidth=linewidth, label=label)
             
             ax.set_title(f'Loss {title_suffix}')
             ax.set_xlabel('Epoch/Iter')
@@ -216,8 +223,12 @@ class TrainingHistory:
 def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, **kwargs):
     """
     Computes the components of the PINN loss.
-    Note: Each group (data, bc, physics) returns its own MEAN squared error.
-    Total Loss = lambda_data * Mean(data_res^2) + lambda_bc * Mean(bc_res^2) + lambda_physics * Mean(pde_res^2)
+    
+    IMPORTANT: 
+    - Individual components (data_loss, bc_loss, pde_loss) in 'loss_dict' are PURE residuals (UNWEIGHTED).
+    - 'total_loss' is the WEIGHTED sum: lambda_data*data_loss + lambda_bc*bc_loss + lambda_physics*pde_loss.
+    
+    This ensures that physics residuals can be monitored independently of their contribution to the gradient.
     """
     loss_dict = {}
     total_loss = 0.0

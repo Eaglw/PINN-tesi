@@ -238,6 +238,8 @@ def train_modelPINN(
             loss_history.update(epoch, grad_norms)
 
         loss.backward()
+        # AGGIUNGI QUESTO: Gradient Clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         
         # Step dello scheduler
@@ -276,8 +278,8 @@ def train_modelPINN(
     optimizer_lbfgs = torch.optim.LBFGS(
         model.parameters(), 
         lr=1.0, 
-        max_iter=2000, 
-        max_eval=2000, 
+        max_iter=5000, 
+        max_eval=5000, 
         tolerance_grad=1e-7, 
         tolerance_change=1e-9,
         history_size=100,
