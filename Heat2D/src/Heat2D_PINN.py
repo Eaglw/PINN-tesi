@@ -135,7 +135,8 @@ def train_modelPINN(
             optimizer, 
             mode='min', 
             factor=0.5, 
-            patience=500
+            patience=500,
+            min_lr=1e-6
         )
     # Pre-generate Collocation Points (Fixed across epochs)
     if collocation_points is not None:
