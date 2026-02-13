@@ -102,7 +102,7 @@ weighting_options = [
     ]
 
 # TARGET WEIGHTS
-STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}
+STATIC_WEIGHTS = {'bc': 1.0, 'physics': 20.0, 'data': 100.0}
 STATIC_WEIGHT_STR = "BC=1-PHYS=10-DATA=100"
 DYNAMIC_WEIGHT_STR = "Dynamic-Annealing"
 
@@ -236,6 +236,7 @@ for layers_config in layers_options:
                             plots_dir=plots_dir_2,
                             final_dir=exp_dir_2,
                             show_plots_interactively=show_plots_interactively,
+                            log_gradients_every=100,
                             collocation_points=xy_master_grid,
                             lr_strategy=lr_strat,
                             loss_weights=w_2,
@@ -297,6 +298,7 @@ for layers_config in layers_options:
                             plots_dir=plots_dir_3,
                             final_dir=exp_dir_3,
                             show_plots_interactively=show_plots_interactively,
+                            log_gradients_every=100,
                             collocation_points=xy_master_grid,
                             lr_strategy=lr_strat,
                             loss_weights=w_3,

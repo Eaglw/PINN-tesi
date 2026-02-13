@@ -125,7 +125,19 @@ def train_modelPINN(
     if lr_strategy == 'step_decay':
         step_size = int(epochs * 0.25)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=0.5)
-
+    elif lr_strategy == 'plateau': # O sostituisci nel tuo if
+    # factor=0.5: Dimezza il LR quando si blocca (come facevi prima)
+    # patience=1000: Aspetta 1000 epoche senza miglioramenti prima di tagliare.
+    #   Dato che il tuo grafico è molto rumoroso, serve una pazienza alta per non
+    #   scattare per sbaglio su un picco di rumore.
+    # verbose=True: Ti stampa a video quando cambia il LR (fondamentale per debug)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, 
+            mode='min', 
+            factor=0.5, 
+            patience=1000, 
+            verbose=True
+        )
     # Pre-generate Collocation Points (Fixed across epochs)
     if collocation_points is not None:
         xy_physics = collocation_points.clone()
@@ -243,9 +255,10 @@ def train_modelPINN(
         optimizer.step()
         
         # Step dello scheduler
-        if scheduler:
+        if scheduler == 'step_decay':
             scheduler.step()
-        
+        elif scheduler == 'patience':
+            scheduler.step(loss)
         # Aggiornamento history
         loss_dict.update({
             'weight_data': lambda_data,
