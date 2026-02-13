@@ -81,24 +81,24 @@ layers_options = [
 ]
 
 epochs_options = [
-    #20000,
+    20000,
     40000
 ]
 
 activation_options = [
     nn.Tanh,
-    #nn.SiLU,
-    #nn.GELU
+    nn.SiLU,
+    nn.GELU
 ]
 
 lr_strategies = [
     #'fixed',
-    #'step_decay',
+    'step_decay',
     'plateau'
 ]
 
 weighting_options = [
-    #'static',
+    'static',
     'dynamic'
     ]
 
