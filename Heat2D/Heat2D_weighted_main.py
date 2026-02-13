@@ -81,8 +81,8 @@ layers_options = [
 ]
 
 epochs_options = [
-    20000,
-    #40000
+    #20000,
+    40000
 ]
 
 activation_options = [

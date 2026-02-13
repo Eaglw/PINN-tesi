@@ -135,8 +135,7 @@ def train_modelPINN(
             optimizer, 
             mode='min', 
             factor=0.5, 
-            patience=1000, 
-            verbose=True
+            patience=500
         )
     # Pre-generate Collocation Points (Fixed across epochs)
     if collocation_points is not None:
@@ -255,10 +254,11 @@ def train_modelPINN(
         optimizer.step()
         
         # Step dello scheduler
-        if scheduler == 'step_decay':
+        if lr_strategy == 'step_decay':
             scheduler.step()
-        elif scheduler == 'patience':
+        elif lr_strategy == 'plateau':
             scheduler.step(loss)
+            
         # Aggiornamento history
         loss_dict.update({
             'weight_data': lambda_data,
