@@ -93,7 +93,8 @@ activation_options = [
 
 lr_strategies = [
     #'fixed',
-    'step_decay'
+    #'step_decay',
+    'plateau'
 ]
 
 weighting_options = [
@@ -236,12 +237,12 @@ for layers_config in layers_options:
                             plots_dir=plots_dir_2,
                             final_dir=exp_dir_2,
                             show_plots_interactively=show_plots_interactively,
-                            log_gradients_every=100,
+                            log_gradients_every=500,
                             collocation_points=xy_master_grid,
                             lr_strategy=lr_strat,
                             loss_weights=w_2,
                             dynamic_weighting=is_dynamic,
-                            update_weights_every=100,
+                            update_weights_every=500,
                             warmup_epochs=0 
                         )
                         
@@ -298,12 +299,12 @@ for layers_config in layers_options:
                             plots_dir=plots_dir_3,
                             final_dir=exp_dir_3,
                             show_plots_interactively=show_plots_interactively,
-                            log_gradients_every=100,
+                            log_gradients_every=500,
                             collocation_points=xy_master_grid,
                             lr_strategy=lr_strat,
                             loss_weights=w_3,
                             dynamic_weighting=is_dynamic,
-                            update_weights_every=100,
+                            update_weights_every=500,
                             warmup_epochs=0
                         )
 
