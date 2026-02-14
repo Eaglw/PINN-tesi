@@ -77,34 +77,36 @@ goal = [2, 3]
 
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
 layers_options = [
-    [2, 50, 50, 50, 50, 1] # Fixed architecture for this track
+    #[2, 50, 50, 50, 50, 1], # Configurazione Originale
+    [2, 80, 80, 80, 80, 80, 80, 1],
+    [2, 100, 100, 100, 100, 100, 100, 100, 100, 1]  
 ]
 
 epochs_options = [
-    20000,
+    #20000,
     40000
 ]
 
 activation_options = [
-    nn.Tanh,
+    #nn.Tanh,
     nn.SiLU,
     nn.GELU
 ]
 
 lr_strategies = [
     #'fixed',
-    'step_decay',
+    #'step_decay',
     'plateau'
 ]
 
 weighting_options = [
-    'static',
+    #'static',
     'dynamic'
     ]
 
 # TARGET WEIGHTS
 STATIC_WEIGHTS = {'bc': 1.0, 'physics': 20.0, 'data': 100.0}
-STATIC_WEIGHT_STR = "BC=1-PHYS=10-DATA=100"
+STATIC_WEIGHT_STR = "BC=1-PHYS=20-DATA=100"
 DYNAMIC_WEIGHT_STR = "Dynamic-Annealing"
 
 base_output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'experiments_weighted')
@@ -206,6 +208,8 @@ for layers_config in layers_options:
                     if lr_strat == 'step_decay':
                         final_lr = base_lr * (0.5**4) 
                         lr_log_str = f"[{base_lr} -> {final_lr}]"
+                    elif lr_strat == 'plateau':
+                        lr_log_str = f"[plateau min:1e-6]"
                     else:
                         lr_log_str = str(base_lr)
 
@@ -255,7 +259,7 @@ for layers_config in layers_options:
                             'Activation_Func': get_activation_name(act_fn),
                             'Epochs': epochs,
                             'Run_Type': 'PINN_DataPhys',
-                            'Optimizer': 'Adam',
+                            'Optimizer': 'Adam + L-BFGS',
                             'Learning_Rate': lr_log_str,
                             'Loss_Total': get_last(history_2, 'total_loss'),
                             'Loss_Physics': get_last(history_2, 'pde_loss'),
