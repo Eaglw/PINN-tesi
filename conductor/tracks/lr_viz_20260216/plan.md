@@ -7,7 +7,7 @@ Implement tracking and visualization of learning rate changes in training loss p
     - [ ] Modify `update()` to accept an optional `lr` parameter (o estrarlo dal `loss_dict`) e memorizzarlo in una lista dedicata.
     - [ ] Aggiornare `plot_losses()` per identificare le epoche in cui il LR cambia valore.
     - [ ] Aggiungere linee verticali tratteggiate (`axvline`) per ogni cambio di LR rilevato.
-- [ ] Task: Conductor - User Manual Verification 'Core Logic' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Core Logic' (Protocol in workflow.md)
 
 ## Phase 2: Integration in Heat2D Source Modules
 - [ ] Task: Update `Heat2D/src/Heat2D_NN.py`
