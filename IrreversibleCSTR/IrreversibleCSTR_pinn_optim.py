@@ -104,7 +104,7 @@ def train_adam(pinn, optimizer, history, epochs, x_data, y_data, x_physics, pbar
             pbar.update(1)
 
             if i % 100 == 0:
-                history.update(i, {k: v.detach() for k, v in loss_dict.items()})
+                history.update(i, {k: v.detach() for k, v in loss_dict.items()}, lr=optimizer.param_groups[0]['lr'])
 
             # Logica di Early Stopping basata sulla 'pazienza'
             if use_patience:
@@ -131,7 +131,7 @@ def train_lbfgs(pinn, optimizer, history, x_data, y_data, x_physics, epoch_offse
         loss.backward()
 
         current_iter = lbfgs_iter_wrapper[0]
-        history.update(epoch_offset + current_iter, {k: v.detach() for k, v in loss_dict.items()})
+        history.update(epoch_offset + current_iter, {k: v.detach() for k, v in loss_dict.items()}, lr=optimizer.param_groups[0]['lr'])
         
         if current_iter % 100 == 0:
             print(f'LBFGS iter {current_iter}, Loss: {loss.item()}')

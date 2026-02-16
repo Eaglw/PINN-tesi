@@ -220,7 +220,7 @@ for i in tqdm(range(step), desc="Coupled Training"):
         'phys_M': loss_p_mass,
         'phys_E': loss_p_energy
     }
-    history.update(i, loss_dict)
+    history.update(i, loss_dict, lr=optimizer_coupled.param_groups[0]['lr'])
     
     # Plotting animazione
     if (i+1) % 200 == 0:
