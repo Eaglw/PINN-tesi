@@ -78,8 +78,8 @@ goal = [2, 3]
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
 layers_options = [
     [2, 50, 50, 50, 50, 1], # Configurazione Originale
-    #[2, 80, 80, 80, 80, 80, 80, 1],
-    #[2, 100, 100, 100, 100, 100, 100, 100, 100, 1]  
+    [2, 80, 80, 80, 80, 80, 80, 1],
+    [2, 100, 100, 100, 100, 100, 100, 100, 100, 1]  
 ]
 
 epochs_options = [
@@ -88,8 +88,8 @@ epochs_options = [
 ]
 
 activation_options = [
-    #nn.Tanh,
-    #nn.SiLU,
+    nn.Tanh,
+    nn.SiLU,
     nn.GELU
 ]
 
