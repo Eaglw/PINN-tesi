@@ -11,8 +11,9 @@ class TrainingHistory:
     def __init__(self):
         self.epochs = []
         self.losses = {} # Dizionario di liste: {'total_loss': [v1, v2...], 'pde_loss': [None, ..., v100...]}
+        self.lr_history = []
 
-    def update(self, epoch, loss_dict):
+    def update(self, epoch, loss_dict, lr=None):
         """
         Registra i valori delle loss per un dato'epoch'.
         Gestisce loss opzionali (es. pde_loss durante warmup) mantenendo le liste allineate.
@@ -21,8 +22,15 @@ class TrainingHistory:
             epoch (int): L'epoch corrente.
             loss_dict (dict): Un dizionario con i nomi delle loss e i loro valori.
                               Es: {'total_loss': 1.5, 'pde_loss': 1.2, ...}
+            lr (float, optional): Il valore del Learning Rate corrente.
         """
         self.epochs.append(epoch)
+        
+        # Gestione Learning Rate
+        if lr is None and 'lr' in loss_dict:
+            lr = loss_dict['lr']
+            lr = lr.item() if hasattr(lr, 'item') else lr
+        self.lr_history.append(lr)
         
         # 1. Identifica tutte le chiavi di loss viste finora (nel dizionario storico o nel corrente)
         current_keys = set(loss_dict.keys())
@@ -82,6 +90,21 @@ class TrainingHistory:
 
                 ax.plot(r_epochs, r_values, linewidth=linewidth, label=label)
             
+            # Visualizzazione cambi Learning Rate
+            if len(self.lr_history) > 0:
+                first_lr_vline = True
+                for i in range(1, len(epoch_range_indices)):
+                    idx_curr = epoch_range_indices[i]
+                    idx_prev = epoch_range_indices[i-1]
+                    
+                    lr_curr = self.lr_history[idx_curr]
+                    lr_prev = self.lr_history[idx_prev]
+                    
+                    if lr_curr is not None and lr_prev is not None and lr_curr != lr_prev:
+                        label = "LR Change" if first_lr_vline else None
+                        ax.axvline(self.epochs[idx_curr], color="gray", linestyle=":", alpha=0.6, linewidth=0.8, label=label)
+                        first_lr_vline = False
+
             ax.set_title(f'Loss {title_suffix}')
             ax.set_xlabel('Epoch/Iter')
             ax.set_ylabel('Loss')
@@ -119,7 +142,9 @@ class TrainingHistory:
             ax1.legend(loc='upper right', frameon=False, fontsize="large")
 
         if save_path:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            dir_name = os.path.dirname(save_path)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
             plt.savefig(save_path, bbox_inches='tight')
             print(f"Grafico delle loss salvato in: {save_path}")
         
