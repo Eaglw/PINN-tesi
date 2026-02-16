@@ -16,7 +16,7 @@ Implement tracking and visualization of learning rate changes in training loss p
     - [ ] Estrarre il LR corrente e passarlo a `loss_history.update()`.
 - [ ] Task: Update `Heat2D/src/Heat2D_PINN.py`
     - [ ] Estrarre il LR corrente e passarlo a `loss_history.update()`.
-- [ ] Task: Conductor - User Manual Verification 'Source Modules' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Source Modules' (Protocol in workflow.md)
 
 ## Phase 3: Integration in Inverse Problem
 - [ ] Task: Update `Heat2D/Heat2D_inverse_main.py`
