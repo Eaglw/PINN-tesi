@@ -160,12 +160,13 @@ def run_inverse_experiment(
         optimizer.step()
         
         k_history.append(k_train.item())
+        current_lr = optimizer.param_groups[0]['lr']
         history.update(epoch, {
             'total_loss': total_loss.item(),
             'data_loss': loss_data.item(),
             'bc_loss': loss_bc.item(),
             'pde_loss': loss_phys.item()
-        })
+        }, lr=current_lr)
         
         if (epoch + 1) % 500 == 0:
             pbar.set_postfix({'Loss': f"{total_loss.item():.2e}", 'k': f"{k_train.item():.4f}"})
@@ -215,7 +216,7 @@ def run_inverse_experiment(
                     'data_loss': loss_data.item(),
                     'bc_loss': loss_bc.item(),
                     'pde_loss': loss_phys.item()
-                })
+                }, lr=1.0)
             lbfgs_iter[0] += 1
             return total_loss
             
@@ -242,7 +243,7 @@ def run_inverse_experiment(
             'data_loss': loss_data_final,
             'bc_loss': loss_bc_final,
             'pde_loss': loss_phys_final
-        })
+        }, lr=1.0)
         k_history.append(k_train.item())
 
     execution_time = time.time() - start_time
