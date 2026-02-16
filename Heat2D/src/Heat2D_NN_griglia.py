@@ -67,17 +67,16 @@ def train_modelNN_griglia(
         loss.backward()
         optimizer.step()
         
-        # Step dello scheduler
-        if scheduler:
-            scheduler.step()
+                # Step dello scheduler
+                if scheduler:
+                    scheduler.step()
         
-        loss_history.update(epoch, {'total_loss': loss.item()})
+                current_lr = scheduler.get_last_lr()[0] if scheduler else optimizer.param_groups[0]['lr']
+                loss_history.update(epoch, {'total_loss': loss.item()}, lr=current_lr)
         
-        # Monitoraggio e Plotting periodico
-        if (epoch + 1) % 500 == 0:
-            current_lr = scheduler.get_last_lr()[0] if scheduler else optimizer.param_groups[0]['lr']
-            pbar.set_postfix({'Loss': f"{loss.item():.2e}", 'LR': f"{current_lr:.1e}"})
-            
+                # Monitoraggio e Plotting periodico
+                if (epoch + 1) % 500 == 0:
+                    pbar.set_postfix({'Loss': f"{loss.item():.2e}", 'LR': f"{current_lr:.1e}"})            
             model.eval()
             with torch.no_grad():
                 T_pred_grid = model(xy_grid).reshape(Nx_dom, Ny_dom)

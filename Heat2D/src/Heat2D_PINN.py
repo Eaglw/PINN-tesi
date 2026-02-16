@@ -222,33 +222,33 @@ def train_modelPINN(
                          new_lambda_data = (max_norm_bc / max_norm_data) * lambda_bc
                          lambda_data = alpha_dynamic * lambda_data + (1 - alpha_dynamic) * new_lambda_data
 
-        # Gradient Logging Logic
-        if log_gradients_every > 0 and (epoch + 1) % log_gradients_every == 0:
-            grad_norms = {}
-            for name, loss_tensor in loss_dict.items():
-                if name == 'total_loss': continue
-                if isinstance(loss_tensor, torch.Tensor):
-                    # Get the weight used
-                    weight = 1.0
-                    if name == 'data_loss': weight = lambda_data
-                    elif name == 'bc_loss': weight = lambda_bc
-                    elif name == 'pde_loss': weight = lambda_physics
-                    
-                    if weight > 0:
-                        # Retain graph needed because we do multiple backward calls (via grad)
-                        # and then the final backward.
-                        grads = torch.autograd.grad(loss_tensor * weight, model.parameters(), retain_graph=True, allow_unused=True)
-                        
-                        # Total L2 norm of all params
-                        total_norm = 0.0
-                        for g in grads:
-                            if g is not None:
-                                total_norm += g.data.norm(2).item()**2
-                        total_norm = total_norm ** 0.5
-                        grad_norms[f'grad_{name}'] = total_norm
-            
-            loss_history.update(epoch, grad_norms)
-
+                # Gradient Logging Logic
+                if log_gradients_every > 0 and (epoch + 1) % log_gradients_every == 0:
+                    current_lr = scheduler.get_last_lr()[0] if scheduler else optimizer.param_groups[0]['lr']
+                    grad_norms = {}
+                    for name, loss_tensor in loss_dict.items():
+                        if name == 'total_loss': continue
+                        if isinstance(loss_tensor, torch.Tensor):
+                            # Get the weight used
+                            weight = 1.0
+                            if name == 'data_loss': weight = lambda_data
+                            elif name == 'bc_loss': weight = lambda_bc
+                            elif name == 'pde_loss': weight = lambda_physics
+        
+                            if weight > 0:
+                                # Retain graph needed because we do multiple backward calls (via grad)
+                                # and then the final backward.
+                                grads = torch.autograd.grad(loss_tensor * weight, model.parameters(), retain_graph=True, allow_unused=True)
+        
+                                # Total L2 norm of all params
+                                total_norm = 0.0
+                                for g in grads:
+                                    if g is not None:
+                                        total_norm += g.data.norm(2).item()**2
+                                total_norm = total_norm ** 0.5
+                                grad_norms[f'grad_{name}'] = total_norm
+        
+                    loss_history.update(epoch, grad_norms, lr=current_lr)
         loss.backward()
         # AGGIUNGI QUESTO: Gradient Clipping
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -258,9 +258,16 @@ def train_modelPINN(
         if lr_strategy == 'step_decay':
             scheduler.step()
         elif lr_strategy == 'plateau':
-            # Use unweighted loss for stable scheduling
-            unweighted_loss = loss_dict.get('pde_loss', 0.0) + loss_dict.get('bc_loss', 0.0) + loss_dict.get('data_loss', 0.0)
-            scheduler.step(unweighted_loss)
+            # Use unweighted loss for stable scheduling, monitoring only active components (weight > 0)
+            monitored_loss = 0.0
+            if lambda_data > 0:
+                monitored_loss += loss_dict.get('data_loss', 0.0)
+            if lambda_bc > 0:
+                monitored_loss += loss_dict.get('bc_loss', 0.0)
+            if lambda_physics > 0:
+                monitored_loss += loss_dict.get('pde_loss', 0.0)
+            
+            scheduler.step(monitored_loss)
             
         # Aggiornamento history
         loss_dict.update({
@@ -268,11 +275,11 @@ def train_modelPINN(
             'weight_bc': lambda_bc,
             'weight_phys': lambda_physics
         })
-        loss_history.update(epoch, loss_dict)
+        current_lr = scheduler.get_last_lr()[0] if scheduler else optimizer.param_groups[0]['lr']
+        loss_history.update(epoch, loss_dict, lr=current_lr)
         
         # Monitoraggio e Plotting periodico
         if (epoch + 1) % 500 == 0:
-            current_lr = scheduler.get_last_lr()[0] if scheduler else optimizer.param_groups[0]['lr']
             pbar.set_postfix({
                 'Phase': phase_desc,
                 'Loss': f"{loss.item():.2e}", 
@@ -322,7 +329,7 @@ def train_modelPINN(
         
         # Log every 10 iterations to keep the history manageable but detailed
         if lbfgs_iter[0] % 10 == 0:
-            loss_history.update(epochs + lbfgs_iter[0], loss_dict)
+            loss_history.update(epochs + lbfgs_iter[0], loss_dict, lr=1.0)
         
         lbfgs_iter[0] += 1
         return loss
@@ -343,9 +350,8 @@ def train_modelPINN(
             lambda_bc=lambda_bc,
             lambda_physics=target_lambda_physics
     )
-    loss_history.update(epochs + lbfgs_iter[0], final_loss_dict) 
-    print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss.item():.2e}")
-
+        loss_history.update(epochs + lbfgs_iter[0], final_loss_dict, lr=1.0)
+        print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss.item():.2e}")
     # Plot Finale Interattivo
     print("Training completato. Generazione plot finale...")
     model.eval()
