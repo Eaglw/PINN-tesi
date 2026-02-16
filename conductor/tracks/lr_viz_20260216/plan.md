@@ -21,7 +21,7 @@ Implement tracking and visualization of learning rate changes in training loss p
 ## Phase 3: Integration in Inverse Problem
 - [ ] Task: Update `Heat2D/Heat2D_inverse_main.py`
     - [ ] In `run_inverse_experiment`, estrarre il LR dell'ottimizzatore ad ogni epoca (sia Adam che L-BFGS se pertinente) e passarlo a `history.update()`.
-- [ ] Task: Conductor - User Manual Verification 'Inverse Main' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Inverse Main' (Protocol in workflow.md)
 
 ## Phase 4: Finalization & Verification
 - [ ] Task: Verify Main Scripts Coverage
