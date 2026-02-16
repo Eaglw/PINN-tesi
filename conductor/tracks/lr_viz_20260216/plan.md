@@ -24,8 +24,8 @@ Implement tracking and visualization of learning rate changes in training loss p
 - [x] Task: Conductor - User Manual Verification 'Inverse Main' (Protocol in workflow.md)
 
 ## Phase 4: Finalization & Verification
-- [ ] Task: Verify Main Scripts Coverage
+- [x] Task: Verify Main Scripts Coverage
     - [ ] Confermare che `Heat2D_main.py`, `Heat2D_reduced_main.py` e `Heat2D_weighted_main.py` siano coperti tramite le modifiche ai moduli `src`.
-- [ ] Task: Manual Verification by User
+- [~] Task: Manual Verification by User
     - [ ] L'utente eseguirà manualmente i test per verificare la comparsa delle linee verticali nei grafici.
 - [ ] Task: Conductor - User Manual Verification 'Finalization' (Protocol in workflow.md)

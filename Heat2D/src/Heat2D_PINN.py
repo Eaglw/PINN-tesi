@@ -17,9 +17,9 @@ torch.set_default_dtype(torch.float64)
 
 # ---  DEFINIZIONE DELLA LOSS FISICA ---
 def heat2d_physics_loss(model, xy_p):
-"""
-Calcola il residuo dell'equazione di Laplace 2D: d2T/dx2 + d2T/dy2 = 0
-"""
+    """
+    Calcola il residuo dell'equazione di Laplace 2D: d2T/dx2 + d2T/dy2 = 0
+    """
     T = model(xy_p)
     grads = torch.autograd.grad(T, xy_p, torch.ones_like(T), create_graph=True)[0]
     dT_dx, dT_dy = grads[:, 0], grads[:, 1]
@@ -37,7 +37,7 @@ def train_modelPINN(
     warmup_epochs=None, n_collocation=(50, 50), collocation_points=None,
     lr_strategy='fixed', dynamic_weighting=False, update_weights_every=100
 ):
- """
+    """
     Esegue il training della PINN.
     
     Args:
@@ -78,7 +78,7 @@ def train_modelPINN(
     if lr_strategy == 'step_decay':
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=int(epochs * 0.25), gamma=0.5)
     elif lr_strategy == 'plateau':
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=500, min_lr=1e-6, cooldown=3000)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=600, min_lr=1e-6, cooldown=3000)
 
     if collocation_points is not None:
         xy_physics = collocation_points.clone()
@@ -94,9 +94,9 @@ def train_modelPINN(
         optimizer.zero_grad()
         # Gestione Warmup con solo dati
         if epoch < warmup_epochs:
-            cur_phys_fn, cur_phys_prob, lambda_physics, phase_desc = None, None, 0.0, "Warmup"
+            current_physics_fn, current_physics_problem, lambda_physics, phase_desc = None, None, 0.0, "Warmup"
         else:
-            cur_phys_fn, cur_phys_prob, lambda_physics, phase_desc = (heat2d_physics_loss if physics_problem is None else None), physics_problem, target_lambda_physics, "Physics"
+            current_physics_fn, current_physics_problem, lambda_physics, phase_desc = (heat2d_physics_loss if physics_problem is None else None), physics_problem, target_lambda_physics, "Physics"
 
         # Calcolo loss
         loss, loss_dict = compute_pinn_loss(
@@ -186,7 +186,8 @@ def train_modelPINN(
         tolerance_change=1e-9,
         history_size=100,
         line_search_fn="strong_wolfe"
-    )    lbfgs_iter = [0]
+    )
+    lbfgs_iter = [0]
     def closure():
         optimizer_lbfgs.zero_grad()
         loss, loss_dict = compute_pinn_loss(
@@ -230,7 +231,7 @@ def train_modelPINN(
     model.eval()
     with torch.no_grad(): T_final = model(xy_grid).reshape(Nx_dom, Ny_dom)
     lambda_data_viz, lambda_bc_viz = loss_weights.get('data', 1.0), loss_weights.get('bc', 1.0)
-   viz_data_points = []
+    viz_data_points = []
     if lambda_data_viz > 0: viz_data_points.append(xy_int)
     if lambda_bc_viz > 0: viz_data_points.append(xy_bc)
     xy_data_points = torch.cat(viz_data_points, dim=0) if viz_data_points else None
