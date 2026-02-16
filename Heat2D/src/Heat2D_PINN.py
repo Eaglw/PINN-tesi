@@ -258,7 +258,9 @@ def train_modelPINN(
         if lr_strategy == 'step_decay':
             scheduler.step()
         elif lr_strategy == 'plateau':
-            scheduler.step(loss)
+            # Use unweighted loss for stable scheduling
+            unweighted_loss = loss_dict.get('pde_loss', 0.0) + loss_dict.get('bc_loss', 0.0) + loss_dict.get('data_loss', 0.0)
+            scheduler.step(unweighted_loss)
             
         # Aggiornamento history
         loss_dict.update({

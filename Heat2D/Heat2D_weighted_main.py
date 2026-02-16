@@ -77,9 +77,9 @@ goal = [2, 3]
 
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
 layers_options = [
-    #[2, 50, 50, 50, 50, 1], # Configurazione Originale
-    [2, 80, 80, 80, 80, 80, 80, 1],
-    [2, 100, 100, 100, 100, 100, 100, 100, 100, 1]  
+    [2, 50, 50, 50, 50, 1], # Configurazione Originale
+    #[2, 80, 80, 80, 80, 80, 80, 1],
+    #[2, 100, 100, 100, 100, 100, 100, 100, 100, 1]  
 ]
 
 epochs_options = [
@@ -89,7 +89,7 @@ epochs_options = [
 
 activation_options = [
     #nn.Tanh,
-    nn.SiLU,
+    #nn.SiLU,
     nn.GELU
 ]
 
@@ -264,6 +264,7 @@ for layers_config in layers_options:
                             'Loss_Total': get_last(history_2, 'total_loss'),
                             'Loss_Physics': get_last(history_2, 'pde_loss'),
                             'Loss_Boundary': get_last(history_2, 'bc_loss'), 
+                            'Loss_Data': get_last(history_2, 'data_loss'),
                             'L2_Relative_Error': l2_err,
                             'Max_Relative_Error_Peak': max_err,
                             'Seed': 123,
