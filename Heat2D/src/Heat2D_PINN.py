@@ -351,8 +351,8 @@ def train_modelPINN(
             lambda_bc=lambda_bc,
             lambda_physics=target_lambda_physics
     )
-        loss_history.update(epochs + lbfgs_iter[0], final_loss_dict, lr=1.0)
-        print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss.item():.2e}")
+    loss_history.update(epochs + lbfgs_iter[0], final_loss_dict, lr=1.0)
+    print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss.item():.2e}")
     # Plot Finale Interattivo
     print("Training completato. Generazione plot finale...")
     model.eval()
