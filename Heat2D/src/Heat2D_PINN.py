@@ -213,43 +213,44 @@ def train_modelPINN(
                         target_lambda_physics = alpha_dynamic * target_lambda_physics + (1 - alpha_dynamic) * new_lambda_phys
 
             # 3. Data Gradient
-            if 'data_loss' in loss_dict and lambda_data > 0:
-                 grads_data = torch.autograd.grad(loss_dict['data_loss'], model.parameters(), retain_graph=True, allow_unused=True)
-                 norms_data = [g.norm(2) for g in grads_data if g is not None]
-                 if norms_data:
-                     max_norm_data = max(norms_data).item()
-                     if max_norm_data > 1e-12:
-                         new_lambda_data = (max_norm_bc / max_norm_data) * lambda_bc
-                         lambda_data = alpha_dynamic * lambda_data + (1 - alpha_dynamic) * new_lambda_data
-
-                # Gradient Logging Logic
-                if log_gradients_every > 0 and (epoch + 1) % log_gradients_every == 0:
-                    current_lr = scheduler.get_last_lr()[0] if scheduler else optimizer.param_groups[0]['lr']
-                    grad_norms = {}
-                    for name, loss_tensor in loss_dict.items():
-                        if name == 'total_loss': continue
-                        if isinstance(loss_tensor, torch.Tensor):
-                            # Get the weight used
-                            weight = 1.0
-                            if name == 'data_loss': weight = lambda_data
-                            elif name == 'bc_loss': weight = lambda_bc
-                            elif name == 'pde_loss': weight = lambda_physics
-        
-                            if weight > 0:
-                                # Retain graph needed because we do multiple backward calls (via grad)
-                                # and then the final backward.
-                                grads = torch.autograd.grad(loss_tensor * weight, model.parameters(), retain_graph=True, allow_unused=True)
-        
-                                # Total L2 norm of all params
-                                total_norm = 0.0
-                                for g in grads:
-                                    if g is not None:
-                                        total_norm += g.data.norm(2).item()**2
-                                total_norm = total_norm ** 0.5
-                                grad_norms[f'grad_{name}'] = total_norm
-        
-                    loss_history.update(epoch, grad_norms, lr=current_lr)
-        loss.backward()
+                        if 'data_loss' in loss_dict and lambda_data > 0:
+                            grads_data = torch.autograd.grad(loss_dict['data_loss'], model.parameters(), retain_graph=True, allow_unused=True)
+                            norms_data = [g.norm(2) for g in grads_data if g is not None]
+                            if norms_data:
+                                max_norm_data = max(norms_data).item()
+                                if max_norm_data > 1e-12:
+                                    new_lambda_data = (max_norm_bc / max_norm_data) * lambda_bc
+                                    lambda_data = alpha_dynamic * lambda_data + (1 - alpha_dynamic) * new_lambda_data
+            
+                    # Gradient Logging Logic
+                    if log_gradients_every > 0 and (epoch + 1) % log_gradients_every == 0:
+                        current_lr = scheduler.get_last_lr()[0] if scheduler else optimizer.param_groups[0]['lr']
+                        grad_norms = {}
+                        for name, loss_tensor in loss_dict.items():
+                            if name == 'total_loss': continue
+                            if isinstance(loss_tensor, torch.Tensor):
+                                # Get the weight used
+                                weight = 1.0
+                                if name == 'data_loss': weight = lambda_data
+                                elif name == 'bc_loss': weight = lambda_bc
+                                elif name == 'pde_loss': weight = lambda_physics
+            
+                                if weight > 0:
+                                    # Retain graph needed because we do multiple backward calls (via grad)
+                                    # and then the final backward.
+                                    grads = torch.autograd.grad(loss_tensor * weight, model.parameters(), retain_graph=True, allow_unused=True)
+            
+                                    # Total L2 norm of all params
+                                    total_norm = 0.0
+                                    for g in grads:
+                                        if g is not None:
+                                            total_norm += g.data.norm(2).item()**2
+                                    total_norm = total_norm ** 0.5
+                                    grad_norms[f'grad_{name}'] = total_norm
+            
+                        loss_history.update(epoch, grad_norms, lr=current_lr)
+            
+                    loss.backward()
         # AGGIUNGI QUESTO: Gradient Clipping
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
