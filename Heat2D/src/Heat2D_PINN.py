@@ -175,39 +175,49 @@ def train_modelPINN(
             plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path, physics_points=xy_physics)
             plot_files.append(plot_path)
 
-    # L-BFGS
+    # L-BFGS con retry logic su LR
     print("\nInizio fase di raffinamento con L-BFGS...")
-    optimizer_lbfgs = torch.optim.LBFGS(
-        model.parameters(), 
-        lr=1.0, 
-        max_iter=5000, 
-        max_eval=5000, 
-        tolerance_grad=1e-7, 
-        tolerance_change=1e-9,
-        history_size=100,
-        line_search_fn="strong_wolfe"
-    )
     lbfgs_iter = [0]
-    def closure():
-        optimizer_lbfgs.zero_grad()
-        loss, loss_dict = compute_pinn_loss(
-            model, 
-            x_data=xy_int, 
-            y_data=T_int,
-            x_bc=xy_bc,
-            y_bc=T_bc,
-            physics_loss_fn=heat2d_physics_loss if physics_problem is None else None, 
-            physics_problem=physics_problem,
-            x_physics=xy_physics,
-            lambda_data=lambda_data,
-            lambda_bc=lambda_bc,
-            lambda_physics=target_lambda_physics
+    for current_lr in [1.0, 0.5]:
+        optimizer_lbfgs = torch.optim.LBFGS(
+            model.parameters(), 
+            lr=current_lr, 
+            max_iter=5000, 
+            max_eval=5000, 
+            tolerance_grad=1e-7, 
+            tolerance_change=1e-9,
+            history_size=100,
+            line_search_fn="strong_wolfe"
         )
-        loss.backward()
-        if lbfgs_iter[0] % 10 == 0: loss_history.update(epochs + lbfgs_iter[0], loss_dict, lr=1.0)
-        lbfgs_iter[0] += 1
-        return loss
-    optimizer_lbfgs.step(closure)
+        
+        start_iter_call = lbfgs_iter[0]
+        def closure():
+            optimizer_lbfgs.zero_grad()
+            loss, loss_dict = compute_pinn_loss(
+                model, 
+                x_data=xy_int, 
+                y_data=T_int,
+                x_bc=xy_bc,
+                y_bc=T_bc,
+                physics_loss_fn=heat2d_physics_loss if physics_problem is None else None, 
+                physics_problem=physics_problem,
+                x_physics=xy_physics,
+                lambda_data=lambda_data,
+                lambda_bc=lambda_bc,
+                lambda_physics=target_lambda_physics
+            )
+            loss.backward()
+            if lbfgs_iter[0] % 10 == 0: loss_history.update(epochs + lbfgs_iter[0], loss_dict, lr=current_lr)
+            lbfgs_iter[0] += 1
+            return loss
+            
+        optimizer_lbfgs.step(closure)
+        
+        # Se ha eseguito più di 5 iterazioni, consideriamo che l'ottimizzatore sia partito correttamente
+        if (lbfgs_iter[0] - start_iter_call) > 5:
+            break
+        elif current_lr == 1.0:
+            print(f"L-BFGS stalled con LR=1.0 (iter: {lbfgs_iter[0] - start_iter_call}). Riprovo con LR=0.5...")
     
    # Final loss check after L-BFGS
     final_loss, final_loss_dict = compute_pinn_loss(
@@ -223,9 +233,8 @@ def train_modelPINN(
             lambda_bc=lambda_bc,
             lambda_physics=target_lambda_physics
     )
-    loss_history.update(epochs + lbfgs_iter[0], final_loss_dict, lr=1.0)
+    loss_history.update(epochs + lbfgs_iter[0], final_loss_dict, lr=current_lr)
     print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss.item():.2e}")    
-    loss_history.update(epochs + lbfgs_iter[0], final_loss_dict, lr=1.0)
     # Plot Finale Interattivo
     print("Training completato. Generazione plot finale...")
     model.eval()
@@ -251,7 +260,9 @@ def train_modelPINN(
         adam_epochs=epochs,
         save_path=os.path.join(final_dir, 'PINNloss_history.png'), 
         experiment_name="Heat2D PINN", 
-        show_plot=show_plots_interactively
+        show_plot=show_plots_interactively,
+        skip_epochs=50,
+        min_y=1e-8
     )
     
     # Plot Gradient History if available
