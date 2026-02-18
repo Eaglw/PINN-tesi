@@ -108,6 +108,12 @@ def train_modelNN(
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
     # Plot Loss History
-    loss_history.plot_losses(save_path=os.path.join(final_dir, 'NNloss_history.png'), experiment_name="Heat2D NN", show_plot=show_plots_interactively) # Updated plot_losses call
+    loss_history.plot_losses(
+        save_path=os.path.join(final_dir, 'NNloss_history.png'), 
+        experiment_name="Heat2D NN", 
+        show_plot=show_plots_interactively,
+        skip_epochs=50,
+        min_y=1e-8
+    ) # Updated plot_losses call
     
     return loss_history

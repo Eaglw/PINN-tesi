@@ -101,7 +101,13 @@ def train_modelNN_griglia(
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
     # Plot Loss History
-    loss_history.plot_losses(save_path=os.path.join(final_dir, 'NN_Grid_loss_history.png'), experiment_name="Heat2D NN (Grid)", show_plot=show_plots_interactively)
+    loss_history.plot_losses(
+        save_path=os.path.join(final_dir, 'NN_Grid_loss_history.png'), 
+        experiment_name="Heat2D NN (Grid)", 
+        show_plot=show_plots_interactively,
+        skip_epochs=50,
+        min_y=1e-8
+    )
     
     # Return history for comparison
     return loss_history
