@@ -258,7 +258,9 @@ def run_inverse_experiment(
     history.plot_losses(adam_epochs=epochs if use_lbfgs else None, 
                         save_path=os.path.join(exp_dir, "loss_history.png"), 
                         experiment_name=exp_name, 
-                        show_plot=False)
+                        show_plot=False,
+                        skip_epochs=50,
+                        min_y=1e-8)
     
     if plot_files:
         save_gif_PIL(os.path.join(exp_dir, "training_evolution.gif"), plot_files, fps=5, loop=0, delete_files=True)

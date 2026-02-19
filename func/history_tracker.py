@@ -44,9 +44,13 @@ class TrainingHistory:
             
             self.losses[name].append(val)
 
-    def plot_losses(self, warmup_epoch=0, adam_epochs=None, save_path=None, experiment_name="", show_plot=True):
+    def plot_losses(self, warmup_epoch=0, adam_epochs=None, save_path=None, experiment_name="", show_plot=True, skip_epochs=0, min_y=None):
         """
         Genera un grafico con l'andamento di tutte le loss registrate.
+        
+        Arguments:
+            skip_epochs: Numero di epoche iniziali da non visualizzare nel grafico.
+            min_y: Valore minimo per l'asse Y (scala log). Se None, viene calcolato automaticamente.
         """
         has_lbfgs = adam_epochs is not None and any(e >= adam_epochs for e in self.epochs)
         
@@ -59,6 +63,10 @@ class TrainingHistory:
             ax2 = None
 
         def plot_on_ax(ax, epoch_range_indices, title_suffix=""):
+            # Filtro per skip_epochs
+            epoch_range_indices = [i for i in epoch_range_indices if self.epochs[i] >= skip_epochs]
+            if not epoch_range_indices: return
+
             for name, values in self.losses.items():
                 if name.startswith('grad_') or name.startswith('weight_'): continue
                 
@@ -103,6 +111,8 @@ class TrainingHistory:
             ax.set_xlabel('Epoch/Iter')
             ax.set_ylabel('Loss')
             ax.set_yscale('log')
+            if min_y is not None:
+                ax.set_ylim(bottom=min_y)
             ax.grid(True, which="both", ls="--", alpha=0.5)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
@@ -113,7 +123,7 @@ class TrainingHistory:
             
             if adam_indices:
                 plot_on_ax(ax1, adam_indices, "(Adam Phase)")
-                if warmup_epoch != 0:
+                if warmup_epoch != 0 and warmup_epoch >= skip_epochs:
                     ax1.axvline(warmup_epoch, color="r", linestyle="--", label="End Warmup")
                 ax1.legend(loc='upper right', frameon=False, fontsize="x-small")
 
@@ -123,7 +133,7 @@ class TrainingHistory:
                 ax2.set_xlabel('Iter')
         else:
             plot_on_ax(ax1, range(len(self.epochs)), f"- {experiment_name}")
-            if warmup_epoch != 0:
+            if warmup_epoch != 0 and warmup_epoch >= skip_epochs:
                 ax1.axvline(warmup_epoch, color="r", linestyle="--", label="End Warmup")
             ax1.legend(loc='upper right', frameon=False, fontsize="small")
 
