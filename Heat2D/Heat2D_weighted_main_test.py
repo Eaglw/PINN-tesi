@@ -37,7 +37,7 @@ def laplacian(model, xy):
     d2dy2 = torch.autograd.grad(grad1[:, 1].sum(), xy,
                                 create_graph=True)[0][:, 1:2]
     return d2dx2 + d2dy2
-    
+
 def setup_experiment_folder(parent_dir, goal_folder, description):
     """
     Creates experiment folder and plots folder.
@@ -286,6 +286,11 @@ def test_precision_impact(layers, epochs_test=5000, device=device):
                 loss_pde = (pde_res ** 2).mean()
             
             (loss_bc + loss_pde).backward()
+            # Garantisci che tutti i gradienti siano nel dtype corretto
+            if mode in ['full_fp32', 'hybrid']:
+                for p in model.parameters():
+                    if p.grad is not None and p.grad.dtype != torch.float32:
+                        p.grad = p.grad.float()
             optimizer.step()
         
         elapsed = time.perf_counter() - t0
