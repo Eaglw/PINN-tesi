@@ -17,27 +17,9 @@ from datetime import datetime
 from Heat2D.src.Heat2D_NN import train_modelNN
 from Heat2D.src.Heat2D_NN_griglia import train_modelNN_griglia
 
-torch.backends.cuda.matmul.allow_tf32 = False  # TF32 altera float64, tienilo off
+torch.backends.cuda.matmul.allow_tf32 = False  # mantieni off per confronti accurati (TF32 riduce precisione fp32)
 torch.backends.cudnn.benchmark = True           # auto-tuning kernel per size fissa
 torch.backends.cudnn.deterministic = False      # più veloce se non serve riproducibilità
-# Aggiungi questa funzione in Heat2D_weighted_main.py
-# subito dopo la definizione di FCN (riga ~63)
-
-def laplacian(model, xy):
-    """Calcola ∂²T/∂x² + ∂²T/∂y² con double autograd."""
-    xy = xy.detach().requires_grad_(True)
-    T  = model(xy)
-
-    grad1 = torch.autograd.grad(T, xy,
-                                grad_outputs=torch.ones_like(T),
-                                create_graph=True)[0]
-
-    d2dx2 = torch.autograd.grad(grad1[:, 0].sum(), xy,
-                                create_graph=True)[0][:, 0:1]
-    d2dy2 = torch.autograd.grad(grad1[:, 1].sum(), xy,
-                                create_graph=True)[0][:, 1:2]
-    return d2dx2 + d2dy2
-
 def setup_experiment_folder(parent_dir, goal_folder, description):
     """
     Creates experiment folder and plots folder.
@@ -50,26 +32,28 @@ def setup_experiment_folder(parent_dir, goal_folder, description):
 
 # --- 1. DEFINIZIONE DEL PROBLEMA E SOLUZIONE ANALITICA ---
 def soluzione_analitica(x, y, Lx=1.0, Ly=1.0, Nx=50):
-    """Versione vettorizzata: supporta sia tensori [N,1] che griglie 2D [H,W]."""
+    """Versione vettorizzata: supporta sia tensori [N,1] che griglie 2D [H,W].
+    Calcola SEMPRE in fp64 (sinh può andare in overflow in fp32 per n grandi),
+    poi restituisce il risultato in fp32 per compatibilità con il resto del codice.
+    """
     original_shape = x.shape
-    
-    # Porta tutto a [N, 1] per il broadcasting
-    x_flat = x.reshape(-1, 1)
-    y_flat = y.reshape(-1, 1)
 
-    n_vals = torch.arange(1, Nx + 1, 2, device=x.device, dtype=x.dtype)  # [K]
-    pi     = torch.tensor(torch.pi, device=x.device, dtype=x.dtype)
+    # Cast forzato a fp64 per evitare overflow di sinh(λx) con λ fino a ~154
+    x_flat = x.reshape(-1, 1).double()
+    y_flat = y.reshape(-1, 1).double()
 
-    lam  = n_vals * pi / Ly                                               # [K]
-    An   = 4.0 / (n_vals * pi)                                            # [K]
+    n_vals = torch.arange(1, Nx + 1, 2, device=x.device, dtype=torch.float64)  # [K]
+    pi     = torch.tensor(torch.pi, device=x.device, dtype=torch.float64)
 
-    # x_flat: [N,1], lam: [K]  →  broadcast a [N, K]
+    lam  = n_vals * pi / Ly                                                      # [K]
+    An   = 4.0 / (n_vals * pi)                                                   # [K]
+
     lx    = lam * x_flat
     terms = An * (torch.sinh(lx) / torch.sinh(lam * Lx)) * torch.sin(lam * y_flat)
-    T_flat = terms.sum(dim=-1, keepdim=True)   # [N, 1]
+    T_flat = terms.sum(dim=-1, keepdim=True)   # [N, 1] in fp64
 
-    # Riporta alla shape originale
-    return T_flat.reshape(original_shape)
+    # Riporta alla shape originale e converte a fp32
+    return T_flat.reshape(original_shape).float()
     
 # --- 2. DEFINIZIONE DELLA RETE NEURALE ---
 class FCN(nn.Module):
@@ -99,7 +83,7 @@ def format_layers_name(layers):
 
 # Configurazione dispositivo e precisione
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 print(f"Using device: {device} with default dtype: {torch.get_default_dtype()}")
 
 # Flag per controllare la visualizzazione interattiva dei plot
@@ -235,80 +219,6 @@ print("----------------------------------\n")
 
 validation_grid_tuple = (xy_grid_flat, T_grid, X, Y)
 
-
-# Aggiungi questo script di test prima della grid search
-
-def test_precision_impact(layers, epochs_test=5000, device=device):
-    import copy
-    results = {}
-    
-    for mode in ['full_fp64', 'full_fp32', 'hybrid']:
-        torch.manual_seed(123)
-        model = FCN(layers=layers, activation_fn=nn.Tanh)
-        
-        if mode == 'full_fp64':
-            model = model.double().to(device)
-            xy_in = xy_pinn_data.double()
-            xy_bc = xy_master_boundary.double()
-            T_bc  = T_master_boundary.double()
-        elif mode == 'full_fp32':
-            model = model.float().to(device)
-            xy_in = xy_pinn_data.float()
-            xy_bc = xy_master_boundary.float()
-            T_bc  = T_master_boundary.float()
-        else:  # hybrid: pesi fp32, gradienti PDE fp64
-            model = model.float().to(device)
-            xy_in = xy_pinn_data  # fp64, usato solo nel laplaciano
-            xy_bc = xy_master_boundary.float()
-            T_bc  = T_master_boundary.float()
-        
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-        
-        import time
-        t0 = time.perf_counter()
-        for _ in range(epochs_test):
-            optimizer.zero_grad(set_to_none=True)
-            
-            if mode == 'hybrid':
-                # Forward fp32 per BC
-                T_pred_bc = model(xy_bc.float())
-                loss_bc = nn.functional.mse_loss(T_pred_bc, T_bc)
-                
-                # Laplaciano in fp64: cast temporaneo
-                model.double()
-                pde_res = laplacian(model, xy_in.double())
-                model.float()
-                loss_pde = (pde_res.float() ** 2).mean()
-            else:
-                T_pred_bc = model(xy_bc)
-                loss_bc = nn.functional.mse_loss(T_pred_bc, T_bc)
-                pde_res = laplacian(model, xy_in)
-                loss_pde = (pde_res ** 2).mean()
-            
-            (loss_bc + loss_pde).backward()
-            # Garantisci che tutti i gradienti siano nel dtype corretto
-            if mode in ['full_fp32', 'hybrid']:
-                for p in model.parameters():
-                    if p.grad is not None and p.grad.dtype != torch.float32:
-                        p.grad = p.grad.float()
-            optimizer.step()
-        
-        elapsed = time.perf_counter() - t0
-        
-        # Valuta errore
-        model.eval()
-        with torch.no_grad():
-            pred = model(xy_grid_flat.to(next(model.parameters()).dtype)).reshape(Nx_dom, Ny_dom)
-            T_ref = T_grid.to(pred.dtype)
-            l2 = (torch.norm(pred - T_ref) / torch.norm(T_ref)).item()
-        
-        results[mode] = {'l2_error': l2, 'time_s': elapsed}
-        print(f"  {mode:12s} | L2 error: {l2:.2e} | tempo: {elapsed:.1f}s")
-    
-    return results
-
-print("\n--- Test impatto precisione ---")
-test_precision_impact([2, 50, 50, 50, 50, 1], epochs_test=5000)
 
 
 
