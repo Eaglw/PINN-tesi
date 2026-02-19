@@ -63,6 +63,8 @@ def train_modelNN(
         # Decadimento lr ogni 25% delle epoche con gamma=0.5
         step_size = int(epochs * 0.25)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=0.5)
+    elif lr_strategy == 'plateau':
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=600, min_lr=1e-6, cooldown=3000)
 
     for epoch in pbar:
         model.train()
@@ -76,7 +78,10 @@ def train_modelNN(
         
         # Step dello scheduler
         if scheduler:
-            scheduler.step()
+            if lr_strategy == 'plateau':
+                scheduler.step(loss.item())
+            else:
+                scheduler.step()
 
         current_lr = optimizer.param_groups[0]['lr']
         loss_history.update(epoch, {'total_loss': loss.item()}, lr=current_lr) # Changed to update method

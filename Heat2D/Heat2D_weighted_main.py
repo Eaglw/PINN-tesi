@@ -14,6 +14,9 @@ from func.logging_utils import compute_metrics, update_results_csv
 from func.sampling_utils import generate_internal_points, generate_grid_points, filter_and_refill, check_overlaps
 from datetime import datetime
 
+from Heat2D.src.Heat2D_NN import train_modelNN
+from Heat2D.src.Heat2D_NN_griglia import train_modelNN_griglia
+
 def setup_experiment_folder(parent_dir, goal_folder, description):
     """
     Creates experiment folder and plots folder.
@@ -53,6 +56,10 @@ class FCN(nn.Module):
             if i < len(self.fcs) - 1:
                 x = self.activation(x)
         return x
+    def loss_fn(self, pred, target):
+        return nn.MSELoss()(pred, target)
+    def loss_fn(self, pred, target):
+        return nn.MSELoss()(pred, target)
 
 def get_activation_name(activation_class):
     return activation_class.__name__
@@ -72,19 +79,16 @@ print(f"Using device: {device} with default dtype: {torch.get_default_dtype()}")
 # Flag per controllare la visualizzazione interattiva dei plot
 show_plots_interactively = False 
 
-# Cases to run: 2 (Data+Phys), 3 (Pure Phys)
-goal = [2, 3]
+# Cases to run: 0 (NN Random), 1 (NN Grid), 2 (PINN Data+Phys), 3 (Pure Phys)
+goal = [0, 1, 2, 3]
 
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
 layers_options = [
-   #[2, 50, 50, 50, 50, 1], # Configurazione Originale
-    [2, 80, 80, 80, 80, 80, 80, 1],
-    [2, 100, 100, 100, 100, 100, 100, 100, 100, 1]  
+    [2, 50, 50, 1]
 ]
 
 epochs_options = [
-    #20000,
-    40000
+    100
 ]
 
 activation_options = [
@@ -164,7 +168,20 @@ bc_top_val = torch.zeros(num_b_side, 1, device=device)
 xy_master_boundary = torch.cat([bc_left, bc_right, bc_bottom, bc_top], dim=0)
 T_master_boundary = torch.cat([bc_left_val, bc_right_val, bc_bottom_val, bc_top_val], dim=0)
 
+# Pre-calcolo Soluzione Analitica per i Master Sets
+T_master_grid = soluzione_analitica(xy_master_grid[:, 0:1], xy_master_grid[:, 1:2], Lx, Ly, Nx=Nx_fourier)
 T_master_random = soluzione_analitica(xy_master_random[:, 0:1], xy_master_random[:, 1:2], Lx, Ly, Nx=Nx_fourier)
+
+# --- CONFIGURAZIONE CASI NN ---
+# 0. NN Random: 1600 Random + Boundary
+xy_train_nn_random = torch.cat([xy_master_random, xy_master_boundary], dim=0)
+T_train_nn_random = torch.cat([T_master_random, T_master_boundary], dim=0)
+training_data_0 = (xy_train_nn_random, T_train_nn_random)
+
+# 1. NN Grid: 1600 Grid + Boundary
+xy_train_nn_grid = torch.cat([xy_master_grid, xy_master_boundary], dim=0)
+T_train_nn_grid = torch.cat([T_master_grid, T_master_boundary], dim=0)
+training_data_1 = (xy_train_nn_grid, T_train_nn_grid)
 
 # PINN Data+Phys Setup
 num_subset = 1000
@@ -176,7 +193,8 @@ pinn_data_boundary = (xy_master_boundary, T_master_boundary)
 
 # --- VERIFICA DISGIUNZIONE E OVERLAP ---
 print("\n--- Point Overlap Verification ---")
-check_overlaps(xy_master_grid, label="Master Grid")
+check_overlaps(xy_train_nn_random, label="NN Random Set")
+check_overlaps(xy_train_nn_grid, label="NN Grid Set")
 check_overlaps(xy_pinn_data, label="PINN Data Set")
 check_overlaps(xy_master_boundary, label="Master Boundary")
 check_overlaps(xy_master_random, label="Master Random")
@@ -219,6 +237,94 @@ for layers_config in layers_options:
                         lr_log_str = f"[plateau min:1e-6]"
                     else:
                         lr_log_str = str(base_lr)
+
+                    # --- 0. NN Random ---
+                    if 0 in goal:
+                        print(f"  > 0. NN Random ({config_name})")
+                        exp_dir_0, plots_dir_0 = setup_experiment_folder(config_dir, "0_NN_Random", f"NN Random")
+                        
+                        model_0 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
+                        optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=base_lr)
+                        
+                        history_0 = train_modelNN(
+                            model=model_0,
+                            optimizer=optimizer_0,
+                            training_data=training_data_0,
+                            validation_grid=validation_grid_tuple,
+                            epochs=epochs,
+                            plots_dir=plots_dir_0,
+                            final_dir=exp_dir_0,
+                            show_plots_interactively=show_plots_interactively,
+                            lr_strategy=lr_strat
+                        )
+                        
+                        l2_err, max_err = compute_metrics(model_0, xy_grid_flat, T_grid)
+                        log_data = {
+                            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'Architecture': str(layers_config),
+                            'Activation_Func': get_activation_name(act_fn),
+                            'Epochs': epochs,
+                            'Run_Type': 'NN_Random',
+                            'Optimizer': 'Adam', 
+                            'Learning_Rate': lr_log_str, 
+                            'Loss_Total': history_0.losses['total_loss'][-1] if history_0.losses['total_loss'] else 0,
+                            'Loss_Physics': 0,
+                            'Loss_Boundary': 0,
+                            'Loss_Data': history_0.losses['total_loss'][-1] if history_0.losses['total_loss'] else 0, 
+                            'L2_Relative_Error': l2_err,
+                            'Max_Relative_Error_Peak': max_err,
+                            'Seed': 123,
+                            'n_points': xy_train_nn_random.shape[0],
+                            'Loss_Weight': 'not_weighted'
+                        }
+                        update_results_csv(results_csv_path, log_data)
+                        histories['NN Random'] = history_0
+                        final_models['NN Random'] = model_0
+                        if os.path.exists(plots_dir_0): shutil.rmtree(plots_dir_0)
+
+                    # --- 1. NN Grid ---
+                    if 1 in goal:
+                        print(f"  > 1. NN Grid ({config_name})")
+                        exp_dir_1, plots_dir_1 = setup_experiment_folder(config_dir, "1_NN_Grid", f"NN Grid")
+                        
+                        model_1 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
+                        optimizer_1 = torch.optim.Adam(model_1.parameters(), lr=base_lr)
+                        
+                        history_1 = train_modelNN_griglia(
+                            model=model_1,
+                            optimizer=optimizer_1,
+                            training_data=training_data_1,
+                            validation_grid=validation_grid_tuple,
+                            epochs=epochs,
+                            plots_dir=plots_dir_1,
+                            final_dir=exp_dir_1,
+                            show_plots_interactively=show_plots_interactively,
+                            lr_strategy=lr_strat
+                        )
+                        
+                        l2_err, max_err = compute_metrics(model_1, xy_grid_flat, T_grid)
+                        log_data = {
+                            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'Architecture': str(layers_config),
+                            'Activation_Func': get_activation_name(act_fn),
+                            'Epochs': epochs,
+                            'Run_Type': 'NN_Grid',
+                            'Optimizer': 'Adam',
+                            'Learning_Rate': lr_log_str,
+                            'Loss_Total': history_1.losses['total_loss'][-1] if history_1.losses['total_loss'] else 0,
+                            'Loss_Physics': 0,
+                            'Loss_Boundary': 0,
+                            'Loss_Data': history_1.losses['total_loss'][-1] if history_1.losses['total_loss'] else 0,
+                            'L2_Relative_Error': l2_err,
+                            'Max_Relative_Error_Peak': max_err,
+                            'Seed': 123,
+                            'n_points': xy_train_nn_grid.shape[0],
+                            'Loss_Weight': 'not_weighted'
+                        }
+                        update_results_csv(results_csv_path, log_data)
+                        histories['NN Grid'] = history_1
+                        final_models['NN Grid'] = model_1
+                        if os.path.exists(plots_dir_1): shutil.rmtree(plots_dir_1)
 
                     is_dynamic = (weight_mode == 'dynamic')
                     current_weight_str = DYNAMIC_WEIGHT_STR if is_dynamic else STATIC_WEIGHT_STR
@@ -349,21 +455,25 @@ for layers_config in layers_options:
                     results_dir = os.path.join(config_dir, 'comparisons')
                     os.makedirs(results_dir, exist_ok=True)
                     
-                    if 'PINN Data+Phys' in final_models and 'PINN PurePhys' in final_models:
-                        from func.graphic_func import plot2D_unified_comparison
-                        model_results = []
-                        for label in ['PINN Data+Phys', 'PINN PurePhys']:
+                    from func.graphic_func import plot2D_unified_comparison
+                    model_results = []
+                    for label in ['NN Random', 'NN Grid', 'PINN Data+Phys', 'PINN PurePhys']:
+                        if label in final_models:
                             model = final_models[label]
                             model.eval()
                             with torch.no_grad():
                                 pred = model(xy_grid_flat).reshape(Nx_dom, Ny_dom)
                             model_results.append({'T_pred': pred, 'label': label})
-                        
+                    
+                    if model_results:
                         hparams = {'arch': layers_str, 'epochs': str(epochs), 'act': act_str, 'lr_strategy': lr_strat, 'weight': current_weight_str}
                         plot2D_unified_comparison(X, Y, T_grid, model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
 
                     from func.graphic_func import plot_loss_comparison
                     if 'PINN Data+Phys' in histories and 'PINN PurePhys' in histories:
                         plot_loss_comparison([histories['PINN Data+Phys'], histories['PINN PurePhys']], ['PINN Data+Phys', 'PINN PurePhys'], save_path=os.path.join(results_dir, 'Comparison_Loss_DataPhys_vs_PurePhys.png'))
+                    
+                    if 'NN Grid' in histories and 'PINN Data+Phys' in histories:
+                        plot_loss_comparison([histories['NN Grid'], histories['PINN Data+Phys']], ['NN Grid', 'PINN Data+Phys'], save_path=os.path.join(results_dir, 'Comparison_Loss_Grid_vs_PINN.png'))
                         
 print("\nWeighted Grid Search configurations completed.")
