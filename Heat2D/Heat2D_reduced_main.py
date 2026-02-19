@@ -121,6 +121,13 @@ x_grid = torch.linspace(0, Lx, Nx_dom, device=device)
 y_grid = torch.linspace(0, Ly, Ny_dom, device=device)
 X, Y = torch.meshgrid(x_grid, y_grid, indexing='xy')
 T_grid = soluzione_analitica(X, Y, Lx, Ly, Nx=Nx_fourier)
+
+# Imposta valori fisici esatti sui bordi della griglia di validazione
+T_grid[0, :] = 0.0    # Left (x=0)
+T_grid[-1, :] = 1.0   # Right (x=Lx)
+T_grid[:, 0] = 0.0    # Bottom (y=0)
+T_grid[:, -1] = 0.0   # Top (y=Ly)
+
 xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 
 # Preparazione dati Training
@@ -135,35 +142,34 @@ xy_red_grid = generate_grid_points(Nx_grid_red, Ny_grid_red, Lx, Ly, margin=1e-5
 num_red_random = 300
 xy_red_random = generate_internal_points(num_red_random, Lx, Ly, margin=1e-5, device=device)
 
-# 3. Boundary Points: 200 points (50 per side) - Equidistant
+# 3. Boundary Points: 200 points (50 per side) - Optimized
 num_b_side = 50
-# Left (x=0) - Esclude angoli
-x_b_l = torch.zeros(num_b_side - 2, 1, device=device)
-y_b_l = torch.linspace(0, Ly, num_b_side, device=device)[1:-1].reshape(-1, 1)
-# Right (x=Lx) - Esclude angoli
-x_b_r = torch.ones(num_b_side - 2, 1, device=device) * Lx
-y_b_r = torch.linspace(0, Ly, num_b_side, device=device)[1:-1].reshape(-1, 1)
-# Bottom (y=0) - Esclude angoli
-x_b_b = torch.linspace(0, Lx, num_b_side, device=device)[1:-1].reshape(-1, 1)
-y_b_b = torch.zeros(num_b_side - 2, 1, device=device)
-# Top (y=Ly) - Esclude angoli
-x_b_t = torch.linspace(0, Lx, num_b_side, device=device)[1:-1].reshape(-1, 1)
-y_b_t = torch.ones(num_b_side - 2, 1, device=device) * Ly
+margin_bc = 0.02
+# Generazione punti equidistanti con margine di 0.02 dai bordi
+pts_bc = torch.linspace(margin_bc, Ly - margin_bc, num_b_side, device=device).reshape(-1, 1)
 
-xy_red_boundary = torch.cat([
-    torch.cat([x_b_l, y_b_l], dim=1),
-    torch.cat([x_b_r, y_b_r], dim=1),
-    torch.cat([x_b_b, y_b_b], dim=1),
-    torch.cat([x_b_t, y_b_t], dim=1)
-], dim=0)
+# Left (x=0) - T=0
+bc_left = torch.cat([torch.zeros(num_b_side, 1, device=device), pts_bc], dim=1)
+bc_left_val = torch.zeros(num_b_side, 1, device=device)
 
-# Rimozione duplicati (corner) dai bordi
-xy_red_boundary = torch.unique(xy_red_boundary, dim=0)
+# Right (x=Lx) - T=1
+bc_right = torch.cat([torch.ones(num_b_side, 1, device=device) * Lx, pts_bc], dim=1)
+bc_right_val = torch.ones(num_b_side, 1, device=device)
+
+# Bottom (y=0) - T=0
+bc_bottom = torch.cat([pts_bc, torch.zeros(num_b_side, 1, device=device)], dim=1)
+bc_bottom_val = torch.zeros(num_b_side, 1, device=device)
+
+# Top (y=Ly) - T=0
+bc_top = torch.cat([pts_bc, torch.ones(num_b_side, 1, device=device) * Ly], dim=1)
+bc_top_val = torch.zeros(num_b_side, 1, device=device)
+
+xy_red_boundary = torch.cat([bc_left, bc_right, bc_bottom, bc_top], dim=0)
+T_red_boundary = torch.cat([bc_left_val, bc_right_val, bc_bottom_val, bc_top_val], dim=0)
 
 # Pre-calcolo Soluzione Analitica per i Reduced Sets
 T_red_grid = soluzione_analitica(xy_red_grid[:, 0:1], xy_red_grid[:, 1:2], Lx, Ly, Nx=Nx_fourier)
 T_red_random = soluzione_analitica(xy_red_random[:, 0:1], xy_red_random[:, 1:2], Lx, Ly, Nx=Nx_fourier)
-T_red_boundary = soluzione_analitica(xy_red_boundary[:, 0:1], xy_red_boundary[:, 1:2], Lx, Ly, Nx=Nx_fourier)
 
 # --- CONFIGURAZIONE CASI ---
 # 0. NN Random: 300 Random + 200 Boundary = 500
