@@ -120,8 +120,7 @@ def train_modelNN(
         save_path=os.path.join(final_dir, 'NNloss_history.png'), 
         experiment_name="Heat2D NN", 
         show_plot=show_plots_interactively,
-        skip_epochs=50,
-        min_y=1e-8
+        skip_epochs=50
     ) # Updated plot_losses call
     
     return loss_history

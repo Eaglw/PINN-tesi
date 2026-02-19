@@ -44,13 +44,12 @@ class TrainingHistory:
             
             self.losses[name].append(val)
 
-    def plot_losses(self, warmup_epoch=0, adam_epochs=None, save_path=None, experiment_name="", show_plot=True, skip_epochs=0, min_y=None):
+    def plot_losses(self, warmup_epoch=0, adam_epochs=None, save_path=None, experiment_name="", show_plot=True, skip_epochs=0):
         """
         Genera un grafico con l'andamento di tutte le loss registrate.
         
         Arguments:
             skip_epochs: Numero di epoche iniziali da non visualizzare nel grafico.
-            min_y: Valore minimo per l'asse Y (scala log). Se None, viene calcolato automaticamente.
         """
         has_lbfgs = adam_epochs is not None and any(e >= adam_epochs for e in self.epochs)
         
@@ -111,8 +110,6 @@ class TrainingHistory:
             ax.set_xlabel('Epoch/Iter')
             ax.set_ylabel('Loss')
             ax.set_yscale('log')
-            if min_y is not None:
-                ax.set_ylim(bottom=min_y)
             ax.grid(True, which="both", ls="--", alpha=0.5)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)

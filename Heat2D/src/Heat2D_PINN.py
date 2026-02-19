@@ -268,8 +268,7 @@ def train_modelPINN(
         save_path=os.path.join(final_dir, 'PINNloss_history.png'), 
         experiment_name="Heat2D PINN", 
         show_plot=show_plots_interactively,
-        skip_epochs=50,
-        min_y=1e-8
+        skip_epochs=50
     )
     
     # Plot Gradient History if available

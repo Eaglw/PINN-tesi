@@ -113,8 +113,7 @@ def train_modelNN_griglia(
         save_path=os.path.join(final_dir, 'NN_Grid_loss_history.png'), 
         experiment_name="Heat2D NN (Grid)", 
         show_plot=show_plots_interactively,
-        skip_epochs=50,
-        min_y=1e-8
+        skip_epochs=50
     )
     
     # Return history for comparison
