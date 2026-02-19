@@ -84,17 +84,19 @@ goal = [0, 1, 2, 3]
 
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
 layers_options = [
-    [2, 50, 50, 1]
+    [2, 50, 50, 50, 50, 1], # Configurazione Originale
+    [2, 80, 80, 80, 80, 80, 80, 1],
+    #[2, 100, 100, 100, 100, 100, 100, 100, 100, 1]   
 ]
 
 epochs_options = [
-    100
+    40000
 ]
 
 activation_options = [
     nn.Tanh,
-    #nn.SiLU,
-    #nn.GELU
+    nn.SiLU,
+    nn.GELU
 ]
 
 lr_strategies = [
@@ -125,11 +127,11 @@ y_grid = torch.linspace(0, Ly, Ny_dom, device=device)
 X, Y = torch.meshgrid(x_grid, y_grid, indexing='xy')
 T_grid = soluzione_analitica(X, Y, Lx, Ly, Nx=Nx_fourier)
 
-# Imposta valori fisici esatti sui bordi della griglia di validazione
-T_grid[0, :] = 0.0    # Left (x=0)
-T_grid[-1, :] = 1.0   # Right (x=Lx)
-T_grid[:, 0] = 0.0    # Bottom (y=0)
-T_grid[:, -1] = 0.0   # Top (y=Ly)
+# Imposta valori fisici esatti sui bordi della griglia di validazione (indexing='xy' -> [row=y, col=x])
+T_grid[0, :] = 0.0    # Bottom (y=0)
+T_grid[-1, :] = 0.0   # Top (y=Ly)
+T_grid[:, 0] = 0.0    # Left (x=0)
+T_grid[:, -1] = 1.0   # Right (x=Lx)
 
 xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 

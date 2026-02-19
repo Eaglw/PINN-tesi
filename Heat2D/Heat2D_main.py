@@ -125,11 +125,11 @@ y_grid = torch.linspace(0, Ly, Ny_dom, device=device)
 X, Y = torch.meshgrid(x_grid, y_grid, indexing='xy')
 T_grid = soluzione_analitica(X, Y, Lx, Ly, Nx=Nx_fourier)
 
-# Imposta valori fisici esatti sui bordi della griglia di validazione
-T_grid[0, :] = 0.0    # Left (x=0)
-T_grid[-1, :] = 1.0   # Right (x=Lx)
-T_grid[:, 0] = 0.0    # Bottom (y=0)
-T_grid[:, -1] = 0.0   # Top (y=Ly)
+# Imposta valori fisici esatti sui bordi della griglia di validazione (indexing='xy' -> [row=y, col=x])
+T_grid[0, :] = 0.0    # Bottom (y=0)
+T_grid[-1, :] = 0.0   # Top (y=Ly)
+T_grid[:, 0] = 0.0    # Left (x=0)
+T_grid[:, -1] = 1.0   # Right (x=Lx)
 
 xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 
