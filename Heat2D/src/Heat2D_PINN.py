@@ -178,19 +178,24 @@ def train_modelPINN(
     # L-BFGS con retry logic su LR
     print("\nInizio fase di raffinamento con L-BFGS...")
     lbfgs_iter = [0]
+    max_total_lbfgs = 5000
     for current_lr in [1.0, 0.5]:
+        start_iter_call = lbfgs_iter[0]
+        remaining_evals = max_total_lbfgs - start_iter_call
+        if remaining_evals <= 0:
+            break
+            
         optimizer_lbfgs = torch.optim.LBFGS(
             model.parameters(), 
             lr=current_lr, 
-            max_iter=5000, 
-            max_eval=5000, 
+            max_iter=remaining_evals, 
+            max_eval=remaining_evals, 
             tolerance_grad=1e-7, 
             tolerance_change=1e-9,
             history_size=100,
             line_search_fn="strong_wolfe"
         )
         
-        start_iter_call = lbfgs_iter[0]
         def closure():
             optimizer_lbfgs.zero_grad()
             loss, loss_dict = compute_pinn_loss(
@@ -207,17 +212,19 @@ def train_modelPINN(
                 lambda_physics=target_lambda_physics
             )
             loss.backward()
-            if lbfgs_iter[0] % 10 == 0: loss_history.update(epochs + lbfgs_iter[0], loss_dict, lr=current_lr)
+            if lbfgs_iter[0] % 10 == 0: 
+                loss_history.update(epochs + lbfgs_iter[0], loss_dict, lr=current_lr)
             lbfgs_iter[0] += 1
             return loss
             
         optimizer_lbfgs.step(closure)
         
-        # Se ha eseguito più di 5 iterazioni, consideriamo che l'ottimizzatore sia partito correttamente
-        if (lbfgs_iter[0] - start_iter_call) > 5:
+        # Se abbiamo raggiunto il limite massimo, usciamo
+        if lbfgs_iter[0] >= max_total_lbfgs:
             break
-        elif current_lr == 1.0:
-            print(f"L-BFGS stalled con LR=1.0 (iter: {lbfgs_iter[0] - start_iter_call}). Riprovo con LR=0.5...")
+        
+        if current_lr == 1.0:
+            print(f"L-BFGS interrotto a {lbfgs_iter[0]} chiamate (LR=1.0). Riprovo con LR=0.5 per le restanti {max_total_lbfgs - lbfgs_iter[0]}...")
     
    # Final loss check after L-BFGS
     final_loss, final_loss_dict = compute_pinn_loss(
