@@ -91,7 +91,7 @@ def train_modelPINN(
     alpha_dynamic = 0.9
     for epoch in pbar:
         model.train()
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
         # Gestione Warmup con solo dati
         if epoch < warmup_epochs:
             current_physics_fn, current_physics_problem, lambda_physics, phase_desc = None, None, 0.0, "Warmup"

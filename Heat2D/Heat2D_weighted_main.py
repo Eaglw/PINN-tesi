@@ -17,6 +17,10 @@ from datetime import datetime
 from Heat2D.src.Heat2D_NN import train_modelNN
 from Heat2D.src.Heat2D_NN_griglia import train_modelNN_griglia
 
+torch.backends.cuda.matmul.allow_tf32 = False  # TF32 altera float64, tienilo off
+torch.backends.cudnn.benchmark = True           # auto-tuning kernel per size fissa
+torch.backends.cudnn.deterministic = False      # più veloce se non serve riproducibilità
+
 def setup_experiment_folder(parent_dir, goal_folder, description):
     """
     Creates experiment folder and plots folder.
@@ -29,18 +33,27 @@ def setup_experiment_folder(parent_dir, goal_folder, description):
 
 # --- 1. DEFINIZIONE DEL PROBLEMA E SOLUZIONE ANALITICA ---
 def soluzione_analitica(x, y, Lx=1.0, Ly=1.0, Nx=50):
-    """
-    Calcola la soluzione analitica per l'equazione di Laplace (stato stazionario calore).
-    """
-    T = torch.zeros_like(x)
-    const_pi = torch.tensor(np.pi, device=x.device)
-    for n in range(1, Nx + 1, 2):
-        lambda_n = n * const_pi / Ly
-        An = 4 / (n * const_pi)
-        term = An * (torch.sinh(lambda_n * x) / torch.sinh(lambda_n * Lx)) * torch.sin(lambda_n * y)
-        T += term
-    return T
+    """Versione vettorizzata: supporta sia tensori [N,1] che griglie 2D [H,W]."""
+    original_shape = x.shape
+    
+    # Porta tutto a [N, 1] per il broadcasting
+    x_flat = x.reshape(-1, 1)
+    y_flat = y.reshape(-1, 1)
 
+    n_vals = torch.arange(1, Nx + 1, 2, device=x.device, dtype=x.dtype)  # [K]
+    pi     = torch.tensor(torch.pi, device=x.device, dtype=x.dtype)
+
+    lam  = n_vals * pi / Ly                                               # [K]
+    An   = 4.0 / (n_vals * pi)                                            # [K]
+
+    # x_flat: [N,1], lam: [K]  →  broadcast a [N, K]
+    lx    = lam * x_flat
+    terms = An * (torch.sinh(lx) / torch.sinh(lam * Lx)) * torch.sin(lam * y_flat)
+    T_flat = terms.sum(dim=-1, keepdim=True)   # [N, 1]
+
+    # Riporta alla shape originale
+    return T_flat.reshape(original_shape)
+    
 # --- 2. DEFINIZIONE DELLA RETE NEURALE ---
 class FCN(nn.Module):
     """Rete Neurale a Connessioni Complete (Fully Connected Network)"""
@@ -51,13 +64,9 @@ class FCN(nn.Module):
         for i in range(len(layers) - 1):
             self.fcs.append(nn.Linear(layers[i], layers[i+1]))
     def forward(self, x):
-        for i, layer in enumerate(self.fcs):
-            x = layer(x)
-            if i < len(self.fcs) - 1:
-                x = self.activation(x)
-        return x
-    def loss_fn(self, pred, target):
-        return nn.MSELoss()(pred, target)
+        for layer in self.fcs[:-1]:   # tutti tranne l'ultimo
+            x = self.activation(layer(x))
+        return self.fcs[-1](x) 
     def loss_fn(self, pred, target):
         return nn.MSELoss()(pred, target)
 
@@ -86,7 +95,7 @@ goal = [0, 1, 2, 3]
 layers_options = [
     [2, 50, 50, 50, 50, 1], # Configurazione Originale
     [2, 80, 80, 80, 80, 80, 80, 1],
-    #[2, 100, 100, 100, 100, 100, 100, 100, 100, 1]   
+    [2, 100, 100, 100, 100, 100, 100, 100, 100, 1]   
 ]
 
 epochs_options = [
@@ -137,13 +146,13 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 
 # Preparazione dati Training
 torch.manual_seed(123)
-
+margin=2e-2
 # --- GENERAZIONE GRIGLIE FISICA E DATI (Master Sets) ---
 Nx_grid_master, Ny_grid_master = 40, 40
-xy_master_grid = generate_grid_points(Nx_grid_master, Ny_grid_master, Lx, Ly, margin=1e-5, device=device)
+xy_master_grid = generate_grid_points(Nx_grid_master, Ny_grid_master, Lx, Ly, margin=margin, device=device)
 
 num_master_random = 1600
-xy_master_random = generate_internal_points(num_master_random, Lx, Ly, margin=1e-5, device=device)
+xy_master_random = generate_internal_points(num_master_random, Lx, Ly, margin=margin, device=device)
 
 # 3. Boundary Points: 200 points (50 per side) - Optimized
 num_b_side = 50
@@ -246,6 +255,7 @@ for layers_config in layers_options:
                         exp_dir_0, plots_dir_0 = setup_experiment_folder(config_dir, "0_NN_Random", f"NN Random")
                         
                         model_0 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
+                        #model_0=torch.jit.script(model_0)
                         optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=base_lr)
                         
                         history_0 = train_modelNN(
@@ -340,6 +350,7 @@ for layers_config in layers_options:
                         
                         heat_physics = HeatEquation2D()
                         model_2 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
+                        #model_2 = torch.compile(model_2)
                         optimizer_2 = torch.optim.Adam(model_2.parameters(), lr=base_lr)
                         
                         # Use unit weights for dynamic mode, STATIC_WEIGHTS for static mode

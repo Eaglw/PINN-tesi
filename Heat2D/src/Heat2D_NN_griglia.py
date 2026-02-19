@@ -61,7 +61,7 @@ def train_modelNN_griglia(
 
     for epoch in pbar:
         model.train()
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
         
         pred = model(xy_train)
         loss = model.loss_fn(pred, T_train)
