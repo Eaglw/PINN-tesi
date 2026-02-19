@@ -20,7 +20,24 @@ from Heat2D.src.Heat2D_NN_griglia import train_modelNN_griglia
 torch.backends.cuda.matmul.allow_tf32 = False  # TF32 altera float64, tienilo off
 torch.backends.cudnn.benchmark = True           # auto-tuning kernel per size fissa
 torch.backends.cudnn.deterministic = False      # più veloce se non serve riproducibilità
+# Aggiungi questa funzione in Heat2D_weighted_main.py
+# subito dopo la definizione di FCN (riga ~63)
 
+def laplacian(model, xy):
+    """Calcola ∂²T/∂x² + ∂²T/∂y² con double autograd."""
+    xy = xy.detach().requires_grad_(True)
+    T  = model(xy)
+
+    grad1 = torch.autograd.grad(T, xy,
+                                grad_outputs=torch.ones_like(T),
+                                create_graph=True)[0]
+
+    d2dx2 = torch.autograd.grad(grad1[:, 0].sum(), xy,
+                                create_graph=True)[0][:, 0:1]
+    d2dy2 = torch.autograd.grad(grad1[:, 1].sum(), xy,
+                                create_graph=True)[0][:, 1:2]
+    return d2dx2 + d2dy2
+    
 def setup_experiment_folder(parent_dir, goal_folder, description):
     """
     Creates experiment folder and plots folder.
