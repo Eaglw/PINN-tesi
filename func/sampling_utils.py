@@ -1,4 +1,10 @@
 import torch
+import numpy as np
+try:
+    from scipy.stats import qmc
+    HAS_QMC = True
+except ImportError:
+    HAS_QMC = False
 
 def generate_internal_points(num_points, Lx=1.0, Ly=1.0, margin=1e-5, device='cpu', dtype=torch.float64):
     """
@@ -6,6 +12,38 @@ def generate_internal_points(num_points, Lx=1.0, Ly=1.0, margin=1e-5, device='cp
     """
     xy = torch.rand((num_points, 2), device=device, dtype=dtype)
     # Scale and shift: [0, 1] -> [margin, Lx - margin]
+    xy[:, 0] = xy[:, 0] * (Lx - 2 * margin) + margin
+    xy[:, 1] = xy[:, 1] * (Ly - 2 * margin) + margin
+    return xy
+
+def generate_sobol_points(num_points, Lx=1.0, Ly=1.0, margin=1e-5, device='cpu', dtype=torch.float64):
+    """
+    Generates Sobol sequence points (Quasi-Monte Carlo) within a safety margin.
+    """
+    if HAS_QMC:
+        sampler = qmc.Sobol(d=2, scramble=True)
+        # Sobol requires power of 2 for optimal properties, but we can sample any number
+        sample = sampler.random(n=num_points)
+    else:
+        # Fallback to random if scipy.stats.qmc is not available
+        return generate_internal_points(num_points, Lx, Ly, margin, device, dtype)
+    
+    xy = torch.tensor(sample, device=device, dtype=dtype)
+    xy[:, 0] = xy[:, 0] * (Lx - 2 * margin) + margin
+    xy[:, 1] = xy[:, 1] * (Ly - 2 * margin) + margin
+    return xy
+
+def generate_halton_points(num_points, Lx=1.0, Ly=1.0, margin=1e-5, device='cpu', dtype=torch.float64):
+    """
+    Generates Halton sequence points (Quasi-Monte Carlo) within a safety margin.
+    """
+    if HAS_QMC:
+        sampler = qmc.Halton(d=2, scramble=True)
+        sample = sampler.random(n=num_points)
+    else:
+        return generate_internal_points(num_points, Lx, Ly, margin, device, dtype)
+    
+    xy = torch.tensor(sample, device=device, dtype=dtype)
     xy[:, 0] = xy[:, 0] * (Lx - 2 * margin) + margin
     xy[:, 1] = xy[:, 1] * (Ly - 2 * margin) + margin
     return xy
