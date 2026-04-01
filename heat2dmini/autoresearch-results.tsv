@@ -3,3 +3,4 @@ iteration	commit	metric	delta	status	guard	description
 1	4942a9c	0.02868427	-0.00955558	keep	pass	Deeper tapered architecture [140, 120, 100, 80, 60, 40, 30, 20]
 2	14fb93b	0.03247841	0.00379414	discard	pass	Neuron-wise LAA (caused regression)
 3	dcaca03	0.02070321	-0.00798106	keep	pass	Switch to Sobol sampling for internal points
+4	0e5d9d0	0.03368942	0.01298621	discard	pass	Increase collocation points to 60x60 (caused regression)
