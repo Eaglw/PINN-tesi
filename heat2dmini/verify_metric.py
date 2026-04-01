@@ -9,9 +9,10 @@ def run_verify():
     cmd = [
         "python", "heat2dmini/Heat2D_adaptive_mini.py",
         "--epochs", "5000",
-        "--arch", "140,120,100,80,60,50,40,30,20",
+        "--arch", "140,120,100,80,60,40,30,20",
         "--bc_weight", "50",
-        "--act", "GELU"
+        "--act", "GELU",
+        "--lbfgs_iter", "2000"
     ]
     
     try:
