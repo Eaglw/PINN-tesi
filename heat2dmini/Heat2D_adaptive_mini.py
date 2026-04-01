@@ -83,14 +83,14 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 
 # --- 4. DATA PREPARATION ---
 margin = 2e-2
-Nx_grid_master, Ny_grid_master = args.n_collocation, args.n_collocation
-# Switch to Sobol for internal points
-num_internal = Nx_grid_master * Ny_grid_master
-xy_master_grid = generate_sobol_points(num_internal, Lx, Ly, device=device)
-# Filter to keep within domain with margin
-mask = (xy_master_grid[:,0] > margin) & (xy_master_grid[:,0] < Lx-margin) & \
-       (xy_master_grid[:,1] > margin) & (xy_master_grid[:,1] < Ly-margin)
-xy_master_grid = xy_master_grid[mask]
+# Hybrid Sampling: Regular Grid + Sobol
+xy_grid = generate_grid_points(20, 20, Lx, Ly, margin=margin, device=device)
+xy_sobol = generate_sobol_points(1200, Lx, Ly, device=device)
+# Filter Sobol
+mask = (xy_sobol[:,0] > margin) & (xy_sobol[:,0] < Lx-margin) & \
+       (xy_sobol[:,1] > margin) & (xy_sobol[:,1] < Ly-margin)
+xy_sobol = xy_sobol[mask]
+xy_master_grid = torch.cat([xy_grid, xy_sobol], dim=0)
 
 num_b_side = 100
 pts_bc = torch.linspace(0.01, 0.99, num_b_side, device=device).reshape(-1, 1)

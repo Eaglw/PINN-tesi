@@ -5,3 +5,10 @@ iteration	commit	metric	delta	status	guard	description
 3	dcaca03	0.02070321	-0.00798106	keep	pass	Switch to Sobol sampling for internal points
 4	0e5d9d0	0.03368942	0.01298621	discard	pass	Increase collocation points to 60x60 (caused regression)
 5	b46c547	0.03956812	0.01886491	discard	pass	Initialize adaptive scaling 'a' at 1.2 (caused regression)
+6	bd7d15d	0.04046467	0.01976146	discard	pass	Increase BC weight to 100 (caused regression)
+7	aa3b4f8	0.02195514	0.00125193	discard	pass	Switch base activation to SiLU (slightly worse)
+8	e4d6170	0.02829744	0.00759423	discard	pass	Test wider initial layer [200...20] (caused regression)
+9	d697598	0.02409021	0.00338700	discard	pass	Switch LR strategy to step decay (worse than plateau)
+10	1c96bf9	0.02511566	0.00441245	discard	pass	Increase epochs to 10k with step LR (worse)
+11	-	0.02136012	0.00065691	discard	pass	Increase epochs to 10k with plateau (worse)
+12	6ce0a19	0.01994321	-0.00076000	keep	pass	Increase boundary points density (num_b_side=100)
