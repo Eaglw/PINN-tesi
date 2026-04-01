@@ -10,7 +10,8 @@ def run_verify():
         "python", "heat2dmini/Heat2D_adaptive_mini.py",
         "--epochs", "5000",
         "--arch", "140,120,100,80,60,40,30,20",
-        "--bc_weight", "50"
+        "--bc_weight", "50",
+        "--n_collocation", "60"
     ]
     
     try:
