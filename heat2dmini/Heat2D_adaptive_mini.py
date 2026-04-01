@@ -104,7 +104,7 @@ bc_top = torch.cat([pts_bc, torch.ones(num_b_side, 1, device=device)], dim=1)
 xy_master_boundary = torch.cat([bc_left, bc_right, bc_bottom, bc_top], dim=0)
 
 # Analytic solution for boundary mapping
-T_master_boundary = soluzione_analitica(xy_master_boundary[:,0], xy_master_boundary[:,1], Lx_val, Ly_val)
+T_master_boundary = soluzione_analitica(xy_master_boundary[:,0], xy_master_boundary[:,1], Lx_val, Ly_val).reshape(-1, 1)
 
 pinn_data_internal = (torch.empty(0, 2, device=device), torch.empty(0, 1, device=device))
 pinn_data_boundary = (xy_master_boundary, T_master_boundary)
@@ -137,7 +137,7 @@ history = train_modelPINN(
     loss_weights={'bc': args.bc_weight, 'physics': 1.0, 'data': 0.0},
     dynamic_weighting=True,
     update_weights_every=100,
-    warmup_epochs=500,
+    warmup_epochs=0,
     max_total_lbfgs=args.lbfgs_iter
 )
 duration = time.time() - start_time
