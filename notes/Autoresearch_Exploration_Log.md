@@ -123,3 +123,30 @@ Focus on coordinate normalization, regularization, and specialized sampling.
 #### Hypothesis 12: Sine/Cosine Positional Encoding (RFF)
 *Random Fourier Features or Positional Encoding could help resolve high-frequency components.*
 - **Plan**: Map inputs $(x, y) \to (\sin(kx), \cos(kx), \sin(ky), \cos(ky))$.
+
+---
+
+## 🏃 Phase 6 Run Log (Iterations 21-30)
+
+| Iter | Hypothesis | Config | L2 Error | Status |
+|---|---|---|---|---|
+| 21 | **Scale coordinates to [-1, 1]** | Maps [0, 1] -> [-1, 1] | **0.009847** | **KEEP** |
+| 22 | L2 Regularization | weight_decay = 1e-6 | 0.009847 | DISCARD |
+| 23 | Multi-phase SAR | Add high-res points every 1000 | 0.016204 | DISCARD |
+| 24 | Uniform Init for 'a' | a ~ U[0.9, 1.1] | 0.012330 | DISCARD |
+| 25 | Cosine Annealing LR | Switch from Plateau | 0.010714 | DISCARD |
+| 26 | Wider initial arch | [180, 140...20] | 0.013399 | DISCARD |
+| 27 | Single-phase SAR | Add 400 pts at midpoint | 0.012436 | DISCARD |
+| 28 | Higher Sobol Density | 2000 points | 0.010478 | DISCARD |
+| 29 | Init a=0.9 | Lower initial slope | 0.740395 | DISCARD (bug) |
+| 30 | Init a=1.1 | Higher initial slope | 0.011764 | DISCARD |
+
+### 🏆 Phase 6 Winner: Iteration 21
+- **L2 Relative Error: 0.009847**
+- **Config**: Tapered [140-20], GELU LAA (layer-wise, a=1.0), Pure Sobol (1600), BC Density (400 pts), BC Weight 50, Domain [-1, 1], Adam 5000 + L-BFGS 2000.
+
+## 🏁 Final Conclusions
+1. **Coordinate Scaling**: Mapping inputs to `[-1, 1]` had the most profound impact, bringing error down from ~0.018 to under 0.01.
+2. **Architecture**: A deep tapered structure `[140, 120, 100, 80, 60, 40, 30, 20]` provides the ideal capacity funnel.
+3. **Sampling**: 1600 Sobol points without dynamic refinement outperformed all adaptive methods (SAR) which disrupted Adam's momentum.
+4. **Overall Progress**: From baseline `0.0400` to `0.0098` (75% error reduction) via pure structural and algorithmic optimization without increasing compute time excessively.
