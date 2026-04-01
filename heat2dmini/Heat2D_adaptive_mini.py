@@ -132,7 +132,7 @@ history = train_modelPINN(
     loss_weights={'bc': args.bc_weight, 'physics': 1.0, 'data': 0.0},
     dynamic_weighting=True,
     update_weights_every=100,
-    warmup_epochs=0,
+    warmup_epochs=500,
     max_total_lbfgs=args.lbfgs_iter
 )
 duration = time.time() - start_time
