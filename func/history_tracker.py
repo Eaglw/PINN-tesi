@@ -198,17 +198,17 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
     total_loss = 0.0
     mse_loss = nn.MSELoss()
     
-    if x_data is not None and y_data is not None:
+    if x_data is not None and y_data is not None and x_data.numel() > 0:
         y_pred = model(x_data)
         data_loss = mse_loss(y_pred, y_data)
         loss_dict['data_loss'] = data_loss
         total_loss += lambda_data * data_loss
 
-    if physics_problem is not None and x_bc is not None and y_bc is not None:
+    if physics_problem is not None and x_bc is not None and y_bc is not None and x_bc.numel() > 0:
         bc_loss_val = physics_problem.boundary_loss(model, x_bc, y_bc)
         loss_dict['bc_loss'] = bc_loss_val
         total_loss += lambda_bc * bc_loss_val
-    elif x_bc is not None and y_bc is not None:
+    elif x_bc is not None and y_bc is not None and x_bc.numel() > 0:
         bc_loss_val = mse_loss(model(x_bc), y_bc)
         loss_dict['bc_loss'] = bc_loss_val
         total_loss += lambda_bc * bc_loss_val

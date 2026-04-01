@@ -35,7 +35,8 @@ def train_modelPINN(
     epochs=20000, physics_problem=None, plots_dir='plots', final_dir='Heat2D/Results',
     show_plots_interactively=True, log_gradients_every=0, loss_weights=None,
     warmup_epochs=None, n_collocation=(50, 50), collocation_points=None,
-    lr_strategy='fixed', dynamic_weighting=False, update_weights_every=100
+    lr_strategy='fixed', dynamic_weighting=False, update_weights_every=100,
+    max_total_lbfgs=5000
 ):
     """
     Esegue il training della PINN.
@@ -178,7 +179,6 @@ def train_modelPINN(
     # L-BFGS con retry logic su LR
     print("\nInizio fase di raffinamento con L-BFGS...")
     lbfgs_iter = [0]
-    max_total_lbfgs = 5000
     for current_lr in [1.0, 0.5]:
         start_iter_call = lbfgs_iter[0]
         remaining_evals = max_total_lbfgs - start_iter_call
