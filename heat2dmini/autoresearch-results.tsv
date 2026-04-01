@@ -16,3 +16,7 @@ iteration	commit	metric	delta	status	guard	description
 14	1692dcf	0.02492541	0.00498220	discard	pass	Test deeper tapered arch [140...50...20]
 15	d89353a	0.02154011	0.00159690	discard	pass	Normal initialization for 'a' (worse)
 16	15d7c38	0.01811542	-0.00182779	keep	pass	Increase L-BFGS iterations to 2000
+17	-	-	-	-	-	(Skipped - explored others)
+18	e121fb7	0.01838541	0.00027000	discard	pass	Increase collocation points to 50x50 (slightly worse)
+19	558ba80	0.02284812	0.00473270	discard	pass	Add Adam warmup (caused regression)
+20	187357e	0.02621041	0.00809500	discard	pass	Test wider/deeper tapered [160...20] (worse)

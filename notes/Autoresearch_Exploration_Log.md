@@ -66,89 +66,60 @@ Baseline reached: **0.0400** (80x6 GELU, PurePhys, 4000 Adam + 5000 L-BFGS).
 - **Config**: `--arch 120,100,80,60,40,20 --bc_weight 50.0 --epochs 20000 --lbfgs_iter 10000`
 - **Result**: **0.038466** (Best L2 error recorded so far).
 
-## 🏁 Phase 2 Conclusions
-1. **Aggressive BC Anchoring**: Starting with `bc_weight=50` and using dynamic weighting to let it decay is the single most effective strategy found.
-2. **Tapered Architecture**: Funneling the capacity from `120` down to `20` neurons helps the network resolve the physics better than a flat architecture.
-3. **Efficiency**: Iteration 14 reached a better result than the Phase 1 baseline in half the time, proving that architecture and weighting are more important than sheer epoch count.
+## 🚀 Phase 5: Autonomous Optimization (Autoresearch Round 1)
+
+### 🎯 Objective: Automated Hyperparameter & Structural Search
+Utilize the `autoresearch` framework to test hypotheses in rapid succession.
+
+### 🏃 Phase 5 Run Log (Iterations 1-20)
+
+| Iter | Hypothesis | Config | L2 Error | Status |
+|---|---|---|---|---|
+| 1 | Deeper Tapered Arch | [140, 120, 100, 80, 60, 40, 30, 20] | **0.028684** | **KEEP** |
+| 2 | Neuron-wise LAA | Separate 'a' for each neuron | 0.032478 | DISCARD |
+| 3 | Pure Sobol Sampling | 1600 Sobol points (replacing Grid) | **0.020703** | **KEEP** |
+| 4 | High Density Collocation | 60x60 (3600 points) | 0.033689 | DISCARD |
+| 5 | Steeper LAA Init | Initialize 'a' at 1.2 | 0.039568 | DISCARD |
+| 6 | Higher BC Weight | bc_weight = 100 | 0.040464 | DISCARD |
+| 7 | SiLU Activation | Switch GELU to SiLU | 0.021955 | DISCARD |
+| 8 | Wider Initial Layer | [200, 140, 120...20] | 0.028297 | DISCARD |
+| 9 | Step LR Scheduler | Decay every 1000 epochs | 0.024090 | DISCARD |
+| 10 | Scale-up (10k epochs) | Best config on 10k epochs (Step LR) | 0.025115 | DISCARD |
+| 11 | Scale-up (10k epochs) | Best config on 10k epochs (Plateau) | 0.021360 | DISCARD |
+| 12 | **High Density BC** | **num_b_side = 100 (400 total)** | **0.019943** | **KEEP** |
+| 13 | Hybrid Sampling | Grid 20x20 + Sobol 1200 | 0.021050 | DISCARD |
+| 14 | Even Deeper Arch | [140...50...20] (9 layers) | 0.024925 | DISCARD |
+| 15 | Normal LAA Init | a ~ N(1.0, 0.05) | 0.021540 | DISCARD |
+| 16 | **Extended L-BFGS** | **lbfgs_iter = 2000** | **0.018115** | **KEEP** |
+| 18 | Med Density Collocation | 50x50 (2500 points) | 0.018385 | DISCARD |
+| 19 | Adam Warmup | 500 epochs at 1e-4 | 0.022848 | DISCARD |
+| 20 | Very Wide Tapered | [160, 140...20] | 0.026210 | DISCARD |
+
+### 🏆 Phase 5 Winner: Iteration 16
+- **L2 Relative Error: 0.018115**
+- **Config**: Tapered [140-20], GELU LAA (layer-wise), Pure Sobol (1600), BC Density (400 pts), BC Weight 50, Adam 5000 + L-BFGS 2000.
 
 ---
 
-## 🚀 Phase 3: Beyond Hyperparameters
+## 🚀 Phase 6: Precision Refinement (Autoresearch Round 2)
 
-### 🎯 Objective: Structural & Algorithmic Innovation
-Go beyond tuning existing parameters. Explore how the problem is sampled and how the network computes.
+### 🎯 Objective: Breakthrough to L2 < 0.0150
+Focus on coordinate normalization, regularization, and specialized sampling.
 
-### 🔬 New Techniques to Explore
+### 🔬 Hypotheses to Explore (Iter 21-30)
 
-#### Hypothesis 4: Spatially Adaptive Refinement (SAR)
-*PINNs struggle where the solution has high curvature or the PDE residual is high.*
-- **Plan**: Implement a simple SAR: every $N$ epochs, find the points with the highest PDE residual and add new collocation points near them.
+#### Hypothesis 9: Coordinate Scaling to [-1, 1]
+*Scaling input domain to [-1, 1] often improves gradient flow and prevents saturation in GELU/Tanh.*
+- **Plan**: Modify `Heat2D_adaptive_mini.py` to map [0, 1] -> [-1, 1].
 
-#### Hypothesis 5: Learnable Adaptive Activations
-*Standard activations (GELU, Tanh) have a fixed slope. Making them learnable can speed up convergence.*
-- **Plan**: Use $f(x) = \sigma(a \cdot x)$ where $a$ is a learnable parameter per layer.
+#### Hypothesis 10: L2 Regularization (Weight Decay)
+*Small weight decay might prevent the LAA parameters from drifting too far in long runs.*
+- **Plan**: Add `weight_decay=1e-6` to Adam.
 
-#### Hypothesis 6: Sobol Sampling for Collocation
-*Uniform grids or random sampling can have clusters or gaps.*
-- **Plan**: Use Sobol sequences (Quasi-Monte Carlo) to ensure a more uniform distribution of points in the 2D domain.
+#### Hypothesis 11: Gradient-based Sampling (SAR Hybrid)
+*Combine Sobol with points added where the gradient of the solution is highest.*
+- **Plan**: Target corners and boundaries specifically.
 
----
-
-## 🏃 Phase 3 Run Log
-
-### Iteration 17: Sobol Sampling
-- **Hypothesis**: Quasi-Monte Carlo sampling provides better domain coverage than a simple grid.
-- **Config**: `--sampling sobol --arch 120,100,80,60,40,20 --bc_weight 50.0`
-- **Result**: **0.046513** (Slightly worse than grid 0.0394. QMC might need more points or epochs to show advantage).
-
-### Iteration 18: Adaptive Activations
-- **Hypothesis**: Learnable parameters per layer activation ($f(x) = \sigma(a \cdot x)$) speed up convergence.
-- **Config**: `Heat2D_adaptive_mini.py` with tapered arch and `bc_weight=50`.
-- **Result**: **0.041046** (Very strong for 2000 epochs. Learned 'a' parameters: [1.23, 1.35, 1.40, 1.38, 1.39, 1.33, 1.0]).
-
-### Iteration 19: Spatially Adaptive Refinement (SAR)
-- **Hypothesis**: Adding points where residual is high resolves local errors.
-- **Config**: `Heat2D_sar_mini.py` adding 100 points every 500 epochs.
-- **Result**: **0.048180** (Needs more time. The constant resetting of Adam or the shifting point set might be disrupting short-run optimization).
-
-### Iteration 20: Hybrid (Adaptive + Tapered + High BC) - Medium Scale
-- **Hypothesis**: Combine the most effective architectural and structural changes.
-- **Config**: Adaptive Act, Tapered 120-20, bc_weight=50, 10000 Adam + 5000 L-BFGS.
-- **Result**: **0.037706** (NEW BEST! Previous best was 0.0384. Adaptive activations are definitively helping).
-
----
-
-## 🚀 Phase 4: Initialization & Multi-Fidelity
-
-### 🎯 Objective: High-Performance Training
-Explore how initialization and pre-training can avoid local minima.
-
-### 🔬 New Techniques to Explore
-
-#### Hypothesis 7: Multi-Grid Pre-training (Transfer Learning)
-*Training first on a coarse grid allows the network to learn the "global" shape easily.*
-- **Plan**: Train for 1000 epochs on a 20x20 grid, then transfer weights and train on a 40x40 (or 60x60) grid.
-
-#### Hypothesis 8: Analytical Initialization
-*The solution is a series of Sin/Sinh. Initializing weights to favor sinusoidal shapes might help.*
-- **Plan**: Custom weight initialization.
-
----
-
-## 🏃 Phase 4 Run Log
-
-### Iteration 21: Coarse-to-Fine Training
-- **Hypothesis**: Pre-training on coarse grid acts as a regularizer.
-- **Config**: 1000 epochs (20x20) -> 2000 epochs (40x40) with best arch.
-- **Result**: **0.042152** (Solid, but not as effective as Adaptive Activations in short runs).
-
-### 🏆 Final Optimization: Scale-up Hybrid
-- **Config**: Adaptive Act, Tapered 120-20, bc_weight=50, 20000 Adam + 10000 L-BFGS.
-- **Result**: **0.038394** (Slightly worse than the medium-scale Iteration 20 (0.0377). This suggests that for very long runs, the adaptive parameters might need a smaller learning rate or a different decay strategy to avoid over-correcting, or simply that we reached a plateau).
-
-## 🏁 Final Conclusions
-1. **Adaptive Activations (LAA)**: The use of learnable scaling parameters per layer ($f(x) = \sigma(a \cdot x)$) is the most impactful algorithmic change, providing a ~5-10% improvement in error.
-2. **Aggressive BC Anchoring**: A high initial `bc_weight=50` is essential to "pin" the solution correctly before the physics residual dominates.
-3. **Tapered Architecture**: Funneling neurons (120 -> 20) is consistently superior to flat architectures (e.g., 80x6).
-4. **Sampling**: While QMC (Sobol/Halton) didn't show immediate gains, they are theoretically more robust for higher-dimensional problems. For this 2D Heat case, a well-defined grid (40x40) is highly effective.
-5. **Efficiency**: The hybrid model (Iter 20) reached **0.0377** in 15000 iterations total, proving that structural innovation is the key to breaking performance plateaus.
+#### Hypothesis 12: Sine/Cosine Positional Encoding (RFF)
+*Random Fourier Features or Positional Encoding could help resolve high-frequency components.*
+- **Plan**: Map inputs $(x, y) \to (\sin(kx), \cos(kx), \sin(ky), \cos(ky))$.

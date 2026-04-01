@@ -64,7 +64,11 @@ def get_act_fn(name):
 
 # --- 3. PROBLEM DEFINITION ---
 def soluzione_analitica(x, y, Lx=1.0, Ly=1.0, Nx=50):
-    x_flat = x.reshape(-1, 1); y_flat = y.reshape(-1, 1)
+    # Map [-1, 1] back to [0, Lx] for analytical formula
+    x_orig = (x + 1) * Lx / 2.0
+    y_orig = (y + 1) * Ly / 2.0
+    
+    x_flat = x_orig.reshape(-1, 1); y_flat = y_orig.reshape(-1, 1)
     n_vals = torch.arange(1, Nx + 1, 2, device=x.device, dtype=x.dtype)
     pi = torch.tensor(torch.pi, device=x.device, dtype=x.dtype)
     lam = n_vals * pi / Ly; An = 4.0 / (n_vals * pi)
@@ -73,33 +77,34 @@ def soluzione_analitica(x, y, Lx=1.0, Ly=1.0, Nx=50):
     T_flat = terms.sum(dim=-1, keepdim=True)
     return T_flat.reshape(x.shape)
 
-Lx, Ly = 1.0, 1.0
-Nx_dom, Ny_dom = 50, 50
-x_grid = torch.linspace(0, Lx, Nx_dom, device=device)
-y_grid = torch.linspace(0, Ly, Ny_dom, device=device)
+Lx_val, Ly_val = 1.0, 1.0
+# Evaluation grid in [-1, 1]
+x_grid = torch.linspace(-1, 1, 50, device=device)
+y_grid = torch.linspace(-1, 1, 50, device=device)
 X, Y = torch.meshgrid(x_grid, y_grid, indexing='xy')
-T_grid = soluzione_analitica(X, Y, Lx, Ly, Nx=50)
+T_grid = soluzione_analitica(X, Y, Lx_val, Ly_val, Nx=50)
 xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 
 # --- 4. DATA PREPARATION ---
-margin = 2e-2
-Nx_grid_master, Ny_grid_master = args.n_collocation, args.n_collocation
-# Switch to Sobol for internal points
-num_internal = Nx_grid_master * Ny_grid_master
-xy_master_grid = generate_sobol_points(num_internal, Lx, Ly, device=device)
-# Filter to keep within domain with margin
-mask = (xy_master_grid[:,0] > margin) & (xy_master_grid[:,0] < Lx-margin) & \
-       (xy_master_grid[:,1] > margin) & (xy_master_grid[:,1] < Ly-margin)
+# Use [-1, 1] domain for all points
+margin = 0.02
+num_internal = args.n_collocation * args.n_collocation
+xy_master_grid = generate_sobol_points(num_internal, 2.0, 2.0, device=device) - 1.0
+# Filter with margin in [-1, 1]
+mask = (xy_master_grid[:,0] > -1+margin) & (xy_master_grid[:,0] < 1-margin) & \
+       (xy_master_grid[:,1] > -1+margin) & (xy_master_grid[:,1] < 1-margin)
 xy_master_grid = xy_master_grid[mask]
 
 num_b_side = 100
-pts_bc = torch.linspace(0.01, 0.99, num_b_side, device=device).reshape(-1, 1)
-bc_left = torch.cat([torch.zeros(num_b_side, 1, device=device), pts_bc], dim=1)
+pts_bc = torch.linspace(-0.99, 0.99, num_b_side, device=device).reshape(-1, 1)
+bc_left = torch.cat([-torch.ones(num_b_side, 1, device=device), pts_bc], dim=1)
 bc_right = torch.cat([torch.ones(num_b_side, 1, device=device), pts_bc], dim=1)
-bc_bottom = torch.cat([pts_bc, torch.zeros(num_b_side, 1, device=device)], dim=1)
+bc_bottom = torch.cat([pts_bc, -torch.ones(num_b_side, 1, device=device)], dim=1)
 bc_top = torch.cat([pts_bc, torch.ones(num_b_side, 1, device=device)], dim=1)
 xy_master_boundary = torch.cat([bc_left, bc_right, bc_bottom, bc_top], dim=0)
-T_master_boundary = torch.cat([torch.zeros(num_b_side, 1, device=device), torch.ones(num_b_side, 1, device=device), torch.zeros(num_b_side, 1, device=device), torch.zeros(num_b_side, 1, device=device)], dim=0)
+
+# Analytic solution for boundary mapping
+T_master_boundary = soluzione_analitica(xy_master_boundary[:,0], xy_master_boundary[:,1], Lx_val, Ly_val)
 
 pinn_data_internal = (torch.empty(0, 2, device=device), torch.empty(0, 1, device=device))
 pinn_data_boundary = (xy_master_boundary, T_master_boundary)
