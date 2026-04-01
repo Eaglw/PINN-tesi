@@ -1,2 +1,3 @@
 iteration	commit	metric	delta	status	guard	description
 0	-	0.03823985	0.0	baseline	pass	Initial measurement (Tapered 120-20, BC=50, 5k epochs)
+1	4942a9c	0.02868427	-0.00955558	keep	pass	Deeper tapered architecture [140, 120, 100, 80, 60, 40, 30, 20]

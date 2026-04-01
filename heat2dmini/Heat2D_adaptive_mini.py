@@ -32,11 +32,11 @@ torch.set_default_dtype(torch.float64)
 
 # --- 2. ADAPTIVE MODEL DEFINITION ---
 class AdaptiveActivation(nn.Module):
-    def __init__(self, activation_fn, n_layers):
+    def __init__(self, activation_fn, layers_widths):
         super().__init__()
         self.activation = activation_fn()
-        # Learnable parameter 'a' for each layer: f(x) = activation(a * x)
-        self.a = nn.Parameter(torch.ones(n_layers))
+        # Learnable parameter 'a' for each neuron in each hidden layer
+        self.a = nn.ParameterList([nn.Parameter(torch.ones(w)) for w in layers_widths])
 
     def forward(self, x, layer_idx):
         return self.activation(self.a[layer_idx] * x)
@@ -48,10 +48,18 @@ class AdaptiveFCN(nn.Module):
         for i in range(len(layers) - 1):
             self.fcs.append(nn.Linear(layers[i], layers[i+1]))
         
-        # We need n-1 activations for n-1 hidden transitions
-        self.adaptive_act = AdaptiveActivation(activation_fn, len(layers) - 1)
+        # We need n-1 activations for n-1 hidden transitions (output doesn't have activation)
+        # The widths are the dimensions of the outputs of the hidden layers (layers[1:-1])
+        hidden_widths = layers[1:-1]
+        self.adaptive_act = AdaptiveActivation(activation_fn, hidden_widths)
 
     def forward(self, x):
+        # fcs[0] is input -> hidden1
+        # fcs[1] is hidden1 -> hidden2
+        # ...
+        # fcs[n-2] is hidden(n-2) -> hidden(n-1)
+        # fcs[n-1] is hidden(n-1) -> output
+        
         for i, layer in enumerate(self.fcs[:-1]):
             x = self.adaptive_act(layer(x), i)
         return self.fcs[-1](x)
@@ -158,4 +166,5 @@ with open(results_csv, 'a') as f:
 
 print(f"\nAdaptive Experiment Finished!")
 print(f"L2 Relative Error: {l2_err:.6f}")
-print(f"Adaptive parameters: {model.adaptive_act.a.detach().cpu().numpy()}")
+# print(f"Adaptive parameters: {[p.mean().item() for p in model.adaptive_act.a]}") # Print means for brevity
+
