@@ -36,7 +36,8 @@ class AdaptiveActivation(nn.Module):
         super().__init__()
         self.activation = activation_fn()
         # Learnable parameter 'a' for each layer: f(x) = activation(a * x)
-        self.a = nn.Parameter(torch.ones(n_layers))
+        # Initialize at 1.1 for steeper gradients
+        self.a = nn.Parameter(torch.full((n_layers,), 1.1))
 
     def forward(self, x, layer_idx):
         return self.activation(self.a[layer_idx] * x)
@@ -88,7 +89,7 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 # --- 4. DATA PREPARATION ---
 # Use [-1, 1] domain for all points
 margin = 0.02
-num_internal = 2000 # Test intermediate density (Iteration 28)
+num_internal = args.n_collocation * args.n_collocation
 xy_master_grid = generate_sobol_points(num_internal, 2.0, 2.0, device=device) - 1.0
 # Filter with margin in [-1, 1]
 mask = (xy_master_grid[:,0] > -1+margin) & (xy_master_grid[:,0] < 1-margin) & \
