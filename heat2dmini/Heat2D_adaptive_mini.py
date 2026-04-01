@@ -36,7 +36,8 @@ class AdaptiveActivation(nn.Module):
         super().__init__()
         self.activation = activation_fn()
         # Learnable parameter 'a' for each layer: f(x) = activation(a * x)
-        self.a = nn.Parameter(torch.ones(n_layers))
+        # Uniform initialization [0.9, 1.1] to break symmetry gently
+        self.a = nn.Parameter(torch.empty(n_layers).uniform_(0.9, 1.1))
 
     def forward(self, x, layer_idx):
         return self.activation(self.a[layer_idx] * x)
@@ -112,64 +113,27 @@ pinn_data_boundary = (xy_master_boundary, T_master_boundary)
 # --- 5. TRAINING ---
 layers = [2] + [int(x) for x in args.arch.split(',')] + [1]
 model = AdaptiveFCN(layers=layers, activation_fn=get_act_fn(args.act)).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 heat_physics = HeatEquation2D()
 
-# Helper for SAR: calculate residual distribution
-def get_high_residual_points(model, n_points=100):
-    xy_pool = generate_sobol_points(5000, 2.0, 2.0, device=device) - 1.0
-    xy_pool.requires_grad_(True)
-    T = model(xy_pool)
-    grads = torch.autograd.grad(T, xy_pool, torch.ones_like(T), create_graph=True)[0]
-    dT_dx, dT_dy = grads[:, 0], grads[:, 1]
-    grads2_x = torch.autograd.grad(dT_dx, xy_pool, torch.ones_like(dT_dx), create_graph=True)[0]
-    d2T_dx2 = grads2_x[:, 0]
-    grads2_y = torch.autograd.grad(dT_dy, xy_pool, torch.ones_like(dT_dy), create_graph=True)[0]
-    d2T_dy2 = grads2_y[:, 1]
-    res = (d2T_dx2 + d2T_dy2)**2
-    idx = torch.topk(res, n_points).indices
-    return xy_pool[idx].detach()
+exp_name = f"ADAPTIVE_{args.arch}_{args.act}"
+base_dir = "heat2dmini/mini_experiments"
+os.makedirs(base_dir, exist_ok=True)
+exp_dir = os.path.join(base_dir, exp_name)
 
-# Refine points every 1000 epochs
-current_collocation = xy_master_grid.clone()
-for phase in range(5):
-    start_time = time.time()
-    history = train_modelPINN(
-        model=model,
-        optimizer=optimizer,
-        data_internal=pinn_data_internal,
-        data_boundary=pinn_data_boundary,
-        validation_grid=(xy_grid_flat, T_grid, X, Y),
-        physics_problem=heat_physics,
-        epochs=1000,
-        plots_dir=None,
-        final_dir=None,
-        show_plots_interactively=False,
-        collocation_points=current_collocation,
-        lr_strategy='plateau',
-        loss_weights={'bc': args.bc_weight, 'physics': 1.0, 'data': 0.0},
-        dynamic_weighting=True,
-        update_weights_every=100,
-        warmup_epochs=0,
-        max_total_lbfgs=0 # Only Adam here
-    )
-    # Add new high-residual points
-    new_pts = get_high_residual_points(model, 100)
-    current_collocation = torch.cat([current_collocation, new_pts], dim=0)
-
-# Final L-BFGS refinement
-history_lbfgs = train_modelPINN(
+start_time = time.time()
+history = train_modelPINN(
     model=model,
     optimizer=optimizer,
     data_internal=pinn_data_internal,
     data_boundary=pinn_data_boundary,
     validation_grid=(xy_grid_flat, T_grid, X, Y),
     physics_problem=heat_physics,
-    epochs=0,
-    plots_dir=os.path.join(base_dir, exp_name, 'plots'),
-    final_dir=os.path.join(base_dir, exp_name),
+    epochs=args.epochs,
+    plots_dir=os.path.join(exp_dir, 'plots'),
+    final_dir=exp_dir,
     show_plots_interactively=False,
-    collocation_points=current_collocation,
+    collocation_points=xy_master_grid,
     lr_strategy='plateau',
     loss_weights={'bc': args.bc_weight, 'physics': 1.0, 'data': 0.0},
     dynamic_weighting=True,
@@ -177,7 +141,7 @@ history_lbfgs = train_modelPINN(
     warmup_epochs=0,
     max_total_lbfgs=args.lbfgs_iter
 )
-duration = time.time() - start_time # Note: this only times the last phase, but okay for mini
+duration = time.time() - start_time
 
 l2_err, max_err = compute_metrics(model, xy_grid_flat, T_grid)
 

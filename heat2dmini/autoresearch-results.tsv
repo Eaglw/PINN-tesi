@@ -1,6 +1,5 @@
 iteration	commit	metric	delta	status	guard	description
 0	-	0.03823985	0.0	baseline	pass	Initial measurement (Tapered 120-20, BC=50, 5k epochs)
-...
 16	15d7c38	0.01811542	-0.00182779	keep	pass	Increase L-BFGS iterations to 2000
 18	e121fb7	0.01838541	0.00027000	discard	pass	Increase collocation points to 50x50 (slightly worse)
 19	558ba80	0.02284812	0.00473270	discard	pass	Add Adam warmup (caused regression)
