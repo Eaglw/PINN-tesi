@@ -8,8 +8,8 @@ def run_verify():
     # Usiamo Heat2D_adaptive_mini.py che include LAA e Tapered
     cmd = [
         "python", "heat2dmini/Heat2D_adaptive_mini.py",
-        "--epochs", "10000",
-        "--arch", "140,120,100,80,60,40,30,20",
+        "--epochs", "5000",
+        "--arch", "140,120,100,80,60,50,40,30,20",
         "--bc_weight", "50",
         "--act", "GELU"
     ]
