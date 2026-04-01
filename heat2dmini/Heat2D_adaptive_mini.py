@@ -32,11 +32,11 @@ torch.set_default_dtype(torch.float64)
 
 # --- 2. ADAPTIVE MODEL DEFINITION ---
 class AdaptiveActivation(nn.Module):
-    def __init__(self, activation_fn, layers_widths):
+    def __init__(self, activation_fn, n_layers):
         super().__init__()
         self.activation = activation_fn()
-        # Learnable parameter 'a' for each neuron in each hidden layer
-        self.a = nn.ParameterList([nn.Parameter(torch.ones(w)) for w in layers_widths])
+        # Learnable parameter 'a' for each layer: f(x) = activation(a * x)
+        self.a = nn.Parameter(torch.ones(n_layers))
 
     def forward(self, x, layer_idx):
         return self.activation(self.a[layer_idx] * x)
@@ -48,18 +48,10 @@ class AdaptiveFCN(nn.Module):
         for i in range(len(layers) - 1):
             self.fcs.append(nn.Linear(layers[i], layers[i+1]))
         
-        # We need n-1 activations for n-1 hidden transitions (output doesn't have activation)
-        # The widths are the dimensions of the outputs of the hidden layers (layers[1:-1])
-        hidden_widths = layers[1:-1]
-        self.adaptive_act = AdaptiveActivation(activation_fn, hidden_widths)
+        # We need n-1 activations for n-1 hidden transitions
+        self.adaptive_act = AdaptiveActivation(activation_fn, len(layers) - 1)
 
     def forward(self, x):
-        # fcs[0] is input -> hidden1
-        # fcs[1] is hidden1 -> hidden2
-        # ...
-        # fcs[n-2] is hidden(n-2) -> hidden(n-1)
-        # fcs[n-1] is hidden(n-1) -> output
-        
         for i, layer in enumerate(self.fcs[:-1]):
             x = self.adaptive_act(layer(x), i)
         return self.fcs[-1](x)
@@ -92,7 +84,13 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 # --- 4. DATA PREPARATION ---
 margin = 2e-2
 Nx_grid_master, Ny_grid_master = args.n_collocation, args.n_collocation
-xy_master_grid = generate_grid_points(Nx_grid_master, Ny_grid_master, Lx, Ly, margin=margin, device=device)
+# Switch to Sobol for internal points
+num_internal = Nx_grid_master * Ny_grid_master
+xy_master_grid = generate_sobol_points(num_internal, Lx, Ly, device=device)
+# Filter to keep within domain with margin
+mask = (xy_master_grid[:,0] > margin) & (xy_master_grid[:,0] < Lx-margin) & \
+       (xy_master_grid[:,1] > margin) & (xy_master_grid[:,1] < Ly-margin)
+xy_master_grid = xy_master_grid[mask]
 
 num_b_side = 50
 pts_bc = torch.linspace(0.02, 0.98, num_b_side, device=device).reshape(-1, 1)
@@ -166,5 +164,4 @@ with open(results_csv, 'a') as f:
 
 print(f"\nAdaptive Experiment Finished!")
 print(f"L2 Relative Error: {l2_err:.6f}")
-# print(f"Adaptive parameters: {[p.mean().item() for p in model.adaptive_act.a]}") # Print means for brevity
-
+print(f"Adaptive parameters: {model.adaptive_act.a.detach().cpu().numpy()}")
