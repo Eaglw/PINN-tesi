@@ -112,7 +112,7 @@ pinn_data_boundary = (xy_master_boundary, T_master_boundary)
 # --- 5. TRAINING ---
 layers = [2] + [int(x) for x in args.arch.split(',')] + [1]
 model = AdaptiveFCN(layers=layers, activation_fn=get_act_fn(args.act)).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
 heat_physics = HeatEquation2D()
 
 exp_name = f"ADAPTIVE_{args.arch}_{args.act}"
