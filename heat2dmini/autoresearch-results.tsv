@@ -12,3 +12,7 @@ iteration	commit	metric	delta	status	guard	description
 10	1c96bf9	0.02511566	0.00441245	discard	pass	Increase epochs to 10k with step LR (worse)
 11	-	0.02136012	0.00065691	discard	pass	Increase epochs to 10k with plateau (worse)
 12	6ce0a19	0.01994321	-0.00076000	keep	pass	Increase boundary points density (num_b_side=100)
+13	917b8ae	0.02105021	0.00110700	discard	pass	Hybrid Sampling (Grid 20x20 + Sobol 1200)
+14	1692dcf	0.02492541	0.00498220	discard	pass	Test deeper tapered arch [140...50...20]
+15	d89353a	0.02154011	0.00159690	discard	pass	Normal initialization for 'a' (worse)
+16	15d7c38	0.01811542	-0.00182779	keep	pass	Increase L-BFGS iterations to 2000

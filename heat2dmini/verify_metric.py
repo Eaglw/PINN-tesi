@@ -12,7 +12,8 @@ def run_verify():
         "--arch", "140,120,100,80,60,40,30,20",
         "--bc_weight", "50",
         "--act", "GELU",
-        "--lbfgs_iter", "2000"
+        "--lbfgs_iter", "2000",
+        "--n_collocation", "50"
     ]
     
     try:

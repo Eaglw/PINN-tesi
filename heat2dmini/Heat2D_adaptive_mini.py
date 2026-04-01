@@ -36,8 +36,7 @@ class AdaptiveActivation(nn.Module):
         super().__init__()
         self.activation = activation_fn()
         # Learnable parameter 'a' for each layer: f(x) = activation(a * x)
-        # Normal initialization around 1.0 to break symmetry
-        self.a = nn.Parameter(torch.normal(1.0, 0.05, size=(n_layers,)))
+        self.a = nn.Parameter(torch.ones(n_layers))
 
     def forward(self, x, layer_idx):
         return self.activation(self.a[layer_idx] * x)
