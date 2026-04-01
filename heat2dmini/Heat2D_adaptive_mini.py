@@ -36,8 +36,7 @@ class AdaptiveActivation(nn.Module):
         super().__init__()
         self.activation = activation_fn()
         # Learnable parameter 'a' for each layer: f(x) = activation(a * x)
-        # Uniform initialization [0.9, 1.1] to break symmetry gently
-        self.a = nn.Parameter(torch.empty(n_layers).uniform_(0.9, 1.1))
+        self.a = nn.Parameter(torch.ones(n_layers))
 
     def forward(self, x, layer_idx):
         return self.activation(self.a[layer_idx] * x)
@@ -134,7 +133,7 @@ history = train_modelPINN(
     final_dir=exp_dir,
     show_plots_interactively=False,
     collocation_points=xy_master_grid,
-    lr_strategy='plateau',
+    lr_strategy='cosine',
     loss_weights={'bc': args.bc_weight, 'physics': 1.0, 'data': 0.0},
     dynamic_weighting=True,
     update_weights_every=100,
