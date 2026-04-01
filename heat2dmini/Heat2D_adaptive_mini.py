@@ -88,7 +88,7 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 # --- 4. DATA PREPARATION ---
 # Use [-1, 1] domain for all points
 margin = 0.02
-num_internal = args.n_collocation * args.n_collocation
+num_internal = 2000 # Test intermediate density (Iteration 28)
 xy_master_grid = generate_sobol_points(num_internal, 2.0, 2.0, device=device) - 1.0
 # Filter with margin in [-1, 1]
 mask = (xy_master_grid[:,0] > -1+margin) & (xy_master_grid[:,0] < 1-margin) & \
@@ -133,7 +133,7 @@ history = train_modelPINN(
     final_dir=exp_dir,
     show_plots_interactively=False,
     collocation_points=xy_master_grid,
-    lr_strategy='cosine',
+    lr_strategy='plateau',
     loss_weights={'bc': args.bc_weight, 'physics': 1.0, 'data': 0.0},
     dynamic_weighting=True,
     update_weights_every=100,
