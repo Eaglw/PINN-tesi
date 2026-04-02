@@ -1,35 +1,9 @@
 iteration	commit	metric	delta	status	guard	description
-0	-	0.03823985	0.0	baseline	pass	Initial measurement (Tapered 120-20, BC=50, 5k epochs)
-1	4942a9c	0.02868427	-0.00955558	keep	pass	Deeper tapered architecture [140, 120, 100, 80, 60, 40, 30, 20]
-2	14fb93b	0.03247841	0.00379414	discard	pass	Neuron-wise LAA (caused regression)
-3	dcaca03	0.02070321	-0.00798106	keep	pass	Switch to Sobol sampling for internal points
-4	0e5d9d0	0.03368942	0.01298621	discard	pass	Increase collocation points to 60x60 (caused regression)
-5	b46c547	0.03956812	0.01886491	discard	pass	Initialize adaptive scaling 'a' at 1.2 (caused regression)
-6	bd7d15d	0.04046467	0.01976146	discard	pass	Increase BC weight to 100 (caused regression)
-7	aa3b4f8	0.02195514	0.00125193	discard	pass	Switch base activation to SiLU (slightly worse)
-8	e4d6170	0.02829744	0.00759423	discard	pass	Test wider initial layer [200...20] (caused regression)
-9	d697598	0.02409021	0.00338700	discard	pass	Switch LR strategy to step decay (worse than plateau)
-10	1c96bf9	0.02511566	0.00441245	discard	pass	Increase epochs to 10k with step LR (worse)
-11	-	0.02136012	0.00065691	discard	pass	Increase epochs to 10k with plateau (worse)
-12	6ce0a19	0.01994321	-0.00076000	keep	pass	Increase boundary points density (num_b_side=100)
-13	917b8ae	0.02105021	0.00110700	discard	pass	Hybrid Sampling (Grid 20x20 + Sobol 1200)
-14	1692dcf	0.02492541	0.00498220	discard	pass	Test deeper tapered arch [140...50...20]
-15	d89353a	0.02154011	0.00159690	discard	pass	Normal initialization for 'a' (worse)
-16	15d7c38	0.01811542	-0.00182779	keep	pass	Increase L-BFGS iterations to 2000
-17	-	-	-	-	-	(Skipped - explored others)
-18	e121fb7	0.01838541	0.00027000	discard	pass	Increase collocation points to 50x50 (slightly worse)
-19	558ba80	0.02284812	0.00473270	discard	pass	Add Adam warmup (caused regression)
-20	187357e	0.02621041	0.00809500	discard	pass	Test wider/deeper tapered [160...20] (worse)
-21	d75881b	0.00984723	-0.00826819	keep	pass	Scale coordinates to [-1, 1] (BREAKTHROUGH)
-22	f4657fd	0.00984723	0.00000000	discard	pass	Add L2 regularization 1e-6 (no change)
-23	1e6c29b	0.01620412	0.00635689	discard	pass	Multi-phase SAR (destabilized Adam)
-24	4ecebbf	0.01233011	0.00248288	discard	pass	Uniform init for a in [0.9, 1.1]
-25	1f83c90	0.01071412	0.00086689	discard	pass	Cosine Annealing LR
-26	-	0.01339912	0.00355189	discard	pass	Wider arch [180...20]
-27	-	0.01243612	0.00258889	discard	pass	Single-phase SAR (400 pts)
-28	cc55f97	0.01047812	0.00063089	discard	pass	Higher Sobol density (2000 pts)
-29	-	0.74039512	0.73054789	discard	pass	Init a=0.9 (failed due to broadcasting bug)
-30	-	0.01176412	0.00191689	discard	pass	Init a=1.1
-31	-	0.01032426	0.0	discard	pass	increase lbfgs_iter to 2000 (no change)
-32	-	0.01113035	0.00080609	discard	pass	reduce margin to 0.01 (regressed)
-33	0ea1aca	0.00902462	-0.00129964	keep	pass	reduce bc_weight to 30.0 (improved)
+0	-	0.00898244	0.0	baseline	pass	initial measurement
+72	-	0.00905747	0.00007503	discard	pass	reduce scheduler patience (200) and cooldown (400)
+73	-	0.00992659	0.00094415	discard	pass	increase adaptive activation initialization a to 1.5
+74	-	0.01256952	0.00358708	discard	pass	set adaptive activation initialization a to 1.0 (standard)
+75	-	0.00917206	0.00018962	discard	pass	increase dynamic weight update frequency to 50
+76	-	0.00983501	0.00085257	discard	pass	increase collocation points to 50x50
+77	-	0.00955015	0.00056771	discard	pass	refine bc_weight to 18.0
+78	-	0.00946409	0.00048165	discard	pass	reduce Adam LR to 5e-4
