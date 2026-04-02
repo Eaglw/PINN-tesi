@@ -17,7 +17,7 @@ from Heat2D.src.physics import HeatEquation2D
 # --- 1. SETUP & ARGUMENTS ---
 parser = argparse.ArgumentParser(description='Adaptive Activation PINN Experiment')
 parser.add_argument('--arch', type=str, default='120,100,80,60,40,20', help='Hidden layers')
-parser.add_argument('--act', type=str, default='GELU', help='Base activation')
+parser.add_argument('--act', type=str, default='ELU', help='Base activation')
 parser.add_argument('--epochs', type=int, default=2000, help='Adam epochs')
 parser.add_argument('--lbfgs_iter', type=int, default=500, help='L-BFGS iterations')
 parser.add_argument('--bc_weight', type=float, default=20.0, help='Initial BC weight')
@@ -61,6 +61,7 @@ def get_act_fn(name):
     if name == 'Tanh': return nn.Tanh
     if name == 'SiLU': return nn.SiLU
     if name == 'GELU': return nn.GELU
+    if name == 'ELU': return nn.ELU
     return nn.GELU
 
 # --- 3. PROBLEM DEFINITION ---
