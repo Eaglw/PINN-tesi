@@ -79,7 +79,7 @@ def train_modelPINN(
     if lr_strategy == 'step_decay':
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=int(epochs * 0.25), gamma=0.5)
     elif lr_strategy == 'plateau':
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=600, min_lr=1e-6, cooldown=3000)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.8, patience=600, min_lr=1e-6, cooldown=3000)
 
     if collocation_points is not None:
         xy_physics = collocation_points.clone()
