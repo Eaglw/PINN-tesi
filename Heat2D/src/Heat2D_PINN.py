@@ -190,8 +190,8 @@ def train_modelPINN(
             lr=current_lr, 
             max_iter=remaining_evals, 
             max_eval=remaining_evals, 
-            tolerance_grad=1e-7, 
-            tolerance_change=1e-9,
+            tolerance_grad=1e-8, 
+            tolerance_change=1e-10,
             history_size=100,
             line_search_fn="strong_wolfe"
         )
