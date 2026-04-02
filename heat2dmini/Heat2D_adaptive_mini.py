@@ -137,7 +137,7 @@ history = train_modelPINN(
     lr_strategy='plateau',
     loss_weights={'bc': args.bc_weight, 'physics': 1.0, 'data': 0.0},
     dynamic_weighting=True,
-    update_weights_every=500,
+    update_weights_every=100,
     warmup_epochs=0,
     max_total_lbfgs=args.lbfgs_iter
 )
