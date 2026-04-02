@@ -90,7 +90,7 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 # Use [-1, 1] domain for all points
 margin = 0.02
 num_internal = args.n_collocation * args.n_collocation
-xy_master_grid = generate_halton_points(num_internal, 2.0, 2.0, device=device) - 1.0
+xy_master_grid = generate_sobol_points(num_internal, 2.0, 2.0, device=device) - 1.0
 # Filter with margin in [-1, 1]
 mask = (xy_master_grid[:,0] > -1+margin) & (xy_master_grid[:,0] < 1-margin) & \
        (xy_master_grid[:,1] > -1+margin) & (xy_master_grid[:,1] < 1-margin)
