@@ -28,3 +28,30 @@ Metric: L2_Relative_Error (lower is better).
 - **Metric**: 0.01113035 (regressed).
 - **Status**: Discarded.
 - **Observation**: Including more points very close to the boundary might have destabilized the physics loss or increased competition with BC loss.
+## Iteration 71
+- **Hypothesis**: Adjust ReduceLROnPlateau factor to 0.4.
+- **Metric**: 0.00898244 (no change).
+- **Status**: Discarded.
+- **Observation**: Factor change didn't trigger any improvement, suggesting LR drops are not the bottleneck.
+
+---
+
+## Iteration 72
+- **Hypothesis**: Reduce ReduceLROnPlateau patience (600 -> 200) and cooldown (3000 -> 400) to allow LR steps within 2000 Adam epochs.
+- **Status**: Discarded.
+- **Metric**: 0.00905747 (regressed).
+- **Observation**: Increased scheduler sensitivity led to premature LR decay, hurting Adam phase exploration.
+
+---
+
+## Iteration 73
+- **Hypothesis**: Increase adaptive activation initialization 'a' to 1.5.
+- **Status**: Discarded.
+- **Metric**: 0.00992659 (regressed).
+- **Observation**: Steeper initial activations likely caused gradient instability or poor conditioning early in training.
+
+---
+
+## Iteration 74
+- **Hypothesis**: Set adaptive activation initialization 'a' to 1.0 (standard profile).
+- **Theoretical Assumption**: Starting with the standard activation profile (a=1.0) provides the most stable initial training phase, allowing the network to learn coarse features before adapting.
