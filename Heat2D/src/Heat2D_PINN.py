@@ -89,7 +89,7 @@ def train_modelPINN(
         xy_physics[:, 0], xy_physics[:, 1] = xy_physics[:, 0] * Lx, xy_physics[:, 1] * Ly
         xy_physics.requires_grad_(True)
 
-    alpha_dynamic = 0.95
+    alpha_dynamic = 0.9
     for epoch in pbar:
         model.train()
         optimizer.zero_grad(set_to_none=True)
