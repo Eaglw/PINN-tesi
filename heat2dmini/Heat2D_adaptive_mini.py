@@ -36,8 +36,8 @@ class AdaptiveActivation(nn.Module):
         super().__init__()
         self.activation = activation_fn()
         # Learnable parameter 'a' for each layer: f(x) = activation(a * x)
-        # Initialize at 1.1 for steeper gradients
-        self.a = nn.Parameter(torch.full((n_layers,), 1.1))
+        # Initialize at 1.5 for steeper gradients
+        self.a = nn.Parameter(torch.full((n_layers,), 1.5))
 
     def forward(self, x, layer_idx):
         return self.activation(self.a[layer_idx] * x)
