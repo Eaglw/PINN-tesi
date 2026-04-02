@@ -8,4 +8,3 @@ iteration	commit	metric	delta	status	guard	description
 77	-	0.00955015	0.00056771	discard	pass	refine bc_weight to 18.0
 78	-	0.00946409	0.00048165	discard	pass	reduce Adam LR to 5e-4
 79	-	0.01014729	0.00116485	discard	pass	increase Adam epochs to 4000
-80	9d9d1cb	0.00869294	-0.00028950	keep	pass	increase L-BFGS history_size to 200
