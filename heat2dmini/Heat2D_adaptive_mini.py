@@ -16,13 +16,13 @@ from Heat2D.src.physics import HeatEquation2D
 
 # --- 1. SETUP & ARGUMENTS ---
 parser = argparse.ArgumentParser(description='Adaptive Activation PINN Experiment')
-parser.add_argument('--arch', type=str, default='140,120,100,80,60,40,20', help='Hidden layers')
+parser.add_argument('--arch', type=str, default='120,120,100,80,60,40,20', help='Hidden layers')
 parser.add_argument('--act', type=str, default='SiLU', help='Base activation')
 parser.add_argument('--epochs', type=int, default=2000, help='Adam epochs')
 parser.add_argument('--lbfgs_iter', type=int, default=1000, help='L-BFGS iterations')
 parser.add_argument('--bc_weight', type=float, default=25.0, help='Initial BC weight')
 parser.add_argument('--seed', type=int, default=123, help='Random seed')
-parser.add_argument('--n_collocation', type=int, default=40, help='Collocation points')
+parser.add_argument('--n_collocation', type=int, default=42, help='Collocation points')
 args = parser.parse_args()
 
 torch.manual_seed(args.seed)
