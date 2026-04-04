@@ -18,3 +18,4 @@ iteration	commit	metric	delta	status	guard	description
 16	34d01f3	0.009690941595375946	-0.002503399673	discard	skip	increase collocation points to 42x42
 17	2c9c81a	0.007152006945353199	3.553497702e-05	keep	skip	increase Adam epochs to 2500
 18	b2658c0	0.013177316348251299	-0.0060253094029	discard	skip	add another layer of 100 to mid-architecture
+19	3fa9f95	0.007904839036598008	-0.00075283209124	discard	skip	change adaptive activation initialization to 1.05
