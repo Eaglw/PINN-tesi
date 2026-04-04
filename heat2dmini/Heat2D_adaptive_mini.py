@@ -37,7 +37,7 @@ class AdaptiveActivation(nn.Module):
         self.activation = activation_fn()
         # Learnable parameter 'a' for each layer: f(x) = activation(a * x)
         # Initialize at 1.1 for steeper gradients
-        self.a = nn.Parameter(torch.full((n_layers,), 1.1))
+        self.a = nn.Parameter(torch.full((n_layers,), 1.15))
 
     def forward(self, x, layer_idx):
         return self.activation(self.a[layer_idx] * x)
@@ -113,7 +113,7 @@ pinn_data_boundary = (xy_master_boundary, T_master_boundary)
 # --- 5. TRAINING ---
 layers = [2] + [int(x) for x in args.arch.split(',')] + [1]
 model = AdaptiveFCN(layers=layers, activation_fn=get_act_fn(args.act)).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=2e-3)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 heat_physics = HeatEquation2D()
 
 exp_name = f"ADAPTIVE_{args.arch}_{args.act}"
