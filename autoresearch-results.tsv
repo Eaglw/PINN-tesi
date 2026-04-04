@@ -1,2 +1,4 @@
 iteration	commit	metric	delta	status	guard	description
 0	-	0.011181998967481026	0.0	baseline	skip	initial measurement
+1	7303400	0.008912696258113516	0.00226930270936751	keep	skip	change default activation to SiLU for smoother derivatives
+

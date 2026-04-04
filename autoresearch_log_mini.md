@@ -17,5 +17,12 @@
 
 ### Iteration 0: Baseline
 - **Description**: Initial run with default parameters (120x100x80x60x40x20 architecture, GELU activation, 2000 Adam + 1000 L-BFGS epochs).
-- **L2 Relative Error**: (to be filled)
+- **L2 Relative Error**: 0.011182
 - **Status**: Baseline.
+
+### Iteration 1: SiLU Activation
+- **Description**: Changed default activation from GELU to SiLU.
+- **Assumption**: SiLU (Swish) has smoother second-order derivatives, which is beneficial for solving second-order PDEs like Laplace.
+- **L2 Relative Error**: 0.008913
+- **Status**: Keep (Improvement: ~20%).
+
