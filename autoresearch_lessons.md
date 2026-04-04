@@ -13,8 +13,14 @@
 **Conditions**: When computational budget allows.
 **Metric delta**: Significant (from ~0.014 to ~0.009).
 
-## Lesson 3
-**Pattern**: Increase L-BFGS `history_size` to 200.
-**Why it worked**: Better Hessian approximation for final refinement.
-**Conditions**: Final L-BFGS phase.
-**Metric delta**: ~0.0003 improvement.
+## Lesson 4
+**Pattern**: Incremental increase in Adam epochs (2000 -> 2500) for larger architectures.
+**Why it worked**: Deeper/wider networks need more initial training to reach a good basin for L-BFGS.
+**Conditions**: When increasing architecture complexity.
+**Metric delta**: ~0.00003 improvement.
+
+## Lesson 5
+**Pattern**: Optimal L-BFGS iterations (1500) balance refinement and stability.
+**Why it worked**: 1000 was too short, 2000 was unstable. 1500 hits the sweet spot for the current configuration.
+**Conditions**: Tapering architecture with SiLU.
+**Metric delta**: ~0.00035 improvement.
