@@ -9,3 +9,4 @@ iteration	commit	metric	delta	status	guard	description
 7	2dc8e6f	0.01097885391090389	-0.00206615765279	discard	skip	increase initial capacity to 150 in tapering architecture
 8	408d669	0.008912696258113516	0.0	discard	skip	use Halton points for collocation
 9	bd8222c	0.009392556128718322	-0.0004798598706	discard	skip	change LR strategy to step_decay
+10	1e96448	0.009455324189237753	-0.00054262793112	discard	skip	increase num_b_side to 200
