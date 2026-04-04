@@ -11,3 +11,4 @@ iteration	commit	metric	delta	status	guard	description
 9	bd8222c	0.009392556128718322	-0.0004798598706	discard	skip	change LR strategy to step_decay
 10	1e96448	0.009455324189237753	-0.00054262793112	discard	skip	increase num_b_side to 200
 11	b54de74	0.008596816775308306	0.0003158794828	keep	skip	change bc_weight to 25.0
+12	731c3b2	0.008877881973703126	-0.00028106519839	discard	skip	increase lbfgs history_size to 300
