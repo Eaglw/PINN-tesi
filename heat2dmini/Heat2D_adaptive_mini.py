@@ -96,7 +96,7 @@ mask = (xy_master_grid[:,0] > -1+margin) & (xy_master_grid[:,0] < 1-margin) & \
        (xy_master_grid[:,1] > -1+margin) & (xy_master_grid[:,1] < 1-margin)
 xy_master_grid = xy_master_grid[mask]
 
-num_b_side = 100
+num_b_side = 200
 pts_bc = torch.linspace(-0.99, 0.99, num_b_side, device=device).reshape(-1, 1)
 bc_left = torch.cat([-torch.ones(num_b_side, 1, device=device), pts_bc], dim=1)
 bc_right = torch.cat([torch.ones(num_b_side, 1, device=device), pts_bc], dim=1)
@@ -134,7 +134,7 @@ history = train_modelPINN(
     final_dir=exp_dir,
     show_plots_interactively=False,
     collocation_points=xy_master_grid,
-    lr_strategy='step_decay',
+    lr_strategy='plateau',
     loss_weights={'bc': args.bc_weight, 'physics': 1.0, 'data': 0.0},
     dynamic_weighting=True,
     update_weights_every=100,
