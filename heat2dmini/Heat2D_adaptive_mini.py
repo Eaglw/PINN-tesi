@@ -16,7 +16,7 @@ from Heat2D.src.physics import HeatEquation2D
 
 # --- 1. SETUP & ARGUMENTS ---
 parser = argparse.ArgumentParser(description='Adaptive Activation PINN Experiment')
-parser.add_argument('--arch', type=str, default='150,120,100,80,60,40,20', help='Hidden layers')
+parser.add_argument('--arch', type=str, default='120,100,80,60,40,20', help='Hidden layers')
 parser.add_argument('--act', type=str, default='SiLU', help='Base activation')
 parser.add_argument('--epochs', type=int, default=2000, help='Adam epochs')
 parser.add_argument('--lbfgs_iter', type=int, default=1000, help='L-BFGS iterations')
@@ -90,7 +90,7 @@ xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
 # Use [-1, 1] domain for all points
 margin = 0.02
 num_internal = args.n_collocation * args.n_collocation
-xy_master_grid = generate_sobol_points(num_internal, 2.0, 2.0, device=device) - 1.0
+xy_master_grid = generate_halton_points(num_internal, 2.0, 2.0, device=device) - 1.0
 # Filter with margin in [-1, 1]
 mask = (xy_master_grid[:,0] > -1+margin) & (xy_master_grid[:,0] < 1-margin) & \
        (xy_master_grid[:,1] > -1+margin) & (xy_master_grid[:,1] < 1-margin)
