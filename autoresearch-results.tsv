@@ -27,3 +27,4 @@ iteration	commit	metric	delta	status	guard	description
 25	ccbe31c	0.015643863335390997	-0.008840943706	discard	skip	increase architecture depth with another 100 layer
 26	20e9e1f	0.009651823431501649	-0.00284890380212	discard	skip	change adaptive activation initialization to 1.08
 27	12b0199	-	0.0	crash	skip	increase Adam epochs to 3000 (timeout)
+28	b7f0ff7	0.017812466165115705	-0.0110095465357	discard	skip	increase bc_weight to 26.0
