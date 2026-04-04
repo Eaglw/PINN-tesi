@@ -35,12 +35,11 @@ class AdaptiveActivation(nn.Module):
     def __init__(self, activation_fn, n_layers):
         super().__init__()
         self.activation = activation_fn()
-        # Learnable parameter 'a' for each layer: f(x) = activation(a * x)
-        # Initialize at 1.1 for steeper gradients
-        self.a = nn.Parameter(torch.full((n_layers,), 1.15))
+        # Shared learnable parameter 'a' for all layers
+        self.a = nn.Parameter(torch.tensor(1.1))
 
     def forward(self, x, layer_idx):
-        return self.activation(self.a[layer_idx] * x)
+        return self.activation(self.a * x)
 
 class AdaptiveFCN(nn.Module):
     def __init__(self, layers, activation_fn=nn.GELU):

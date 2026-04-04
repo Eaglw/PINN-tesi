@@ -21,3 +21,4 @@ iteration	commit	metric	delta	status	guard	description
 19	3fa9f95	0.007904839036598008	-0.00075283209124	discard	skip	change adaptive activation initialization to 1.05
 20	1068ca0	0.0073171492546385865	-0.00016514230928	discard	skip	change bc_weight to 22.0 with 2500 epochs
 21	6f2645d	0.009180752267095124	-0.00202874532174	discard	skip	increase Adam learning rate to 2e-3
+22	36c6b2f	0.007866082536237884	-0.00071407559088	discard	skip	change adaptive activation initialization to 1.15
