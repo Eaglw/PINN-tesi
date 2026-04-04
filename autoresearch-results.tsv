@@ -4,3 +4,4 @@ iteration	commit	metric	delta	status	guard	description
 2	9785f8c	0.012597438563142592	-0.00368474230503	discard	skip	increase bc_weight to 30.0 for better boundary alignment
 3	cfa2dde	0.013070954640210868	-0.0041582583821	discard	skip	use activation initialization 1.2
 4	9c9c76f	0.010538483539220374	-0.00162578728111	discard	skip	increase lbfgs_iter to 2000 for better refinement
+5	384ac74	0.017498580765463154	-0.00858588450735	discard	skip	use deeper 8-layer architecture 100x8
