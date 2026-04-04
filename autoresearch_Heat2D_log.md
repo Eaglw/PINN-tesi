@@ -16,3 +16,10 @@
 - **Description**: Default parameters (80x80x80x80 architecture, SiLU activation, 2000 Adam + 1000 L-BFGS).
 - **L2 Relative Error**: 0.014140
 - **Status**: Baseline.
+
+### Iteration 1: Tapering Architecture
+- **Hypothesis**: Reverting to a more complex tapering architecture will improve accuracy by providing better representational capacity.
+- **Description**: Changed architecture to `120,100,80,60,40,20`.
+- **L2 Relative Error**: 0.008913
+- **Status**: KEPT (Improvement: ~37%).
+- **Observation**: Tapering architectures with higher initial layers seem to be more effective for this problem.
