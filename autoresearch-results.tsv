@@ -7,3 +7,4 @@ iteration	commit	metric	delta	status	guard	description
 5	384ac74	0.017498580765463154	-0.00858588450735	discard	skip	use deeper 8-layer architecture 100x8
 6	e0e375e	0.009536335904294887	-0.00062363964618	discard	skip	set alpha_dynamic to 0.5 for faster weight adaptation
 7	2dc8e6f	0.01097885391090389	-0.00206615765279	discard	skip	increase initial capacity to 150 in tapering architecture
+8	408d669	0.008912696258113516	0.0	discard	skip	use Halton points for collocation
