@@ -102,4 +102,20 @@ Metric: L2_Relative_Error (lower is better).
 
 ## Iteration 80
 - **Hypothesis**: Increase L-BFGS history_size (100 -> 200).
-- **Theoretical Assumption**: A larger history size allows L-BFGS to build a more accurate quasi-Newton Hessian approximation, potentially leading to better convergence in the final refinement phase.
+- **Status**: KEPT.
+- **Metric**: 0.00869294 (IMPROVED).
+- **Observation**: A larger history size allowed L-BFGS to build a more accurate quasi-Newton Hessian approximation, leading to better convergence in the final refinement phase.
+
+---
+
+## Iteration 81
+- **Hypothesis**: Tighten L-BFGS tolerances (tolerance_grad 1e-7 -> 1e-9, tolerance_change 1e-9 -> 1e-12).
+- **Status**: Discarded.
+- **Metric**: 0.00869294 (unchanged).
+- **Observation**: Convergence was likely limited by other factors (like max iterations) before reaching stricter tolerances.
+
+---
+
+## Iteration 82
+- **Hypothesis**: Increase L-BFGS iterations (500 -> 1000) with history_size=200.
+- **Theoretical Assumption**: With a larger history size, L-BFGS might benefit from more iterations as it has a more stable Hessian approximation to work with over longer trajectories.
