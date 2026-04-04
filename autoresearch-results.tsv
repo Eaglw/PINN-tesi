@@ -16,3 +16,4 @@ iteration	commit	metric	delta	status	guard	description
 14	3d705dd	0.008626881560576883	-0.0014393396382	discard	skip	add another wide layer 120x3
 15	d93ddc0	0.011188692239527476	-0.00400115031715	discard	skip	increase width of the first layer to 140
 16	34d01f3	0.009690941595375946	-0.002503399673	discard	skip	increase collocation points to 42x42
+17	2c9c81a	0.007152006945353199	3.553497702e-05	keep	skip	increase Adam epochs to 2500
