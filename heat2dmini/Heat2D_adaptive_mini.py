@@ -19,7 +19,7 @@ parser = argparse.ArgumentParser(description='Adaptive Activation PINN Experimen
 parser.add_argument('--arch', type=str, default='120,120,100,80,60,40,20', help='Hidden layers')
 parser.add_argument('--act', type=str, default='SiLU', help='Base activation')
 parser.add_argument('--epochs', type=int, default=2500, help='Adam epochs')
-parser.add_argument('--lbfgs_iter', type=int, default=1000, help='L-BFGS iterations')
+parser.add_argument('--lbfgs_iter', type=int, default=1500, help='L-BFGS iterations')
 parser.add_argument('--bc_weight', type=float, default=25.0, help='Initial BC weight')
 parser.add_argument('--seed', type=int, default=123, help='Random seed')
 parser.add_argument('--n_collocation', type=int, default=40, help='Collocation points')
@@ -35,11 +35,12 @@ class AdaptiveActivation(nn.Module):
     def __init__(self, activation_fn, n_layers):
         super().__init__()
         self.activation = activation_fn()
-        # Shared learnable parameter 'a' for all layers
-        self.a = nn.Parameter(torch.tensor(1.1))
+        # Learnable parameter 'a' for each layer: f(x) = activation(a * x)
+        # Initialize at 1.1 for steeper gradients
+        self.a = nn.Parameter(torch.full((n_layers,), 1.1))
 
     def forward(self, x, layer_idx):
-        return self.activation(self.a * x)
+        return self.activation(self.a[layer_idx] * x)
 
 class AdaptiveFCN(nn.Module):
     def __init__(self, layers, activation_fn=nn.GELU):
