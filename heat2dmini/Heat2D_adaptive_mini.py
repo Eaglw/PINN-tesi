@@ -20,7 +20,7 @@ parser.add_argument('--arch', type=str, default='120,120,100,80,60,40,20', help=
 parser.add_argument('--act', type=str, default='SiLU', help='Base activation')
 parser.add_argument('--epochs', type=int, default=2500, help='Adam epochs')
 parser.add_argument('--lbfgs_iter', type=int, default=1000, help='L-BFGS iterations')
-parser.add_argument('--bc_weight', type=float, default=22.0, help='Initial BC weight')
+parser.add_argument('--bc_weight', type=float, default=25.0, help='Initial BC weight')
 parser.add_argument('--seed', type=int, default=123, help='Random seed')
 parser.add_argument('--n_collocation', type=int, default=40, help='Collocation points')
 args = parser.parse_args()
@@ -113,7 +113,7 @@ pinn_data_boundary = (xy_master_boundary, T_master_boundary)
 # --- 5. TRAINING ---
 layers = [2] + [int(x) for x in args.arch.split(',')] + [1]
 model = AdaptiveFCN(layers=layers, activation_fn=get_act_fn(args.act)).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+optimizer = torch.optim.Adam(model.parameters(), lr=2e-3)
 heat_physics = HeatEquation2D()
 
 exp_name = f"ADAPTIVE_{args.arch}_{args.act}"
