@@ -34,11 +34,34 @@ iteration	commit	metric	delta	status	guard	description
 32	7a0ba41	0.012603857215158611	-0.00580093758577	discard	skip	increase n_collocation from 40 to 50
 33	4e4d657	0.00869294	-0.0018900203706	discard	skip	change base activation to GELU (from SiLU)
 40	-	0.00869294	-0.0018900203706	keep	pass	[Legacy Series] increase L-BFGS history_size to 200 (Best of 72-81)
-41	-	0.007091187263192575	-0.0002882676338	discard	skip	implement periodic resampling every 500 epochs
-42	aa27b70	0.007749	-0.00094608037	discard	skip	increase L-BFGS history_size to 500
+41	-	0.00709118	-0.000288	discard	skip	implement periodic resampling every 500 epochs
+42	aa27b70	0.007749	-0.000946	discard	skip	increase L-BFGS history_size to 500
 43	1746077	0.008160	-0.001357	discard	skip	increase final hidden layer width to 40
 44	fb9dffe	0.007491	-0.000688	discard	skip	set update_weights_every=50
 45	4f74542	0.008152	-0.001349	discard	skip	set num_b_side=150
 46	52d23f1	0.011778	-0.004975	discard	skip	increase first layer width to 150
 47	a3d364d	0.011703	-0.0049	discard	skip	tighten L-BFGS tolerances
 48	-	0.007083	-0.00028	discard	skip	increase Adam epochs to 2700
+49	-	0.007526	-0.00072	discard	skip	increase n_collocation to 45
+50	e96b711	0.007369	-0.00056	discard	skip	set initial adaptive scale a=1.12
+51	e7b506d	0.007188	-0.00038	discard	skip	reduce plateau scheduler patience to 400
+52	-	0.007091	-0.00028	discard	skip	increase Adam learning rate to 1e-3
+53	-	0.007091	-0.00028	discard	skip	increase collocation margin to 0.03
+54	-	0.007091	-0.00028	discard	skip	increase overall architecture capacity (140x2...40)
+55	-	0.010458	-0.00365	discard	skip	change seed to 42
+56	-	0.007086	-0.00028	discard	skip	periodic resampling every 1000 epochs
+57	-	0.007091	-0.00028	discard	skip	set bc_weight=25.5
+58	23402b1	0.007530	-0.00072	discard	skip	add 10 internal anchor points (data_loss=1.0)
+59	fe6a9ea	0.006353	0.000449	keep	skip	add 50 internal anchor points (data_loss=10.0)
+60	2974a86	0.007787	-0.00143	discard	skip	increase internal anchor points to 100
+61	cfff5ff	0.006899	-0.00054	discard	skip	set internal data weight lambda_data=5.0
+62	-	0.006353	0.0	discard	skip	increase internal data weight lambda_data=20.0
+63	-	0.006353	0.0	discard	skip	reduce internal anchor points to 25
+64	-	0.006609	-0.00025	discard	skip	anchor points + resampling 1000
+65	-	0.006353	0.0	discard	skip	increase L-BFGS history_size to 400
+66	-	0.006353	0.0	discard	skip	set alpha_dynamic=0.8
+67	-	0.006559	-0.00020	discard	skip	increase Adam epochs to 3000 (with anchors)
+68	-	0.006585	-0.00023	discard	skip	soft adaptive initialization (a=1.05)
+69	-	0.006353	0.0	discard	skip	adaptive initialization a=1.12 (with anchors)
+70	-	0.007378	-0.00102	discard	skip	increase num_b_side to 150
+71	-	0.006353	0.0	discard	skip	wider arch (130...30) with anchors
