@@ -75,3 +75,11 @@ iteration	commit	metric	delta	status	guard	description
 79	-	0.006353	0.0	discard	skip	Asymmetric adaptive initialization
 80	-	0.006353	0.0	discard	skip	Validation grid 60x60
 81	-	0.006353	0.0	discard	skip	Asymmetric bottleneck architecture
+82	-	0.010113	-0.00376	discard	skip	base RAR implementation (500 ep, 10 pts)
+83\t-\t0.011618\t-0.005265\tdiscard\tskip\taggressive RAR (250 ep, 50 pts)
+84\t-\t0.009065\t-0.002712\tdiscard\tskip\tlate-stage RAR (2000 ep, 50 pts)
+85\t-\t0.008361\t-0.002008\tdiscard\tskip\tultra-high data weight (lambda_data=50.0)
+86\t-\t0.009476\t-0.003123\tdiscard\tskip\tmid-stage RAR (1500 ep, 50 pts)
+87\t-\t0.006940\t-0.000587\tdiscard\tskip\thigh density (50x50) + bc_weight 30.0
+88\t-\t0.010052\t-0.003699\tdiscard\tskip\tresidual connections between same-width layers
+89\t-\t0.019550\t-0.013197\tdiscard\tskip\tincrease Nx to 75 (High Precision Instability)
