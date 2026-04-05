@@ -34,3 +34,11 @@ iteration	commit	metric	delta	status	guard	description
 32	7a0ba41	0.012603857215158611	-0.00580093758577	discard	skip	increase n_collocation from 40 to 50
 33	4e4d657	0.00869294	-0.0018900203706	discard	skip	change base activation to GELU (from SiLU)
 40	-	0.00869294	-0.0018900203706	keep	pass	[Legacy Series] increase L-BFGS history_size to 200 (Best of 72-81)
+41	-	0.007091187263192575	-0.0002882676338	discard	skip	implement periodic resampling every 500 epochs
+42	aa27b70	0.007749	-0.00094608037	discard	skip	increase L-BFGS history_size to 500
+43	1746077	0.008160	-0.001357	discard	skip	increase final hidden layer width to 40
+44	fb9dffe	0.007491	-0.000688	discard	skip	set update_weights_every=50
+45	4f74542	0.008152	-0.001349	discard	skip	set num_b_side=150
+46	52d23f1	0.011778	-0.004975	discard	skip	increase first layer width to 150
+47	a3d364d	0.011703	-0.0049	discard	skip	tighten L-BFGS tolerances
+48	-	0.007083	-0.00028	discard	skip	increase Adam epochs to 2700
