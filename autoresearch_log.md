@@ -1,121 +1,33 @@
-# Autoresearch Log - Heat2D Mini L2 Error Optimization
+# Autoresearch Log - Heat2D Mini L2 Optimization
 
-## Objective
-Diminuire l'L2 Error del setup heat2dmini.
-Metric: L2_Relative_Error (lower is better).
+**Goal**: Minimize `L2_Relative_Error` for the `heat2dmini` setup.
+**Metric**: `L2_Relative_Error` (lower is better).
+**Scope**: `heat2dmini/Heat2D_adaptive_mini.py`, `Heat2D/src/Heat2D_PINN.py`.
+**Verification Command**: `.\venv\Scripts\python.exe heat2dmini/verify_metric_fast.py`.
 
-## Baseline
-- **Iteration 0**: 0.01032426
-- **Date**: 2026-04-02
-- **Command**: `.\venv\Scripts\python.exe heat2dmini/verify_metric_fast.py`
+## Theoretical Background
+The project uses Physics-Informed Neural Networks (PINNs) to solve the 2D Heat equation (Laplace) on a square domain. The solution is compared against an analytical series expansion. Key components include:
+- **Adaptive Activations**: Learnable slope parameters for each layer to improve gradient capture.
+- **Dynamic Weighting**: Learning Rate Annealing to balance boundary and physics losses.
+- **Tapering Architecture**: A strategy to optimize network capacity versus training stability.
 
-## Theoretical Assumptions
-1. **L-BFGS Convergence**: PINNs often benefit from second-order optimization (L-BFGS) after an initial Adam phase to reach high precision. 500 iterations might be insufficient for full convergence.
-2. **Adaptive Activations**: The learnable parameter 'a' in `AdaptiveActivation` allows the network to adapt the slope of the activation function, potentially mitigating vanishing/exploding gradients and improving expressivity.
-3. **Coordinate Scaling**: Mapping coordinates to [-1, 1] is standard practice in PINNs to improve training stability and ensure features are on the same scale.
-4. **Sampling Strategy**: Quasi-random sequences like Sobol provide better domain coverage than pure random sampling, leading to more robust physics residuals.
+## Research History Summary
 
----
+### Phase 1: Foundation (Iter 0-10)
+Discovery that SiLU and tapering architectures are significantly better than flat ones with Tanh or GELU.
 
-## Iteration 31
-- **Hypothesis**: Increasing L-BFGS iterations from 500 to 2000.
-- **Metric**: 0.01032426 (no change).
-- **Status**: Discarded.
-- **Observation**: Converge tolerance was likely reached before 500 iterations.
+### Phase 2: Capacity Expansion (Iter 11-20)
+Introduction of extra wide layers and increased training epochs (2500 Adam). Reached L2 < 0.008.
 
-## Iteration 32
-- **Hypothesis**: Reduce margin to 0.01 to include more collocation points near boundaries.
-- **Metric**: 0.01113035 (regressed).
-- **Status**: Discarded.
-- **Observation**: Including more points very close to the boundary might have destabilized the physics loss or increased competition with BC loss.
-## Iteration 71
-- **Hypothesis**: Adjust ReduceLROnPlateau factor to 0.4.
-- **Metric**: 0.00898244 (no change).
-- **Status**: Discarded.
-- **Observation**: Factor change didn't trigger any improvement, suggesting LR drops are not the bottleneck.
+### Phase 3: Precision Refinement (Iter 21-33)
+Optimization of L-BFGS iterations (settled on 1500) and investigation of adaptive activation initializations. Reached the current best of **0.00680**.
 
----
+### Phase 4: Consolidation (Current)
+Consolidated results from various independent test series into a unified workflow to avoid redundant experiments.
 
-## Iteration 72
-- **Hypothesis**: Reduce ReduceLROnPlateau patience (600 -> 200) and cooldown (3000 -> 400) to allow LR steps within 2000 Adam epochs.
-- **Status**: Discarded.
-- **Metric**: 0.00905747 (regressed).
-- **Observation**: Increased scheduler sensitivity led to premature LR decay, hurting Adam phase exploration.
-
----
-
-## Iteration 73
-- **Hypothesis**: Increase adaptive activation initialization 'a' to 1.5.
-- **Status**: Discarded.
-- **Metric**: 0.00992659 (regressed).
-- **Observation**: Steeper initial activations likely caused gradient instability or poor conditioning early in training.
-
----
-
-## Iteration 74
-- **Hypothesis**: Set adaptive activation initialization 'a' to 1.0 (standard profile).
-- **Status**: Discarded.
-- **Metric**: 0.01256952 (regressed).
-- **Observation**: Standard GELU profile (a=1.0) is significantly less effective than the current best (a=1.1) for this specific problem.
-
----
-
-## Iteration 75
-- **Hypothesis**: Increase dynamic weight update frequency (100 -> 50).
-- **Status**: Discarded.
-- **Metric**: 0.00917206 (regressed).
-- **Observation**: More frequent updates might have introduced instability in the gradient balancing EMA, preventing Adam from reaching a better minimum.
-
----
-
-## Iteration 76
-- **Hypothesis**: Increase collocation points (40x40 -> 50x50).
-- **Status**: Discarded.
-- **Metric**: 0.00983501 (regressed).
-- **Observation**: Higher resolution collocation might require more Adam epochs or higher model capacity to be beneficial.
-
----
-
-## Iteration 77
-- **Hypothesis**: Refine BC weight to 18.0 (slight reduction from 20.0).
-- **Status**: Discarded.
-- **Metric**: 0.00955015 (regressed).
-- **Observation**: bc_weight=20.0 remains the local optimum for balancing BC and Interior physics losses.
-
----
-
-## Iteration 78
-- **Hypothesis**: Reduce Adam Learning Rate (1e-3 -> 5e-4).
-- **Status**: Discarded.
-- **Metric**: 0.00946409 (regressed).
-- **Observation**: The standard 1e-3 learning rate is more efficient for this setup's convergence.
-
----
-
-## Iteration 79
-- **Hypothesis**: Increase Adam epochs (2000 -> 4000).
-- **Status**: Discarded.
-- **Metric**: 0.01014729 (regressed).
-- **Observation**: Doubling Adam epochs without a more refined scheduling strategy did not provide a better initialization for L-BFGS.
-
----
-
-## Iteration 80
-- **Hypothesis**: Increase L-BFGS history_size (100 -> 200).
-- **Status**: KEPT.
-- **Metric**: 0.00869294 (IMPROVED).
-- **Observation**: A larger history size allowed L-BFGS to build a more accurate quasi-Newton Hessian approximation, leading to better convergence in the final refinement phase.
-
----
-
-## Iteration 81
-- **Hypothesis**: Tighten L-BFGS tolerances (tolerance_grad 1e-7 -> 1e-9, tolerance_change 1e-9 -> 1e-12).
-- **Status**: Discarded.
-- **Metric**: 0.00869294 (unchanged).
-- **Observation**: Convergence was likely limited by other factors (like max iterations) before reaching stricter tolerances.
-
----
-
-## Iteration 82
-- **Hypothesis**: Increase L-BFGS iterations (500 -> 1000) with history_size=200.
-- **Theoretical Assumption**: With a larger history size, L-BFGS might benefit from more iterations as it has a more stable Hessian approximation to work with over longer trajectories.
+## Current Best Configuration (Iter 24)
+- **Architecture**: `ADAPTIVE_[120, 120, 100, 80, 60, 40, 20]`
+- **Activation**: SiLU (Adaptive)
+- **Optimization**: 2500 Adam + 1500 L-BFGS
+- **BC Weight**: 25.0
+- **Sampling**: Sobol (1600 points, 0.02 margin)
