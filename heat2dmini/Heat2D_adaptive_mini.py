@@ -22,7 +22,7 @@ parser.add_argument('--epochs', type=int, default=2500, help='Adam epochs')
 parser.add_argument('--lbfgs_iter', type=int, default=1500, help='L-BFGS iterations')
 parser.add_argument('--bc_weight', type=float, default=25.0, help='Initial BC weight')
 parser.add_argument('--seed', type=int, default=123, help='Random seed')
-parser.add_argument('--n_collocation', type=int, default=50, help='Collocation points')
+parser.add_argument('--n_collocation', type=int, default=40, help='Collocation points')
 args = parser.parse_args()
 
 torch.manual_seed(args.seed)
