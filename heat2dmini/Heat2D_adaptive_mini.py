@@ -108,7 +108,12 @@ xy_master_boundary = torch.cat([bc_left, bc_right, bc_bottom, bc_top], dim=0)
 # Analytic solution for boundary mapping
 T_master_boundary = soluzione_analitica(xy_master_boundary[:,0], xy_master_boundary[:,1], Lx_val, Ly_val).reshape(-1, 1)
 
-pinn_data_internal = (torch.empty(0, 2, device=device), torch.empty(0, 1, device=device))
+# ADD 50 ANCHOR POINTS (Internal Data)
+num_data_internal = 50
+xy_data_internal = generate_sobol_points(num_data_internal, 2.0, 2.0, device=device) - 1.0
+T_data_internal = soluzione_analitica(xy_data_internal[:,0], xy_data_internal[:,1], Lx_val, Ly_val).reshape(-1, 1)
+
+pinn_data_internal = (xy_data_internal, T_data_internal)
 pinn_data_boundary = (xy_master_boundary, T_master_boundary)
 
 # --- 5. RESAMPLING FUNCTION ---
@@ -128,7 +133,7 @@ model = AdaptiveFCN(layers=layers, activation_fn=get_act_fn(args.act)).to(device
 optimizer = torch.optim.Adam(model.parameters(), lr=8e-4)
 heat_physics = HeatEquation2D()
 
-exp_name = f"ADAPTIVE_{args.arch}_{args.act}_RS{args.resample_every}"
+exp_name = f"ADAPTIVE_{args.arch}_{args.act}_RS{args.resample_every}_DATA{num_data_internal}"
 base_dir = "heat2dmini/mini_experiments"
 os.makedirs(base_dir, exist_ok=True)
 exp_dir = os.path.join(base_dir, exp_name)
@@ -147,7 +152,7 @@ history = train_modelPINN(
     show_plots_interactively=False,
     collocation_points=xy_master_grid,
     lr_strategy='plateau',
-    loss_weights={'bc': args.bc_weight, 'physics': 1.0, 'data': 0.0},
+    loss_weights={'bc': args.bc_weight, 'physics': 1.0, 'data': 10.0},
     dynamic_weighting=True,
     update_weights_every=100,
     warmup_epochs=0,
@@ -167,7 +172,7 @@ log_data = {
     'Architecture': f"ADAPTIVE_{layers}",
     'Activation_Func': args.act,
     'Epochs': args.epochs,
-    'Run_Type': 'PINN_AdaptiveAct',
+    'Run_Type': f'PINN_AdaptiveAct_Data{num_data_internal}',
     'Optimizer': f"Adam+LBFGS({args.lbfgs_iter})",
     'Learning_Rate': "1e-3 (plateau)",
     'L2_Relative_Error': l2_err,
