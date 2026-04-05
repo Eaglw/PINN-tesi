@@ -16,7 +16,7 @@ from Heat2D.src.physics import HeatEquation2D
 
 # --- 1. SETUP & ARGUMENTS ---
 parser = argparse.ArgumentParser(description='Adaptive Activation PINN Experiment')
-parser.add_argument('--arch', type=str, default='120,120,120,120,120,80,60,40,20', help='Hidden layers')
+parser.add_argument('--arch', type=str, default='120,120,120,100,100,80,60,40,20', help='Hidden layers')
 parser.add_argument('--act', type=str, default='SiLU', help='Base activation')
 parser.add_argument('--epochs', type=int, default=2500, help='Adam epochs')
 parser.add_argument('--lbfgs_iter', type=int, default=1500, help='L-BFGS iterations')
