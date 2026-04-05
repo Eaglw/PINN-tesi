@@ -36,27 +36,15 @@ def train_modelPINN(
     show_plots_interactively=True, log_gradients_every=0, loss_weights=None,
     warmup_epochs=None, n_collocation=(50, 50), collocation_points=None,
     lr_strategy='fixed', dynamic_weighting=False, update_weights_every=100,
-    max_total_lbfgs=5000
+    max_total_lbfgs=5000, resample_every=0, resample_fn=None
 ):
     """
     Esegue il training della PINN.
     
     Args:
-        model: Istanza del modello FCN.
-        optimizer: Istanza dell'ottimizzatore.
-        data_internal: Tupla (xy_int, T_int).
-        data_boundary: Tupla (xy_bc, T_bc).
-        validation_grid: Tupla (xy_grid, T_exact_grid, X, Y).
-        physics_problem: Istanza di PhysicsProblem (opzionale).
-        log_gradients_every: Se > 0, calcola e logga le norme dei gradienti ogni N epoche.
-        loss_weights: Dizionario con i pesi delle loss (keys: 'data', 'bc', 'physics').
-        warmup_epochs: Numero di epoche di warmup (solo dati).
-        n_collocation: Numero di punti di collocazione per dimensione (int o tuple (Nx, Ny)).
-        collocation_points: (Opzionale) Tensor (N, 2) con i punti di collocazione espliciti.
-                            Se fornito, ignora n_collocation.
-        lr_strategy: Strategia di learning rate ('fixed' o 'step_decay').
-        dynamic_weighting: (Bool) Se True, attiva il Learning Rate Annealing per i pesi.
-        update_weights_every: (Int) Frequenza aggiornamento pesi dinamici (epoche).
+        ... (altri args rimangono invariati)
+        resample_every: (Int) Se > 0, ricampiona i punti di collocazione ogni N epoche.
+        resample_fn: (Callable) Funzione che restituisce nuovi punti di collocazione.
     """
     xy_int, T_int = data_internal
     xy_bc, T_bc = data_boundary
@@ -91,6 +79,11 @@ def train_modelPINN(
 
     alpha_dynamic = 0.9
     for epoch in pbar:
+        # Periodic Resampling
+        if resample_every > 0 and resample_fn is not None and epoch > 0 and epoch % resample_every == 0:
+            xy_physics = resample_fn().clone().detach()
+            xy_physics.requires_grad_(True)
+
         model.train()
         optimizer.zero_grad(set_to_none=True)
         # Gestione Warmup con solo dati

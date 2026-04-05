@@ -16,13 +16,14 @@ from Heat2D.src.physics import HeatEquation2D
 
 # --- 1. SETUP & ARGUMENTS ---
 parser = argparse.ArgumentParser(description='Adaptive Activation PINN Experiment')
-parser.add_argument('--arch', type=str, default='120,120,120,100,100,80,60,40,20', help='Hidden layers')
-parser.add_argument('--act', type=str, default='GELU', help='Base activation')
+parser.add_argument('--arch', type=str, default='120,120,100,80,60,40,20', help='Hidden layers')
+parser.add_argument('--act', type=str, default='SiLU', help='Base activation')
 parser.add_argument('--epochs', type=int, default=2500, help='Adam epochs')
 parser.add_argument('--lbfgs_iter', type=int, default=1500, help='L-BFGS iterations')
 parser.add_argument('--bc_weight', type=float, default=25.0, help='Initial BC weight')
 parser.add_argument('--seed', type=int, default=123, help='Random seed')
 parser.add_argument('--n_collocation', type=int, default=40, help='Collocation points')
+parser.add_argument('--resample_every', type=int, default=0, help='Resample collocation points every X epochs (0=disabled)')
 args = parser.parse_args()
 
 torch.manual_seed(args.seed)
@@ -110,13 +111,24 @@ T_master_boundary = soluzione_analitica(xy_master_boundary[:,0], xy_master_bound
 pinn_data_internal = (torch.empty(0, 2, device=device), torch.empty(0, 1, device=device))
 pinn_data_boundary = (xy_master_boundary, T_master_boundary)
 
-# --- 5. TRAINING ---
+# --- 5. RESAMPLING FUNCTION ---
+def resample_collocation():
+    # Use the same logic as initial sampling
+    num_internal = args.n_collocation * args.n_collocation
+    # Generate more points to ensure we have enough after filtering
+    pts = generate_sobol_points(int(num_internal * 1.5), 2.0, 2.0, device=device) - 1.0
+    mask = (pts[:,0] > -1+margin) & (pts[:,0] < 1-margin) & \
+           (pts[:,1] > -1+margin) & (pts[:,1] < 1-margin)
+    pts = pts[mask]
+    return pts[:num_internal]
+
+# --- 6. TRAINING ---
 layers = [2] + [int(x) for x in args.arch.split(',')] + [1]
 model = AdaptiveFCN(layers=layers, activation_fn=get_act_fn(args.act)).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=8e-4)
 heat_physics = HeatEquation2D()
 
-exp_name = f"ADAPTIVE_{args.arch}_{args.act}"
+exp_name = f"ADAPTIVE_{args.arch}_{args.act}_RS{args.resample_every}"
 base_dir = "heat2dmini/mini_experiments"
 os.makedirs(base_dir, exist_ok=True)
 exp_dir = os.path.join(base_dir, exp_name)
@@ -139,7 +151,9 @@ history = train_modelPINN(
     dynamic_weighting=True,
     update_weights_every=100,
     warmup_epochs=0,
-    max_total_lbfgs=args.lbfgs_iter
+    max_total_lbfgs=args.lbfgs_iter,
+    resample_every=args.resample_every,
+    resample_fn=resample_collocation
 )
 duration = time.time() - start_time
 
