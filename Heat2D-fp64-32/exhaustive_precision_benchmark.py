@@ -8,6 +8,7 @@ from tqdm import tqdm
 from src.precision_utils import PrecisionConfig
 from src.Heat2D_PINN import train_modelPINN_precision
 from src.physics import HeatEquation2D
+from src.hardware_utils import get_gpu_info
 from visualize_precision_benchmark import visualize_results
 
 def set_seed(seed=123):
@@ -42,7 +43,14 @@ class FCN(nn.Module):
         return x
 
 def run_benchmark():
+    gpu_info = get_gpu_info()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    print("\n" + "="*40)
+    print("--- HARDWARE DETECTION ---")
+    for k, v in gpu_info.items():
+        print(f"{k.replace('_', ' ').title()}: {v}")
+    print("="*40 + "\n")
     
     # Aumentiamo significativamente il carico per saturare la GPU
     num_internal = 10000 
@@ -141,10 +149,43 @@ def run_benchmark():
                 'mask': mask, 'config': str(config), 'MAE_Analytic': np.nan, 'MAE_Gold': np.nan, 'Time': np.nan, 'Speedup': np.nan, 'Error': str(e)
             })
 
+    # Aggiungiamo i test per BF16 se supportato
+    if gpu_info['supports_bf16']:
+        print("\n--- Running BF16 HYBRID TEST (Special) ---")
+        # BF16 per la rete, FP64 per tutto il resto (Fisica, Dati, BC)
+        bf16_config = PrecisionConfig(nn_opt=torch.bfloat16, data=torch.float64, physics=torch.float64, bc=torch.float64)
+        torch.set_default_dtype(torch.float32) # Default per tensori intermedi/fissi
+        set_seed(123)
+        model = FCN(layers).to(device).to(torch.bfloat16)
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+        
+        start_time = time.time()
+        train_modelPINN_precision(
+            model, optimizer, (xy_int.to(torch.bfloat16), T_int.to(torch.bfloat16)), (xy_bc.to(torch.bfloat16), T_bc.to(torch.bfloat16)), 
+            (xy_grid_flat, T_grid, X, Y),
+            epochs=epochs, physics_problem=HeatEquation2D(),
+            plots_dir=None, final_dir=None,
+            show_plots_interactively=False,
+            precision_config=bf16_config,
+            collocation_points=xy_int.to(torch.bfloat16)
+        )
+        run_time = time.time() - start_time
+        model.eval()
+        model.to(torch.float64)
+        with torch.no_grad():
+            T_pred = model(xy_grid_flat.to(torch.float64)).reshape(Nx_dom, Ny_dom)
+        mae_analytic = torch.mean(torch.abs(T_pred - T_grid)).item()
+        mae_gold = torch.mean(torch.abs(T_pred - T_pred_gold)).item()
+        results.append({
+            'mask': -1, 'config': "BF16_HYBRID", 'MAE_Analytic': mae_analytic, 'MAE_Gold': mae_gold, 
+            'Time': run_time, 'Speedup': gold_time / run_time if run_time > 0 else 0
+        })
+
     df = pd.DataFrame(results)
+    df['Epochs_Per_Sec'] = epochs / df['Time']
     for i, part in enumerate(parts):
-        df[part] = df['mask'].apply(lambda m: "FP64" if (m >> i) & 1 else "FP32")
-    csv_path = 'Heat2D-fp64-32/precision_benchmark_results.csv'
+        df[part] = df['mask'].apply(lambda m: "FP64" if (m >= 0 and (m >> i) & 1) else ("BF16" if m == -1 and part == 'nn_opt' else "FP32"))
+    csv_path = 'Heat2D-fp64-32/speed_benchmark_results.csv'
     df.to_csv(csv_path, index=False)
     
     print("\nBenchmark complete. Generating visualization...")

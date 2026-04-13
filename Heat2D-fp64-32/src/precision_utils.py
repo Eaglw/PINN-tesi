@@ -22,11 +22,17 @@ class PrecisionConfig:
         return cls(**config)
 
     def __repr__(self):
-        def dname(dt): return "FP64" if dt == torch.float64 else "FP32"
+        def dname(dt):
+            if dt == torch.float64: return "FP64"
+            if dt == torch.float32: return "FP32"
+            if dt == torch.bfloat16: return "BF16"
+            return str(dt)
         return f"PC(Net/Opt={dname(self.nn_opt)}, Data={dname(self.data)}, Phys={dname(self.physics)}, BC={dname(self.bc)})"
 
 def cast_to(tensor, dtype):
     if tensor is None: return None
+    # Evita casting inutili se già nel formato corretto
+    if tensor.dtype == dtype: return tensor
     return tensor.to(dtype)
 
 def compute_data_loss(model, x, y, config: PrecisionConfig):

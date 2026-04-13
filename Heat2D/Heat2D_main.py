@@ -60,6 +60,35 @@ class FCN(nn.Module):
     def loss_fn(self, pred, target):
         return nn.MSELoss()(pred, target)
 
+# --- 2.1 ADAPTIVE MODEL DEFINITION ---
+class AdaptiveActivation(nn.Module):
+    """Implementa una funzione di attivazione con pendenza 'a' apprendibile per ogni layer."""
+    def __init__(self, activation_fn, n_layers):
+        super().__init__()
+        self.activation = activation_fn()
+        # Parametro 'a' apprendibile: f(x) = activation(a * x)
+        # Inizializzato a 1.1 per gradienti iniziali più ripidi (ottimale per PINN)
+        self.a = nn.Parameter(torch.full((n_layers,), 1.1))
+
+    def forward(self, x, layer_idx):
+        return self.activation(self.a[layer_idx] * x)
+
+class AdaptiveFCN(nn.Module):
+    """Rete Neurale con Funzioni di Attivazione Adattive"""
+    def __init__(self, layers, activation_fn=nn.GELU):
+        super().__init__()
+        self.fcs = nn.ModuleList()
+        for i in range(len(layers) - 1):
+            self.fcs.append(nn.Linear(layers[i], layers[i+1]))
+        
+        # n-1 attivazioni per n-1 passaggi tra layer nascosti
+        self.adaptive_act = AdaptiveActivation(activation_fn, len(layers) - 1)
+
+    def forward(self, x):
+        for i, layer in enumerate(self.fcs[:-1]):
+            x = self.adaptive_act(layer(x), i)
+        return self.fcs[-1](x)
+
 def get_activation_name(activation_class):
     return activation_class.__name__
 
@@ -87,14 +116,15 @@ Seleziona quali casi eseguire inserendo nell'array goal il corrispettivo numero:
 2. PINN con dati e fisica
 3. PINN solo fisica
 """
-goal = [0, 1, 2, 3]
-#goal = [3]
+#goal = [0, 1, 2, 3]
+goal = [4]
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
 # Opzioni per la Grid Search
 layers_options = [
     #[2, 50, 50, 50, 50, 1], # Configurazione Originale
     #[2, 80, 80, 80, 80, 80, 80, 1],
-    [2, 100, 100, 100, 100, 100, 100, 100, 100, 1]   
+    [2, 100, 100, 100, 100, 100, 100, 100, 100, 1],
+    [2, 120, 120, 100, 80, 60, 40, 20, 1] # [NEW] Tapered Architecture from Autoresearch
 ]
 
 epochs_options = [
@@ -104,7 +134,7 @@ epochs_options = [
 
 activation_options = [
     #nn.Tanh,
-    #nn.SiLU,
+    nn.SiLU,
     nn.GELU
 ]
 
@@ -194,6 +224,13 @@ T_pinn_data = soluzione_analitica(xy_pinn_data[:, 0:1], xy_pinn_data[:, 1:2], Lx
 # Per PINN Data+Phys, data_internal riceve i 1000 punti random filtrati
 pinn_data_internal = (xy_pinn_data, T_pinn_data)
 pinn_data_boundary = (xy_master_boundary, T_master_boundary)
+
+# --- 4. PINN OPTIMIZED (Autoresearch) ---
+# Usa esattamente 50 "Anchor Points" interni + Boundary
+num_anchors = 50
+xy_anchors = generate_internal_points(num_anchors, Lx, Ly, margin=1e-4, device=device)
+T_anchors = soluzione_analitica(xy_anchors[:, 0:1], xy_anchors[:, 1:2], Lx, Ly, Nx=Nx_fourier)
+anchors_internal = (xy_anchors, T_anchors)
 
 # --- VERIFICA DISGIUNZIONE E OVERLAP ---
 print("\n--- Point Overlap Verification ---")
@@ -532,5 +569,76 @@ for layers_config in layers_options:
                         ['NN Grid', 'PINN Data+Phys'],
                         save_path=os.path.join(results_dir, 'Comparison_Loss_Grid_vs_PINN.png')
                     )
+                
+                # --- 4. PINN OPTIMIZED ---
+                if 4 in goal:
+                    print(f"  > 4. PINN Optimized ({config_name})")
+                    exp_dir_4, plots_dir_4 = setup_experiment_folder(
+                        config_dir,
+                        "4_PINN_Optimized", 
+                        f"PINN Optimized (Autoresearch). Config: {config_name}"
+                    )
+                    from Heat2D.src.Heat2D_PINN import train_modelPINN
+                    from Heat2D.src.physics import HeatEquation2D
+                    
+                    # Optimized Settings from Autoresearch
+                    opt_config = {
+                        'loss_weights': {'data': 10.0, 'bc': 25.0, 'physics': 1.0}, 
+                        'warmup_epochs': 0,
+                        'adam_epochs': 2500
+                    }
+                    
+                    heat_physics = HeatEquation2D()
+                    # Use AdaptiveFCN for the Optimized run
+                    model_4 = AdaptiveFCN(layers=layers_config, activation_fn=act_fn).to(device)
+                    optimizer_4 = torch.optim.Adam(model_4.parameters(), lr=base_lr)
+                    
+                    history_4 = train_modelPINN(
+                        model=model_4,
+                        optimizer=optimizer_4,
+                        data_internal=anchors_internal, # Exactly 50 points
+                        data_boundary=pinn_data_boundary,
+                        validation_grid=validation_grid_tuple,
+                        physics_problem=heat_physics,
+                        epochs=opt_config['adam_epochs'],
+                        plots_dir=plots_dir_4,
+                        final_dir=exp_dir_4,
+                        show_plots_interactively=show_plots_interactively,
+                        loss_weights=opt_config['loss_weights'],
+                        warmup_epochs=opt_config['warmup_epochs'],
+                        collocation_points=xy_master_grid,
+                        lr_strategy='plateau',
+                        dynamic_weighting=True, # Enable dynamic weighting for better balancing
+                        update_weights_every=100
+                    )
+
+                    # --- LOGGING 4_PINN_Optimized ---
+                    l2_err, max_err = compute_metrics(model_4, xy_grid_flat, T_grid)
+                    def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
+                    
+                    log_data = {
+                        'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        'Architecture': str(layers_config),
+                        'Activation_Func': get_activation_name(act_fn),
+                        'Epochs': opt_config['adam_epochs'],
+                        'Run_Type': 'PINN_Optimized',
+                        'Optimizer': 'Adam + L-BFGS',
+                        'Learning_Rate': '1e-3 (plateau)', 
+                        'Loss_Total': get_last(history_4, 'total_loss'),                    
+                        'Loss_Physics': get_last(history_4, 'pde_loss'),
+                        'Loss_Boundary': get_last(history_4, 'bc_loss'), 
+                        'Loss_Data': get_last(history_4, 'data_loss'),
+                        'L2_Relative_Error': l2_err,
+                        'Max_Relative_Error_Peak': max_err,
+                        'Seed': 123,
+                        'Loss_Weight': 'adaptive_weights' # Updated label
+                    }
+                    update_results_csv(results_csv_path, log_data)
+                    
+                    histories['PINN Optimized'] = history_4
+                    final_models['PINN Optimized'] = model_4
+                    # Cleanup Plots
+                    if os.path.exists(plots_dir_4):
+                        shutil.rmtree(plots_dir_4)
                         
 print("\nAll Grid Search configurations completed.")
