@@ -52,3 +52,16 @@
 ## Iteration 87: High-Density Physical & Boundary Strengthening\n- **Result**: **Discard** (L2: 0.006940). L aumento della densità fisica non ha portato benefici significativi, confermando l efficacia del campionamento 40x40.\n\n## Iteration 88: Residual Connections in Tapering Arch\n- **Hypothesis**: Introdurre **Skip Connections** tra layer consecutivi della stessa dimensione.\n- **Motivation**: Facilitare il flusso dei gradienti nei layer iniziali più larghi, permettendo alla rete di focalizzarsi sulle correzioni residue della soluzione Laplace.\n- **Expected Result**: L2 Error < 0.00635.\n
 ## Iteration 88: Residual Connections in Tapering Arch\n- **Result**: **Discard** (L2: 0.010052). Le skip connections hanno regredito la precisione, probabilmente complicando il bilanciamento dei gradienti.\n\n## Iteration 89: Cautious Series Precision Enhancement\n- **Hypothesis**: Incrementare `Nx` a **75** nella serie analitica.\n- **Motivation**: Cercare un compromesso tra la stabilità di 50 e la risoluzione di 100 per fornire un riferimento più preciso durante Adam e L-BFGS.\n- **Expected Result**: L2 Error < 0.00635.\n
 ## Iteration 89: Cautious Series Precision Enhancement\n- **Result**: **Discard** (L2: 0.019550). L incremento dei termini della serie analitica ha introdotto forti oscillazioni durante L-BFGS, peggiorando drasticamente il risultato.\n\n## Iteration 90: AdamW Transition\n- **Hypothesis**: Sostituire Adam con **AdamW** (`lr=1e-3`, `weight_decay=1e-4`).\n- **Motivation**: AdamW offre una regolarizzazione dei pesi più corretta rispetto ad Adam, favorendo una convergenza più stabile e generalizzabile sui 50 punti di ancoraggio.\n- **Expected Result**: L2 Error < 0.00635.\n
+
+## Iteration 93-119: Exploration of Advanced Architectures and Optimization (Headless)
+- **Objective**: Break the 0.006353 plateau.
+- **Hypotheses Tested**: 
+    - Per-neuron adaptive activation (regressed 0.0074)
+    - Fourier/Augmented Coordinates (regressed 0.0088/0.0090)
+    - Xavier Normal Initialization (regressed 0.0091)
+    - HLConcPINN / Hidden Concatenation (regressed 0.0086)
+    - Residual-based Importance Sampling (regressed 0.0087)
+    - Manual LR Restart (regressed 0.006390)
+    - Triple L-BFGS (unchanged 0.006353)
+- **Conclusion**: The current setup is at a structural limit for the given budget and precision. The 50-anchor SiLU-Tapering combination is the best performing pattern discovered so far.
+

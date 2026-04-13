@@ -29,3 +29,11 @@
 **Pattern**: L-BFGS converges to the same exact L2 error (0.006353) despite minor initialization or scheduling changes.
 **Why it worked**: The combination of 50 anchor points and seed 123 defines a very deep and wide basin of attraction. Once the network enters this basin during Adam, L-BFGS consistently finds the same local minimum.
 **Strategy**: To break this plateau, a fundamental change in the sampling logic (like RAR) is required to redefine the loss surface.
+
+## Lesson 10 — Iterations 93-119: The 0.00635 Plateau
+**Pattern**: Advanced architectural and optimization changes (HLConcPINN, Hybrid Act, Per-neuron Adaptivity, Importance Sampling) consistently regressed or plateaued at exactly 0.006353.
+**Why it worked (Inertia)**: The SiLU-Tapered architecture with 50 anchor points appears to have found a very deep and wide basin of attraction. Perturbations like noise or LR restarts eventually lead back to this same state.
+**Conditions**: High-precision Laplace 2D with specific Sobol seed (123).
+**Anti-pattern**: Increasing Nx to 500 for BC targets caused massive regression (0.0418) and numerical instability without exponential stabilization.
+**Metric delta**: 0.0 (Hard plateau hit).
+

@@ -83,3 +83,30 @@ iteration	commit	metric	delta	status	guard	description
 87\t-\t0.006940\t-0.000587\tdiscard\tskip\thigh density (50x50) + bc_weight 30.0
 88\t-\t0.010052\t-0.003699\tdiscard\tskip\tresidual connections between same-width layers
 89\t-\t0.019550\t-0.013197\tdiscard\tskip\tincrease Nx to 75 (High Precision Instability)
+93`t-`t0.006353`t0.0`tcrash`tskip`tDeep L-BFGS (2500 iter, history 500, tighter tolerances) - Timeout
+94`te751dbc`t0.007421`t-0.001068`tdiscard`tskip`tPer-neuron adaptive activation
+95`tbe5bf2a`t0.008889`t-0.002536`tdiscard`tskip`tFourier Mapping (sigma=1.0)
+96`t3f7f744`t0.009189`t-0.002836`tdiscard`tskip`tXavier Normal Initialization
+97`t58d92f3`t0.009002`t-0.002649`tdiscard`tskip`tAugmented coordinates (sin(pi*x/y))
+98`t34d524b`t0.007503`t-0.001150`tdiscard`tskip`tIncrease collocation margin to 0.05
+99`t94556a2`t0.007246`t-0.000893`tdiscard`tskip`tExpanded bottleneck [120,120,100,80,60,60,40]
+100`ta498f03`t0.006369`t-0.000016`tdiscard`tskip`tGaussian noise injection (std=1e-4)
+101`tb670c06`t0.006990`t-0.000637`tdiscard`tskip`tIncrease analytical series Nx to 60
+102`t92a07b6`t0.008461`t-0.002108`tdiscard`tskip`tLate-stage resampling (2000-2500)
+103`t770c0a8`t0.006353`t0.0`tcrash`tskip`tDeeper L-BFGS (2500 iter, history 500) - Timeout/No log
+104`t1fd996b`t0.006353`t0.0`tcrash`tskip`tSin activation first layer - Timeout
+105`t6eb71f8`t0.007558`t-0.001205`tdiscard`tskip`tSin activation first layer (Retry with 1500 L-BFGS)
+106`ta1045fd`t0.008736`t-0.002383`tdiscard`tskip`tImportance Sampling (top residual)
+107`ta097d8a`t0.007203`t-0.000850`tdiscard`tskip`tAdam LR 1e-3 + Warmup 500
+108`tc66b97c`t0.006782`t-0.000429`tdiscard`tskip`tSlower dynamic weighting (every 200 ep)
+109`t1cff3a3`t0.007023`t-0.000670`tdiscard`tskip`t60 anchor points, lambda_data=12.0
+110`te38d925`t0.006612`t-0.000259`tdiscard`tskip`tAdaptive slope a=1.15 initialization
+111`tf4208c8`t0.007134`t-0.000781`tdiscard`tskip`tAdam betas=(0.9, 0.95)
+112`tc262e5e`t0.008668`t-0.002315`tdiscard`tskip`tHLConcPINN architecture
+113`t46a6e78`t0.041808`t-0.035455`tdiscard`tskip`tNx=500 for BC/Anchors (Stable Series)
+114`ta99d929`t0.009444`t-0.003091`tdiscard`tskip`tHybrid SiLU/Tanh alternating
+115`t3422356`t0.006547`t-0.000194`tdiscard`tskip`tGradient clipping max_norm=0.5
+116`t209a4fd`t0.006390`t-0.000037`tdiscard`tskip`tManual LR Restart every 1000 ep
+117`t9b2820d`t0.007188`t-0.000835`tdiscard`tskip`tStronger anchor weight (lambda_data=15.0)
+118`t765ebda`t0.007881`t-0.001528`tdiscard`tskip`tRandom Boundary Resampling
+119`t087a9ff`t0.006353`t0.0`tdiscard`tskip`tTriple phase L-BFGS (LR 1.0, 0.5, 0.1)
