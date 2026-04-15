@@ -1,0 +1,30 @@
+# Autoresearch Lessons - Heat2D Mini
+
+## Lesson 1 — Activation Functions
+**Pattern**: SiLU (Swish) activation outperforms GELU and Tanh for Heat2D.
+**Why it worked**: SiLU has smoother second-order derivatives, which is beneficial for minimizing residuals of second-order PDEs like the Laplace equation.
+**Metric delta**: ~0.002 improvement from GELU.
+
+## Lesson 2 — Model Architecture
+**Pattern**: Tapering architecture (e.g., `[120, 120, 100, 80, 60, 40, 20]`) is the most stable.
+**Why it worked**: Higher initial capacity captures coordinate features, while tapering regularizes the flow. Expansion to 130x2...30 (Iter 71) did not improve results, suggesting 120 is the sweet spot.
+**Metric delta**: Significant (from ~0.014 to ~0.007).
+
+## Lesson 3 — Optimization Strategy
+**Pattern**: 2500 Adam + 1500 L-BFGS (history_size=300).
+**Why it worked**: Adam reaches the basin, L-BFGS refines. Increasing history_size to 400 or 500 (Iter 42, 65) did not help, nor did increasing epochs to 3000 (Iter 27, 67).
+**Metric delta**: Stable convergence.
+
+## Lesson 4 — Boundary Alignment
+**Pattern**: Optimal `bc_weight` is exactly 25.0 with 100 points per side.
+**Anti-pattern**: Increasing to 150 points (Iter 45, 70) regressed the metric, likely due to gradient imbalance.
+
+## Lesson 5 — Sparse Internal Supervision (CRITICAL)
+**Pattern**: **50 anchor points** from the analytical solution with `lambda_data=10.0`.
+**Why it worked**: Provides a "compass" for the optimizer, preventing it from settling in physically stable but numerically inaccurate basins (like the 0.007091 attractor).
+**Anti-pattern**: 10 points are too few (Iter 58), 100 points are too many (Iter 60).
+**Metric delta**: **-0.00045** (Breakthrough to 0.00635).
+
+## Lesson 6 — Seed Dominance
+**Pattern**: Seed **123** is significantly superior to 42 for this domain and setup.
+**Why it worked**: Initial weight distribution and Sobol sequence alignment favor the 0.00635 basin.
