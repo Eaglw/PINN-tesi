@@ -4,7 +4,9 @@ Questo progetto si concentra sulla ricerca e l'applicazione di Physics-Informed 
 
 ## Panoramica e Aggiornamenti Recenti
 
-Il repository è stato recentemente aggiornato per migliorare la stabilità del training, l'organizzazione del codice e l'accuratezza dei risultati. Sono state implementate strategie avanzate di ottimizzazione (come l'uso ibrido di Adam e L-BFGS) e tecniche di "Warm-up" per gestire condizioni al contorno complesse.
+Il repository è stato recentemente aggiornato per consolidare le scoperte fatte durante la ricerca. La documentazione tecnica dettagliata, le best practices e i log degli esperimenti sono ora centralizzati nella cartella `notes/`, che funge da fonte di verità per lo sviluppo.
+
+Sono state implementate strategie avanzate come l'architettura **Tapered**, l'attivazione **SiLU**, e un workflow di precisione mista (**Staged Precision**) per massimizzare la convergenza.
 
 ### Risultati CSTR Irreversibile
 Il modulo `IrreversibleCSTR` è ora completo e robusto. I principali traguardi includono:
@@ -47,9 +49,14 @@ pip install -r requirements.txt
 
 ## Struttura del Progetto
 
+- **`Newtonian/`**: Modulo per l'implementazione delle equazioni di Navier-Stokes per fluidi Newtoniani (in fase di sviluppo).
+- **`notes/`**: Documentazione tecnica consolidata, riferimenti accademici e log di ricerca.
 - **`Heat2D/`**: Modulo per l'equazione del calore 2D (Laplace). Include script per NN classica e PINN con strategie avanzate.
-    - `Heat2D_main.py`: Script principale per eseguire gli esperimenti.
-    - `analyze_results.py`: Strumento per generare grafici comparativi e statistiche a partire dai risultati salvati in CSV.
 - **`IrreversibleCSTR/`**: Modulo per il reattore CSTR. Include script per problemi diretti, inversi e ottimizzazione iperparametri.
 - **`func/`**: Funzioni di utilità condivise (plotting, tracking della loss).
-- **`notes/`**: Documentazione tecnica e log degli esperimenti.
+
+## Roadmap: Prossimi Passi
+
+1.  **Navier-Stokes (Newtonian):** Implementazione di casi studio per fluidi Newtoniani in regimi laminari.
+2.  **Auto-Research Integration:** Estensione delle tecniche di Grid Search e raffinamento automatico per l'ottimizzazione del caso fluido-dinamico.
+3.  **Ottimizzazione FP64:** Ulteriore raffinamento del workflow di precisione doppia per garantire soluzioni fisicamente accurate nei regimi ad alti gradienti.

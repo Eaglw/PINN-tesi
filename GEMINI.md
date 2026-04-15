@@ -12,6 +12,8 @@ This project focuses on the research and application of Physics-Informed Neural 
 - **`Heat2D/`**: Module for 2D Heat Transfer (Laplace equation).
     - `Heat2D_main.py`: Main script for 2D Heat experiments.
     - `Heat2D_prova.py`: Experimental/testing script for 2D Heat.
+- **`Newtonian/`**: Module for Navier-Stokes equations and Newtonian fluids.
+- **`notes/`**: Consolidated research documentation and technical journals.
 - **`func/`**: Shared utility functions.
     - `graphic_func.py`: Plotting and GIF generation.
     - `history_tracker.py`: Loss history tracking and visualization.
@@ -66,10 +68,26 @@ python Heat2D/Heat2D_main.py
 
 ## Development Conventions
 
-- **Precision**: The project generally sets `torch.set_default_dtype(torch.float64)` for higher precision in scientific calculations.
-- **Visualization**: Plotting functions are centralized in `func/graphic_func.py` to maintain consistent styling.
-- **Output**: Scripts should check for and create necessary output directories (e.g., `Results/`, `plots/`) before saving files.
-- **Device**: Code is typically set up to use `cuda` if available, falling back to `cpu`.
+### 1. Precision & Numerical Stability
+- **Staged Precision Strategy**: 
+    - Fase 1: Esplorazione veloce con **Adam @ FP32** (sfrutta TF32 su GPU Ampere).
+    - Fase 2: Raffinamento fisico con **L-BFGS @ FP64** per precisione "scientific grade".
+- **Default Type**: `torch.set_default_dtype(torch.float64)` è lo standard per la fase di raffinamento e inferenza finale.
+
+### 2. Architecture Standards
+- **Tapered Layers**: Utilizzo di architetture a imbuto (es. `[120, 100, 80, 60, 40, 20]`) per condensare le feature.
+- **Activations**: 
+    - **SiLU (Swish)**: Preferita per PDE di secondo ordine grazie alla regolarità della derivata seconda.
+    - **LAA (Learnable Adaptive Activations)**: Implementazione di parametri scalabili per catturare gradienti ripidi.
+
+### 3. Sampling & Training
+- **Sobol sequences**: Utilizzo di campionamento quasi-Monte Carlo per una copertura uniforme del dominio.
+- **SAR (Spatially Adaptive Refinement)**: Aggiunta dinamica di punti nelle zone con alto residuo PDE.
+
+### 4. Visualization & Output
+- **Visualizzazione**: Funzioni centralizzate in `func/graphic_func.py`.
+- **Output**: Controllo e creazione automatica di `Results/` e `plots/`.
+- **Device**: Utilizzo di `cuda` con fallback su `cpu`.
 
 ## Note aggiunte
 Prima di scrivere qualsiasi tipo di codice spiegami cosa stai cercando di fare. 
