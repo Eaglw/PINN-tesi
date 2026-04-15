@@ -9,10 +9,13 @@ def train_hybrid_logic(
     model, data_internal, data_boundary, validation_grid,
     epochs=40000, physics_problem=None, physics_loss_fn=None, plots_dir='plots', final_dir='Results',
     collocation_points=None, lr_strategy='plateau', loss_weights=None, warmup_epochs=0,
-    case_name="Run", dynamic_weighting=False, update_weights_every=100
+    case_name="Run", dynamic_weighting=False, update_weights_every=100,
+    use_staged_precision=True # Toggle per precisione progressiva (FP32 -> FP64)
 ):
     """
-    Logica universale per Adam @ FP32 -> L-BFGS @ FP64 con supporto Physics Problem.
+    Logica universale per Adam @ FP32 (ottimizzato TF32) -> L-BFGS @ FP64.
+    Se use_staged_precision=True, massimizza la velocità iniziale.
+    Se use_staged_precision=False, esegue l'intero training in FP64 puro.
     """
     xy_int, T_int = data_internal
     xy_bc, T_bc = data_boundary
@@ -30,22 +33,36 @@ def train_hybrid_logic(
     lambda_phys_target = loss_weights.get('physics', 1.0)
     alpha_annealing = 0.9
 
-    # --- PHASE 1: ADAM @ FP32 ---
-    print(f"\n>>> [{case_name}] PHASE 1: Adam (FP32) - {epochs} epochs (Dynamic: {dynamic_weighting})")
-    model.to(torch.float32)
+    # --- SETUP PRECISIONE FASE 1 ---
+    # Se use_staged_precision=True, usiamo FP32 per la Fase 1.
+    # Altrimenti usiamo FP64 per tutto il training.
+    phase1_precision = torch.float32 if use_staged_precision else torch.float64
     
-    # Cast dati
-    xy_int_32, T_int_32 = xy_int.to(torch.float32), T_int.to(torch.float32)
-    xy_bc_32 = xy_bc.to(torch.float32) if xy_bc is not None else None
-    T_bc_32 = T_bc.to(torch.float32) if T_bc is not None else None
-    xy_phys_32 = collocation_points.to(torch.float32) if collocation_points is not None else None
+    prec_name = "FP64" if not use_staged_precision else "FP32"
+
+    # ABILITAZIONE TF32 (Solo se siamo in modalità Staged e su Ampere+)
+    old_matmul_precision = torch.get_float32_matmul_precision()
+    if use_staged_precision and torch.cuda.is_available():
+        # 'high' abilita TF32 su Ampere (RTX 3080) aumentando la velocità di matmul
+        torch.set_float32_matmul_precision('high')
+
+    # --- PHASE 1: ADAM ---
+    msg_stage = f"{prec_name} + TF32" if use_staged_precision else "Pure FP64"
+    print(f"\n>>> [{case_name}] PHASE 1: Adam ({msg_stage}) - {epochs} epochs")
+    model.to(phase1_precision)
+    
+    # Cast dati alla precisione di Fase 1
+    xy_int_low, T_int_low = xy_int.to(phase1_precision), T_int.to(phase1_precision)
+    xy_bc_low = xy_bc.to(phase1_precision) if xy_bc is not None else None
+    T_bc_low = T_bc.to(phase1_precision) if T_bc is not None else None
+    xy_phys_low = collocation_points.to(phase1_precision) if collocation_points is not None else None
     
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     scheduler = None
     if lr_strategy == 'plateau':
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=1000, factor=0.5)
 
-    pbar = tqdm(range(epochs), desc=f"{case_name} Adam")
+    pbar = tqdm(range(epochs), desc=f"{case_name} Adam ({prec_name})")
     for epoch in pbar:
         model.train()
         optimizer.zero_grad(set_to_none=True)
@@ -53,10 +70,10 @@ def train_hybrid_logic(
         current_lambda_phys = 0.0 if epoch < warmup_epochs else lambda_phys_target
         
         loss, loss_dict = compute_pinn_loss(
-            model, xy_int_32, T_int_32, xy_bc_32, T_bc_32,
+            model, xy_int_low, T_int_low, xy_bc_low, T_bc_low,
             physics_problem=physics_problem,
             physics_loss_fn=physics_loss_fn,
-            x_physics=xy_phys_32,
+            x_physics=xy_phys_low,
             lambda_data=lambda_data, 
             lambda_bc=lambda_bc, 
             lambda_physics=current_lambda_phys
@@ -64,7 +81,7 @@ def train_hybrid_logic(
         
         # LOGICA PESI DINAMICI
         if dynamic_weighting and epoch >= warmup_epochs and (epoch + 1) % update_weights_every == 0:
-            if xy_bc_32 is not None and 'bc_loss' in loss_dict:
+            if xy_bc_low is not None and 'bc_loss' in loss_dict:
                 loss_bc_pure = loss_dict['bc_loss']
                 grads_bc = torch.autograd.grad(loss_bc_pure, model.parameters(), retain_graph=True, allow_unused=True)
                 max_grad_bc = max([g.norm(2) for g in grads_bc if g is not None]).item() if any(g is not None for g in grads_bc) else 0.0
@@ -90,10 +107,14 @@ def train_hybrid_logic(
 
         if (epoch + 1) % 500 == 0:
             loss_history.update(epoch, {k: v.item() for k, v in loss_dict.items()}, lr=optimizer.param_groups[0]['lr'])
-            pbar.set_postfix({'Loss': f"{loss.item():.2e}", 'W_ph': f"{lambda_phys_target:.1f}"})
+            pbar.set_postfix({'Loss': f"{total_loss.item() if 'total_loss' in globals() else loss.item():.2e}"})
 
     # --- TRANSITION ---
-    print(f"\n>>> [{case_name}] TRANSITION: Switching to FP64 for L-BFGS...")
+    print(f"\n>>> [{case_name}] TRANSITION: Switching to FP64 for L-BFGS refinement...")
+    
+    # Ripristino precisione matmul originale (highest/standard)
+    torch.set_float32_matmul_precision(old_matmul_precision)
+    
     model.to(torch.float64)
     xy_int_64, T_int_64 = xy_int.to(torch.float64), T_int.to(torch.float64)
     xy_bc_64 = xy_bc.to(torch.float64) if xy_bc is not None else None
