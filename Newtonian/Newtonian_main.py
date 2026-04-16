@@ -63,6 +63,22 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.float64)
 print(f"Using device: {device} with default dtype: {torch.get_default_dtype()}")
 
+# Wrapper per adattare il modello [psi, p] alle funzioni che si aspettano [u]
+class NewtonianModelWrapper(nn.Module):
+    def __init__(self, model, phys_problem):
+        super().__init__()
+        self.model = model
+        self.phys_problem = phys_problem
+    def forward(self, x):
+        # Assicura che i gradienti siano attivi per calcolare u = psi_y
+        with torch.set_grad_enabled(True):
+            if not x.requires_grad: x.requires_grad_(True)
+            u, _, _ = self.phys_problem.get_velocity(self.model, x)
+        return u.detach() # Restituiamo solo u
+    def eval(self):
+        self.model.eval()
+        return self
+
 # Flag per controllare la visualizzazione interattiva dei plot
 show_plots_interactively = False 
 
@@ -287,7 +303,8 @@ for layers_config in layers_options:
                             warmup_epochs=0 
                         )
                         
-                        l2_err, max_err = compute_metrics(model_2, xy_grid_flat, U_grid)
+                        metrics_wrapper = NewtonianModelWrapper(model_2, phys_problem)
+                        l2_err, max_err = compute_metrics(metrics_wrapper, xy_grid_flat, U_grid)
                         def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
                         
                         log_data = {
@@ -347,7 +364,8 @@ for layers_config in layers_options:
                             warmup_epochs=0
                         )
 
-                        l2_err, max_err = compute_metrics(model_3, xy_grid_flat, U_grid)
+                        metrics_wrapper = NewtonianModelWrapper(model_3, phys_problem)
+                        l2_err, max_err = compute_metrics(metrics_wrapper, xy_grid_flat, U_grid)
                         log_data = {
                             'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                             'Architecture': str(layers_config),
