@@ -11,6 +11,7 @@ def verify_dataset(file_path):
         data = torch.load(file_path)
         xy = data['coords']
         u = data['u']
+        v = data['v']
         p = data['p']
         u_exact = data.get('u_exact', None)
         params = data.get('params', {})
@@ -18,55 +19,68 @@ def verify_dataset(file_path):
         df = pd.read_csv(file_path)
         xy = torch.tensor(df[['x', 'y']].values)
         u = torch.tensor(df['u'].values).reshape(-1, 1)
+        v = torch.tensor(df['v'].values).reshape(-1, 1)
         p = torch.tensor(df['p'].values).reshape(-1, 1)
         u_exact = torch.tensor(df['u_exact'].values).reshape(-1, 1) if 'u_exact' in df.columns else None
         params = {}
 
-    # Plotting
-    fig, axs = plt.subplots(1, 2, figsize=(15, 5))
-    
-    # 1. Velocità Profilo (a x_medio)
-    x_unique = torch.unique(xy[:, 0])
-    x_mid = x_unique[len(x_unique)//2]
-    mask = torch.abs(xy[:, 0] - x_mid) < 1e-5
-    
-    y_plot = xy[mask, 1]
-    u_plot = u[mask]
-    
-    # Ordina per y
-    idx = torch.argsort(y_plot)
-    y_plot = y_plot[idx]
-    u_plot = u_plot[idx]
-    
-    axs[0].scatter(u_plot.numpy(), y_plot.numpy(), label='Noisy Data', color='red', alpha=0.6)
-    if u_exact is not None:
-        u_ex_plot = u_exact[mask][idx]
-        axs[0].plot(u_ex_plot.numpy(), y_plot.numpy(), label='Exact Profile', color='black', linewidth=2)
-    
-    axs[0].set_title(f"Velocity Profile at x={x_mid:.2f}")
-    axs[0].set_xlabel("u (m/s)")
-    axs[0].set_ylabel("y (m)")
-    axs[0].legend()
-    axs[0].grid(True)
+    n_points = xy.shape[0]
+    print(f"Total points in dataset: {n_points}")
 
-    # 2. Pressione lungo x (a y_medio)
-    y_unique = torch.unique(xy[:, 1])
-    y_mid = y_unique[len(y_unique)//2]
-    mask_p = torch.abs(xy[:, 1] - y_mid) < 1e-5
+    # Identifica le dimensioni della griglia per i plot 2D
+    x_unique = np.unique(xy[:, 0].numpy())
+    y_unique = np.unique(xy[:, 1].numpy())
+    nx, ny = len(x_unique), len(y_unique)
     
-    x_p_plot = xy[mask_p, 0]
-    p_plot = p[mask_p]
-    
-    # Ordina per x
-    idx_p = torch.argsort(x_p_plot)
-    x_p_plot = x_p_plot[idx_p]
-    p_plot = p_plot[idx_p]
-    
-    axs[1].scatter(x_p_plot.numpy(), p_plot.numpy(), label='Noisy Pressure', color='blue', alpha=0.6)
-    axs[1].set_title(f"Pressure drop at y={y_mid:.2f}")
-    axs[1].set_xlabel("x (m)")
-    axs[1].set_ylabel("Pressure (Pa)")
-    axs[1].grid(True)
+    # Reshape dei dati per il plotting 2D (se possibile)
+    try:
+        # indexing='xy' in meshgrid significa che l'array piatto ha ny righe di nx colonne
+        X_grid = xy[:, 0].reshape(ny, nx).numpy()
+        Y_grid = xy[:, 1].reshape(ny, nx).numpy()
+        U_grid = u.reshape(ny, nx).numpy()
+        P_grid = p.reshape(ny, nx).numpy()
+        is_grid = True
+    except Exception as e:
+        is_grid = False
+        print(f"Dataset sampling is not a regular grid or reshape failed: {e}")
+
+    # Plotting
+    if is_grid:
+        fig, axs = plt.subplots(2, 2, figsize=(16, 8), gridspec_kw={'height_ratios': [1, 2]})
+        
+        # 2D Velocity U
+        im1 = axs[0, 0].pcolormesh(X_grid, Y_grid, U_grid, shading='auto', cmap='viridis')
+        fig.colorbar(im1, ax=axs[0, 0], label='u (m/s)')
+        axs[0, 0].set_title(f"2D Velocity Field (u) - {n_points} points")
+        axs[0, 0].set_aspect('equal')
+
+        # 2D Pressure P
+        im2 = axs[0, 1].pcolormesh(X_grid, Y_grid, P_grid, shading='auto', cmap='plasma')
+        fig.colorbar(im2, ax=axs[0, 1], label='p (Pa)')
+        axs[0, 1].set_title("2D Pressure Field (p)")
+        axs[0, 1].set_aspect('equal')
+
+        # Profiles (Cutlines)
+        # 1. Velocità Profilo (a x_medio)
+        x_mid_val = x_unique[nx // 2]
+        mask = np.abs(xy[:, 0].numpy() - x_mid_val) < 1e-5
+        axs[1, 0].scatter(u[mask].numpy(), xy[mask, 1].numpy(), label='Noisy Data', color='red', s=10)
+        if u_exact is not None:
+            axs[1, 0].plot(u_exact[mask].numpy(), xy[mask, 1].numpy(), label='Exact', color='black')
+        axs[1, 0].set_title(f"Velocity Profile at x={x_mid_val:.2f}")
+        axs[1, 0].grid(True)
+        axs[1, 0].legend()
+
+        # 2. Pressione lungo x (a y_medio)
+        y_mid_val = y_unique[ny // 2]
+        mask_p = np.abs(xy[:, 1].numpy() - y_mid_val) < 1e-5
+        axs[1, 1].scatter(xy[mask_p, 0].numpy(), p[mask_p].numpy(), label='Noisy P', color='blue', s=10)
+        axs[1, 1].set_title(f"Pressure Drop at y={y_mid_val:.2f}")
+        axs[1, 1].grid(True)
+    else:
+        # Fallback se non è una griglia
+        fig, axs = plt.subplots(1, 2, figsize=(15, 5))
+        # ... (codice precedente per cutline se serve) ...
 
     plt.tight_layout()
     plot_name = os.path.basename(file_path).split('.')[0] + "_verification.png"
@@ -77,9 +91,14 @@ def verify_dataset(file_path):
     # plt.show() # Rimosso per non bloccare lo script
 
 if __name__ == "__main__":
-    # Verifica il file generato
-    pt_file = "Newtonian/data/poiseuille_noisy.pt"
-    if os.path.exists(pt_file):
-        verify_dataset(pt_file)
-    else:
-        print(f"File {pt_file} non trovato. Corri prima generate_dataset.py")
+    # Lista di file da verificare
+    files_to_verify = [
+        "Newtonian/dataset/poiseuille_noisy.pt",
+        "Newtonian/dataset/poiseuille_clean.pt"
+    ]
+    
+    for pt_file in files_to_verify:
+        if os.path.exists(pt_file):
+            verify_dataset(pt_file)
+        else:
+            print(f"File {pt_file} non trovato. Corri prima generate_dataset.py")

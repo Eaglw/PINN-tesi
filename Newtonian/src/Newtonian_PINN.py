@@ -49,7 +49,10 @@ def train_modelPINN(
     xy_int, T_int = data_internal
     xy_bc, T_bc = data_boundary
     xy_grid, T_exact_grid, X, Y = validation_grid
-    Nx_dom, Ny_dom = X.shape
+    # Spostiamo tutto su CPU per il plotting con matplotlib
+    X, Y = X.cpu(), Y.cpu()
+    T_exact_grid = T_exact_grid.cpu()
+    Ny_dom, Nx_dom = X.shape
     Lx, Ly = X.max().item(), Y.max().item()
 
     os.makedirs(plots_dir, exist_ok=True)
@@ -164,7 +167,16 @@ def train_modelPINN(
                 'LR': f"{current_lr:.1e}"
             })            
             model.eval()
-            with torch.no_grad(): T_pred_grid = model(xy_grid).reshape(Nx_dom, Ny_dom)
+            # Per calcolare u = psi_y serve attivare i gradienti, usiamo set_grad_enabled(True) 
+            with torch.set_grad_enabled(True): 
+                if not xy_grid.requires_grad: xy_grid.requires_grad_(True)
+                # Ricaviamo u dal problema fisico (Stream Function)
+                if hasattr(physics_problem, 'get_velocity'):
+                    u_pred, _, _ = physics_problem.get_velocity(model, xy_grid)
+                    T_pred_grid = u_pred.detach().cpu().reshape(Ny_dom, Nx_dom)
+                else:
+                    # Fallback per 3-output o altri casi
+                    T_pred_grid = model(xy_grid)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
             plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
             plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path, physics_points=xy_physics)
             plot_files.append(plot_path)
@@ -238,7 +250,13 @@ def train_modelPINN(
     # Plot Finale Interattivo
     print("Training completato. Generazione plot finale...")
     model.eval()
-    with torch.no_grad(): T_final = model(xy_grid).reshape(Nx_dom, Ny_dom)
+    with torch.set_grad_enabled(True): 
+        if not xy_grid.requires_grad: xy_grid.requires_grad_(True)
+        if hasattr(physics_problem, 'get_velocity'):
+            u_p, _, _ = physics_problem.get_velocity(model, xy_grid)
+            T_final = u_p.detach().cpu().reshape(Ny_dom, Nx_dom)
+        else:
+            T_final = model(xy_grid)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
     lambda_data_viz, lambda_bc_viz = loss_weights.get('data', 1.0), loss_weights.get('bc', 1.0)
     viz_data_points = []
     if lambda_data_viz > 0: viz_data_points.append(xy_int)

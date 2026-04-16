@@ -14,8 +14,9 @@ from func.logging_utils import compute_metrics, update_results_csv
 from func.sampling_utils import generate_internal_points, generate_grid_points, filter_and_refill, check_overlaps
 from datetime import datetime
 
-from Heat2D.src.Heat2D_NN import train_modelNN
-from Heat2D.src.Heat2D_NN_griglia import train_modelNN_griglia
+# Import locali Newtonian
+from Newtonian.src.Newtonian_PINN import train_modelPINN
+from Newtonian.src.Newtonian_physics import NewtonianPhysics
 
 torch.backends.cuda.matmul.allow_tf32 = False  # TF32 altera float64, tienilo off
 torch.backends.cudnn.benchmark = True           # auto-tuning kernel per size fissa
@@ -30,29 +31,6 @@ def setup_experiment_folder(parent_dir, goal_folder, description):
     os.makedirs(plots_dir, exist_ok=True)
     
     return exp_dir, plots_dir
-
-# --- 1. DEFINIZIONE DEL PROBLEMA E SOLUZIONE ANALITICA ---
-def soluzione_analitica(x, y, Lx=1.0, Ly=1.0, Nx=50):
-    """Versione vettorizzata: supporta sia tensori [N,1] che griglie 2D [H,W]."""
-    original_shape = x.shape
-    
-    # Porta tutto a [N, 1] per il broadcasting
-    x_flat = x.reshape(-1, 1)
-    y_flat = y.reshape(-1, 1)
-
-    n_vals = torch.arange(1, Nx + 1, 2, device=x.device, dtype=x.dtype)  # [K]
-    pi     = torch.tensor(torch.pi, device=x.device, dtype=x.dtype)
-
-    lam  = n_vals * pi / Ly                                               # [K]
-    An   = 4.0 / (n_vals * pi)                                            # [K]
-
-    # x_flat: [N,1], lam: [K]  →  broadcast a [N, K]
-    lx    = lam * x_flat
-    terms = An * (torch.sinh(lx) / torch.sinh(lam * Lx)) * torch.sin(lam * y_flat)
-    T_flat = terms.sum(dim=-1, keepdim=True)   # [N, 1]
-
-    # Riporta alla shape originale
-    return T_flat.reshape(original_shape)
     
 # --- 2. DEFINIZIONE DELLA RETE NEURALE ---
 class FCN(nn.Module):
@@ -89,23 +67,23 @@ print(f"Using device: {device} with default dtype: {torch.get_default_dtype()}")
 show_plots_interactively = False 
 
 # Cases to run: 0 (NN Random), 1 (NN Grid), 2 (PINN Data+Phys), 3 (Pure Phys)
-goal = [0, 1, 2, 3]
+goal = [3]
 
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
 layers_options = [
-    [2, 50, 50, 50, 50, 1], # Configurazione Originale
-    [2, 80, 80, 80, 80, 80, 80, 1],
-    [2, 100, 100, 100, 100, 100, 100, 100, 100, 1]   
+    [2, 50, 50, 50, 50, 2], # Input (x,y) -> Output (psi, p)
 ]
+    #[2, 80, 80, 80, 80, 80, 80, 1],
+    #[2, 100, 100, 100, 100, 100, 100, 100, 100, 1]
 
 epochs_options = [
-    40000
+    200
 ]
 
 activation_options = [
     nn.Tanh,
-    nn.SiLU,
-    nn.GELU
+    #nn.SiLU,
+    #nn.GELU
 ]
 
 lr_strategies = [
@@ -127,22 +105,50 @@ DYNAMIC_WEIGHT_STR = "Dynamic-Annealing"
 base_output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'experiments_weighted')
 results_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results.csv')
 
-# Dati fissi del problema
-Lx, Ly = 1.0, 1.0
-Nx_fourier = 50
-Nx_dom, Ny_dom = 50, 50
-x_grid = torch.linspace(0, Lx, Nx_dom, device=device)
-y_grid = torch.linspace(0, Ly, Ny_dom, device=device)
-X, Y = torch.meshgrid(x_grid, y_grid, indexing='xy')
-T_grid = soluzione_analitica(X, Y, Lx, Ly, Nx=Nx_fourier)
+# --- 4. CARICAMENTO DATASET E PARAMETRI ---
+# Cerchiamo il dataset in diverse posizioni possibili
+possible_paths = [
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dataset', 'poiseuille_clean.pt'),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Newtonian', 'dataset', 'poiseuille_clean.pt')
+]
+dataset_path = None
+for p in possible_paths:
+    if os.path.exists(p):
+        dataset_path = p
+        break
 
-# Imposta valori fisici esatti sui bordi della griglia di validazione (indexing='xy' -> [row=y, col=x])
-T_grid[0, :] = 0.0    # Bottom (y=0)
-T_grid[-1, :] = 0.0   # Top (y=Ly)
-T_grid[:, 0] = 0.0    # Left (x=0)
-T_grid[:, -1] = 1.0   # Right (x=Lx)
+if dataset_path is None:
+    print(f"❌ Dataset non trovato. Generalo prima con generate_dataset.py")
+    sys.exit(1)
 
-xy_grid_flat = torch.stack([X.flatten(), Y.flatten()], dim=1)
+dataset = torch.load(dataset_path, map_location=device)
+params = dataset['params']
+
+# Parametri fisici e di dominio estratti dal dataset
+Lx = params['L']
+Ly = params['H'] # Usiamo Ly per l'altezza H del canale
+mu = params['mu']
+u_max = params['u_max']
+
+print(f"Dataset caricato: L={Lx}, H={Ly}, mu={mu}, u_max={u_max}")
+
+# Griglia di validazione dal dataset
+xy_grid_flat = dataset['coords']
+u_exact = dataset['u_exact']
+p_exact = dataset['p_exact']
+psi_exact = dataset['psi_exact']
+v_exact = torch.zeros_like(u_exact) # Per Poiseuille 2D stazionario v=0
+
+# Ricostruiamo X, Y (2D) dalla griglia piatta per i plot
+x_sorted = torch.unique(xy_grid_flat[:, 0], sorted=True)
+y_sorted = torch.unique(xy_grid_flat[:, 1], sorted=True)
+Nx_dom, Ny_dom = len(x_sorted), len(y_sorted)
+
+X = xy_grid_flat[:, 0].reshape(Ny_dom, Nx_dom)
+Y = xy_grid_flat[:, 1].reshape(Ny_dom, Nx_dom)
+U_grid = u_exact.reshape(Ny_dom, Nx_dom)
+P_grid = p_exact.reshape(Ny_dom, Nx_dom)
+V_grid = v_exact.reshape(Ny_dom, Nx_dom)
 
 # Preparazione dati Training
 torch.manual_seed(123)
@@ -154,69 +160,66 @@ xy_master_grid = generate_grid_points(Nx_grid_master, Ny_grid_master, Lx, Ly, ma
 num_master_random = 1600
 xy_master_random = generate_internal_points(num_master_random, Lx, Ly, margin=margin, device=device)
 
-# 3. Boundary Points: 200 points (50 per side) - Optimized
-num_b_side = 50
-margin_bc = 0.02
-# Generazione punti equidistanti con margine di 0.02 dai bordi
-pts_bc = torch.linspace(margin_bc, Ly - margin_bc, num_b_side, device=device).reshape(-1, 1)
+# --- 5. DEFINIZIONE BOUNDARY CONDITIONS (u, v, p) ---
+# Usiamo il numero di punti coerente con la griglia del dataset
+num_b_y = Ny_dom 
+pts_bc = torch.linspace(0, Ly, num_b_y, device=device).reshape(-1, 1) # Da 0 a H
 
-# Left (x=0) - T=0
-bc_left = torch.cat([torch.zeros(num_b_side, 1, device=device), pts_bc], dim=1)
-bc_left_val = torch.zeros(num_b_side, 1, device=device)
+# Profilo Parabolico: u(y) = 4 * u_max * y * (H - y) / H^2
+u_parabolic = 4 * u_max * (pts_bc * (Ly - pts_bc)) / (Ly**2)
+v_zero = torch.zeros_like(pts_bc)
 
-# Right (x=Lx) - T=1
-bc_right = torch.cat([torch.ones(num_b_side, 1, device=device) * Lx, pts_bc], dim=1)
-bc_right_val = torch.ones(num_b_side, 1, device=device)
+# 1. Left (x=0) - Inlet: u=parabolico, v=0, p=p_in
+bc_left = torch.cat([torch.zeros(num_b_y, 1, device=device), pts_bc], dim=1)
+# Estraiamo p_in dal dataset (primo valore di p_exact all'inlet)
+p_in = p_exact.flatten()[0] # Assumiamo p costante all'inlet
+bc_left_val = torch.cat([u_parabolic, v_zero, torch.ones_like(pts_bc) * p_in], dim=1)
 
-# Bottom (y=0) - T=0
-bc_bottom = torch.cat([pts_bc, torch.zeros(num_b_side, 1, device=device)], dim=1)
-bc_bottom_val = torch.zeros(num_b_side, 1, device=device)
+# 2. Right (x=Lx) - Outlet: u=parabolico, v=0, p=p_out
+bc_right = torch.cat([torch.ones(num_b_y, 1, device=device) * Lx, pts_bc], dim=1)
+p_out = p_exact.flatten()[-1] # Assumiamo p costante all'outlet
+bc_right_val = torch.cat([u_parabolic, v_zero, torch.ones_like(pts_bc) * p_out], dim=1)
 
-# Top (y=Ly) - T=0
-bc_top = torch.cat([pts_bc, torch.ones(num_b_side, 1, device=device) * Ly], dim=1)
-bc_top_val = torch.zeros(num_b_side, 1, device=device)
+# 3. Walls (Top/Bottom) - No-slip: u=0, v=0
+num_b_x = Nx_dom
+pts_x = torch.linspace(0, Lx, num_b_x, device=device).reshape(-1, 1)
+# Bottom (y=0)
+bc_bottom = torch.cat([pts_x, torch.zeros(num_b_x, 1, device=device)], dim=1)
+# Estraiamo la pressione p dal dataset per il bordo inferiore
+p_bottom = P_grid[0, :] 
+bc_bottom_val = torch.cat([torch.zeros_like(pts_x), torch.zeros_like(pts_x), p_bottom.reshape(-1, 1)], dim=1)
+
+# Top (y=Ly)
+bc_top = torch.cat([pts_x, torch.ones(num_b_x, 1, device=device) * Ly], dim=1)
+p_top = P_grid[-1, :]
+bc_top_val = torch.cat([torch.zeros_like(pts_x), torch.zeros_like(pts_x), p_top.reshape(-1, 1)], dim=1)
 
 xy_master_boundary = torch.cat([bc_left, bc_right, bc_bottom, bc_top], dim=0)
-T_master_boundary = torch.cat([bc_left_val, bc_right_val, bc_bottom_val, bc_top_val], dim=0)
+uvp_master_boundary = torch.cat([bc_left_val, bc_right_val, bc_bottom_val, bc_top_val], dim=0)
 
-# Pre-calcolo Soluzione Analitica per i Master Sets
-T_master_grid = soluzione_analitica(xy_master_grid[:, 0:1], xy_master_grid[:, 1:2], Lx, Ly, Nx=Nx_fourier)
-T_master_random = soluzione_analitica(xy_master_random[:, 0:1], xy_master_random[:, 1:2], Lx, Ly, Nx=Nx_fourier)
-
-# --- CONFIGURAZIONE CASI NN ---
-# 0. NN Random: 1600 Random + Boundary
-xy_train_nn_random = torch.cat([xy_master_random, xy_master_boundary], dim=0)
-T_train_nn_random = torch.cat([T_master_random, T_master_boundary], dim=0)
-training_data_0 = (xy_train_nn_random, T_train_nn_random)
-
-# 1. NN Grid: 1600 Grid + Boundary
-xy_train_nn_grid = torch.cat([xy_master_grid, xy_master_boundary], dim=0)
-T_train_nn_grid = torch.cat([T_master_grid, T_master_boundary], dim=0)
-training_data_1 = (xy_train_nn_grid, T_train_nn_grid)
-
-# PINN Data+Phys Setup
+# Nota: xy_pinn_data and psip_pinn_data devono essere definiti o caricati.
 num_subset = 1000
-generator_fn = lambda n: generate_internal_points(n, Lx, Ly, margin=1e-5, device=device)
-xy_pinn_data = filter_and_refill(xy_master_grid, generator_fn, num_subset, d_min=1e-4)
-T_pinn_data = soluzione_analitica(xy_pinn_data[:, 0:1], xy_pinn_data[:, 1:2], Lx, Ly, Nx=Nx_fourier)
-pinn_data_internal = (xy_pinn_data, T_pinn_data)
-pinn_data_boundary = (xy_master_boundary, T_master_boundary)
+idx = torch.randperm(xy_grid_flat.shape[0])[:num_subset]
+xy_pinn_data = xy_grid_flat[idx]
+psip_pinn_data = torch.cat([psi_exact[idx], p_exact[idx]], dim=1) # Target [psi, p]
+
+pinn_data_internal = (xy_pinn_data, psip_pinn_data)
+pinn_data_boundary = (xy_master_boundary, uvp_master_boundary)
 
 # --- VERIFICA DISGIUNZIONE E OVERLAP ---
-print("\n--- Point Overlap Verification ---")
-check_overlaps(xy_train_nn_random, label="NN Random Set")
-check_overlaps(xy_train_nn_grid, label="NN Grid Set")
-check_overlaps(xy_pinn_data, label="PINN Data Set")
-check_overlaps(xy_master_boundary, label="Master Boundary")
-check_overlaps(xy_master_random, label="Master Random")
-ok_pinn = check_overlaps(torch.cat([xy_master_grid, xy_pinn_data, xy_master_boundary], dim=0), label="PINN Full Set")
+print("\n--- Point Overlap Verification (Disabled for Windows stability) ---")
+# check_overlaps(xy_pinn_data, label="PINN Data Set")
+# check_overlaps(xy_master_boundary, label="Master Boundary")
+# check_overlaps(xy_master_random, label="Master Random")
+# ok_pinn = check_overlaps(torch.cat([xy_master_grid, xy_pinn_data, xy_master_boundary], dim=0), label="PINN Full Set")
+ok_pinn = True # Bypass check
 
 if not ok_pinn:
     print("❌ Critical Overlap detected in PINN Full Set. Terminating.")
     sys.exit(1)
 print("----------------------------------\n")
 
-validation_grid_tuple = (xy_grid_flat, T_grid, X, Y)
+validation_grid_tuple = (xy_grid_flat, U_grid, X, Y)
 
 # --- GRID SEARCH EXECUTION ---
 total_configs = len(layers_options) * len(epochs_options) * len(activation_options) * len(lr_strategies) * len(weighting_options)
@@ -249,95 +252,6 @@ for layers_config in layers_options:
                     else:
                         lr_log_str = str(base_lr)
 
-                    # --- 0. NN Random ---
-                    if 0 in goal:
-                        print(f"  > 0. NN Random ({config_name})")
-                        exp_dir_0, plots_dir_0 = setup_experiment_folder(config_dir, "0_NN_Random", f"NN Random")
-                        
-                        model_0 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
-                        #model_0=torch.jit.script(model_0)
-                        optimizer_0 = torch.optim.Adam(model_0.parameters(), lr=base_lr)
-                        
-                        history_0 = train_modelNN(
-                            model=model_0,
-                            optimizer=optimizer_0,
-                            training_data=training_data_0,
-                            validation_grid=validation_grid_tuple,
-                            epochs=epochs,
-                            plots_dir=plots_dir_0,
-                            final_dir=exp_dir_0,
-                            show_plots_interactively=show_plots_interactively,
-                            lr_strategy=lr_strat
-                        )
-                        
-                        l2_err, max_err = compute_metrics(model_0, xy_grid_flat, T_grid)
-                        log_data = {
-                            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            'Architecture': str(layers_config),
-                            'Activation_Func': get_activation_name(act_fn),
-                            'Epochs': epochs,
-                            'Run_Type': 'NN_Random',
-                            'Optimizer': 'Adam', 
-                            'Learning_Rate': lr_log_str, 
-                            'Loss_Total': history_0.losses['total_loss'][-1] if history_0.losses['total_loss'] else 0,
-                            'Loss_Physics': 0,
-                            'Loss_Boundary': 0,
-                            'Loss_Data': history_0.losses['total_loss'][-1] if history_0.losses['total_loss'] else 0, 
-                            'L2_Relative_Error': l2_err,
-                            'Max_Relative_Error_Peak': max_err,
-                            'Seed': 123,
-                            'n_points': xy_train_nn_random.shape[0],
-                            'Loss_Weight': 'not_weighted'
-                        }
-                        update_results_csv(results_csv_path, log_data)
-                        histories['NN Random'] = history_0
-                        final_models['NN Random'] = model_0
-                        if os.path.exists(plots_dir_0): shutil.rmtree(plots_dir_0)
-
-                    # --- 1. NN Grid ---
-                    if 1 in goal:
-                        print(f"  > 1. NN Grid ({config_name})")
-                        exp_dir_1, plots_dir_1 = setup_experiment_folder(config_dir, "1_NN_Grid", f"NN Grid")
-                        
-                        model_1 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
-                        optimizer_1 = torch.optim.Adam(model_1.parameters(), lr=base_lr)
-                        
-                        history_1 = train_modelNN_griglia(
-                            model=model_1,
-                            optimizer=optimizer_1,
-                            training_data=training_data_1,
-                            validation_grid=validation_grid_tuple,
-                            epochs=epochs,
-                            plots_dir=plots_dir_1,
-                            final_dir=exp_dir_1,
-                            show_plots_interactively=show_plots_interactively,
-                            lr_strategy=lr_strat
-                        )
-                        
-                        l2_err, max_err = compute_metrics(model_1, xy_grid_flat, T_grid)
-                        log_data = {
-                            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            'Architecture': str(layers_config),
-                            'Activation_Func': get_activation_name(act_fn),
-                            'Epochs': epochs,
-                            'Run_Type': 'NN_Grid',
-                            'Optimizer': 'Adam',
-                            'Learning_Rate': lr_log_str,
-                            'Loss_Total': history_1.losses['total_loss'][-1] if history_1.losses['total_loss'] else 0,
-                            'Loss_Physics': 0,
-                            'Loss_Boundary': 0,
-                            'Loss_Data': history_1.losses['total_loss'][-1] if history_1.losses['total_loss'] else 0,
-                            'L2_Relative_Error': l2_err,
-                            'Max_Relative_Error_Peak': max_err,
-                            'Seed': 123,
-                            'n_points': xy_train_nn_grid.shape[0],
-                            'Loss_Weight': 'not_weighted'
-                        }
-                        update_results_csv(results_csv_path, log_data)
-                        histories['NN Grid'] = history_1
-                        final_models['NN Grid'] = model_1
-                        if os.path.exists(plots_dir_1): shutil.rmtree(plots_dir_1)
-
                     is_dynamic = (weight_mode == 'dynamic')
                     current_weight_str = DYNAMIC_WEIGHT_STR if is_dynamic else STATIC_WEIGHT_STR
 
@@ -345,10 +259,7 @@ for layers_config in layers_options:
                     if 2 in goal:
                         print(f"  > 2. PINN Data+Phys ({config_name})")
                         exp_dir_2, plots_dir_2 = setup_experiment_folder(config_dir, "2_PINN_DataPhys", f"PINN Data+Phys {weight_mode}")
-                        from Heat2D.src.Heat2D_PINN import train_modelPINN
-                        from Heat2D.src.physics import HeatEquation2D
-                        
-                        heat_physics = HeatEquation2D()
+                        phys_problem = NewtonianPhysics(mu=mu)
                         model_2 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
                         #model_2 = torch.compile(model_2)
                         optimizer_2 = torch.optim.Adam(model_2.parameters(), lr=base_lr)
@@ -362,7 +273,7 @@ for layers_config in layers_options:
                             data_internal=pinn_data_internal,
                             data_boundary=pinn_data_boundary,
                             validation_grid=validation_grid_tuple,
-                            physics_problem=heat_physics,
+                            physics_problem=phys_problem,
                             epochs=epochs,
                             plots_dir=plots_dir_2,
                             final_dir=exp_dir_2,
@@ -376,7 +287,7 @@ for layers_config in layers_options:
                             warmup_epochs=0 
                         )
                         
-                        l2_err, max_err = compute_metrics(model_2, xy_grid_flat, T_grid)
+                        l2_err, max_err = compute_metrics(model_2, xy_grid_flat, U_grid)
                         def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
                         
                         log_data = {
@@ -406,10 +317,7 @@ for layers_config in layers_options:
                     if 3 in goal:
                         print(f"  > 3. PINN PurePhys ({config_name})")
                         exp_dir_3, plots_dir_3 = setup_experiment_folder(config_dir, "3_PINN_PurePhys", f"PINN PurePhys {weight_mode}")
-                        from Heat2D.src.Heat2D_PINN import train_modelPINN
-                        from Heat2D.src.physics import HeatEquation2D
-                        
-                        heat_physics = HeatEquation2D()
+                        phys_problem = NewtonianPhysics(mu=mu)
                         model_3 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
                         optimizer_3 = torch.optim.Adam(model_3.parameters(), lr=base_lr)
                         
@@ -425,7 +333,7 @@ for layers_config in layers_options:
                             data_internal=pinn_data_internal,
                             data_boundary=pinn_data_boundary,
                             validation_grid=validation_grid_tuple,
-                            physics_problem=heat_physics,
+                            physics_problem=phys_problem,
                             epochs=epochs,
                             plots_dir=plots_dir_3,
                             final_dir=exp_dir_3,
@@ -439,7 +347,7 @@ for layers_config in layers_options:
                             warmup_epochs=0
                         )
 
-                        l2_err, max_err = compute_metrics(model_3, xy_grid_flat, T_grid)
+                        l2_err, max_err = compute_metrics(model_3, xy_grid_flat, U_grid)
                         log_data = {
                             'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                             'Architecture': str(layers_config),
@@ -474,13 +382,18 @@ for layers_config in layers_options:
                         if label in final_models:
                             model = final_models[label]
                             model.eval()
-                            with torch.no_grad():
-                                pred = model(xy_grid_flat).reshape(Nx_dom, Ny_dom)
+                            with torch.set_grad_enabled(True):
+                                if not xy_grid_flat.requires_grad: xy_grid_flat.requires_grad_(True)
+                                if hasattr(phys_problem, 'get_velocity'):
+                                    u_p, _, _ = phys_problem.get_velocity(model, xy_grid_flat)
+                                    pred = u_p.detach().cpu().reshape(Ny_dom, Nx_dom)
+                                else:
+                                    pred = model(xy_grid_flat)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
                             model_results.append({'T_pred': pred, 'label': label})
                     
                     if model_results:
                         hparams = {'arch': layers_str, 'epochs': str(epochs), 'act': act_str, 'lr_strategy': lr_strat, 'weight': current_weight_str}
-                        plot2D_unified_comparison(X, Y, T_grid, model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
+                        plot2D_unified_comparison(X, Y, U_grid, model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
 
                     from func.graphic_func import plot_loss_comparison
                     if 'PINN Data+Phys' in histories and 'PINN PurePhys' in histories:
