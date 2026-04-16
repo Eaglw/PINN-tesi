@@ -18,10 +18,12 @@ def compute_metrics(model, xy_grid_flat, T_grid_true):
     """
     model.eval()
     with torch.no_grad():
-        T_pred = model(xy_grid_flat)
+        # Ensure input has the same dtype as the model weights
+        dtype = next(model.parameters()).dtype
+        T_pred = model(xy_grid_flat.to(dtype))
         
-    # Ensure shapes match (flatten both)
-    T_pred_flat = T_pred.view(-1)
+    # Ensure shapes match (flatten both) and use analytical solution's dtype for metrics
+    T_pred_flat = T_pred.view(-1).to(T_grid_true.dtype)
     T_true_flat = T_grid_true.view(-1)
     
     # L2 Relative Error

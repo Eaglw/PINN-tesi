@@ -18,7 +18,7 @@ from datetime import datetime
 from Newtonian.src.Newtonian_PINN import train_modelPINN
 from Newtonian.src.Newtonian_physics import NewtonianPhysics
 
-torch.backends.cuda.matmul.allow_tf32 = False  # TF32 altera float64, tienilo off
+torch.backends.cuda.matmul.allow_tf32 = True  # Abilitato per velocizzare FP32 su Ampere+
 torch.backends.cudnn.benchmark = True           # auto-tuning kernel per size fissa
 torch.backends.cudnn.deterministic = False      # più veloce se non serve riproducibilità
 
@@ -60,7 +60,7 @@ def format_layers_name(layers):
 
 # Configurazione dispositivo e precisione
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 print(f"Using device: {device} with default dtype: {torch.get_default_dtype()}")
 
 # Wrapper per adattare il modello [psi, p] alle funzioni che si aspettano [u]
@@ -138,6 +138,10 @@ if dataset_path is None:
     sys.exit(1)
 
 dataset = torch.load(dataset_path, map_location=device)
+# Forza FP32 per la fase Adam iniziale
+for key in ['coords', 'u', 'v', 'p', 'psi', 'u_exact', 'p_exact', 'psi_exact']:
+    if key in dataset:
+        dataset[key] = dataset[key].to(torch.float32)
 params = dataset['params']
 
 # Parametri fisici e di dominio estratti dal dataset
@@ -238,6 +242,7 @@ print("----------------------------------\n")
 validation_grid_tuple = (xy_grid_flat, U_grid, X, Y)
 
 # --- GRID SEARCH EXECUTION ---
+torch.set_default_dtype(torch.float32) # Ensure we start in FP32
 total_configs = len(layers_options) * len(epochs_options) * len(activation_options) * len(lr_strategies) * len(weighting_options)
 print(f"Starting Weighted Grid Search over {total_configs} configurations...")
 
@@ -270,13 +275,14 @@ for layers_config in layers_options:
 
                     is_dynamic = (weight_mode == 'dynamic')
                     current_weight_str = DYNAMIC_WEIGHT_STR if is_dynamic else STATIC_WEIGHT_STR
+                    def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
 
                     # --- 2. PINN Data+Phys ---
                     if 2 in goal:
                         print(f"  > 2. PINN Data+Phys ({config_name})")
                         exp_dir_2, plots_dir_2 = setup_experiment_folder(config_dir, "2_PINN_DataPhys", f"PINN Data+Phys {weight_mode}")
                         phys_problem = NewtonianPhysics(mu=mu)
-                        model_2 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
+                        model_2 = FCN(layers=layers_config, activation_fn=act_fn).to(device).to(torch.float32)
                         #model_2 = torch.compile(model_2)
                         optimizer_2 = torch.optim.Adam(model_2.parameters(), lr=base_lr)
                         
@@ -299,13 +305,14 @@ for layers_config in layers_options:
                             lr_strategy=lr_strat,
                             loss_weights=w_2,
                             dynamic_weighting=is_dynamic,
-                            update_weights_every=500,
-                            warmup_epochs=0 
+                            update_weights_every=100,
+                            warmup_epochs=0,
+                            experiment_name="Newtonian PINN Data+Phys",
+                            val_label="u (Velocity)"
                         )
                         
                         metrics_wrapper = NewtonianModelWrapper(model_2, phys_problem)
                         l2_err, max_err = compute_metrics(metrics_wrapper, xy_grid_flat, U_grid)
-                        def get_last(hist, key): return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
                         
                         log_data = {
                             'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -335,7 +342,7 @@ for layers_config in layers_options:
                         print(f"  > 3. PINN PurePhys ({config_name})")
                         exp_dir_3, plots_dir_3 = setup_experiment_folder(config_dir, "3_PINN_PurePhys", f"PINN PurePhys {weight_mode}")
                         phys_problem = NewtonianPhysics(mu=mu)
-                        model_3 = FCN(layers=layers_config, activation_fn=act_fn).to(device)
+                        model_3 = FCN(layers=layers_config, activation_fn=act_fn).to(device).to(torch.float32)
                         optimizer_3 = torch.optim.Adam(model_3.parameters(), lr=base_lr)
                         
                         # For Pure Physics, data weight is always 0.
@@ -360,8 +367,10 @@ for layers_config in layers_options:
                             lr_strategy=lr_strat,
                             loss_weights=w_3,
                             dynamic_weighting=is_dynamic,
-                            update_weights_every=500,
-                            warmup_epochs=0
+                            update_weights_every=100,
+                            warmup_epochs=0,
+                            experiment_name="Newtonian PINN PurePhys",
+                            val_label="u (Velocity)"
                         )
 
                         metrics_wrapper = NewtonianModelWrapper(model_3, phys_problem)
@@ -401,12 +410,16 @@ for layers_config in layers_options:
                             model = final_models[label]
                             model.eval()
                             with torch.set_grad_enabled(True):
-                                if not xy_grid_flat.requires_grad: xy_grid_flat.requires_grad_(True)
+                                # Ensure input has the same dtype as model weights (could be float64 after L-BFGS)
+                                dtype = next(model.parameters()).dtype
+                                x_input = xy_grid_flat.to(dtype)
+                                if not x_input.requires_grad: x_input.requires_grad_(True)
+                                
                                 if hasattr(phys_problem, 'get_velocity'):
-                                    u_p, _, _ = phys_problem.get_velocity(model, xy_grid_flat)
-                                    pred = u_p.detach().cpu().reshape(Ny_dom, Nx_dom)
+                                    u_p, _, _ = phys_problem.get_velocity(model, x_input)
+                                    pred = u_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
                                 else:
-                                    pred = model(xy_grid_flat)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
+                                    pred = model(x_input)[:, 0].detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
                             model_results.append({'T_pred': pred, 'label': label})
                     
                     if model_results:

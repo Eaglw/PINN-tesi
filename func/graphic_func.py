@@ -31,7 +31,7 @@ def plot_result(i,x,y,x_data,y_data,yh,xp=None):
     plt.text(1.065,0.7,"Training step: %i"%(i+1),fontsize="xx-large",color="k")
     plt.axis("off")
 
-def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=None):
+def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=None, val_label='Value'):
     """Genera grafici side-by-side: Predizione, Errore Assoluto, Errore Relativo.
     Rinominata da plot_comparison per uso generale.
     Aggiunge la visualizzazione dei punti di collocazione della fisica se forniti."""
@@ -45,22 +45,23 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     if mask.sum() > 0:
         rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
     
-    # Setup plot
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    # Setup plot: 3 rows, 1 col for stacked visualization (optimal for channels)
+    fig, axes = plt.subplots(3, 1, figsize=(12, 12))
     X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
     
     # 1. Soluzione Predetta
     ax = axes[0]
     c1 = ax.contourf(X_np, Y_np, T_pred.detach().cpu().numpy(), levels=50, cmap='inferno')
-    plt.colorbar(c1, ax=ax, label='Temp')
+    plt.colorbar(c1, ax=ax, label=val_label)
     ax.set_title(f'Predizione (Epoch {epoch})')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
+    ax.set_aspect('equal', adjustable='box')
     
     # Aggiungi i punti della fisica
-    if physics_points is not None:
+    if physics_points is not None and len(physics_points) > 0:
         xy_physics_np = physics_points.detach().cpu().numpy()
-        ax.scatter(xy_physics_np[:, 0], xy_physics_np[:, 1], s=5, color='white', alpha=0.6, label='Punti Fisica')
+        ax.scatter(xy_physics_np[:, 0], xy_physics_np[:, 1], s=5, color='white', marker='x', alpha=0.6, label='Punti Fisica')
         ax.legend(loc='upper right')
 
     # 2. Errore Assoluto (Più robusto)
@@ -69,6 +70,7 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     plt.colorbar(c2, ax=ax, label='Errore Assoluto')
     ax.set_title('Errore Assoluto |T_pred - T_true|')
     ax.set_xlabel('x')
+    ax.set_aspect('equal', adjustable='box')
 
     # 3. Errore Relativo (Locale)
     ax = axes[2]
@@ -77,6 +79,7 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     cbar = plt.colorbar(c3, ax=ax, label='% Errore Relativo (|err|/|T_true|)')
     ax.set_title('Errore Relativo % (|err| / |T_true|)')
     ax.set_xlabel('x')
+    ax.set_aspect('equal', adjustable='box')
 
     plt.tight_layout()
     if save_path:
@@ -86,10 +89,10 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     else:
         plt.show()
 
-def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, data_points=None, physics_points=None):
+def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, internal_points=None, boundary_points=None, physics_points=None, val_label='Value'):
     """
     Generates a 2-column plot:
-    Left: Solution u(x,y) with overlaid training points (Data & Physics).
+    Left: Solution u(x,y) with overlaid training points (Internal, Boundary & Physics).
     Right: Relative Error Map %.
     """
     # Calculate Relative Error Standard (diviso per valore locale) con masking
@@ -99,28 +102,34 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, data_points=None
     if mask.sum() > 0:
         rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
     
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    # Setup plot: 2 rows, 1 col for stacked visualization (optimal for channels)
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
     X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
     
     # 1. Solution + Points
     ax = axes[0]
     c1 = ax.contourf(X_np, Y_np, T_pred.detach().cpu().numpy(), levels=50, cmap='inferno')
-    plt.colorbar(c1, ax=ax, label='Temp')
+    plt.colorbar(c1, ax=ax, label=val_label)
     ax.set_title(f'Prediction (Epoch {epoch})')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
+    ax.set_aspect('equal', adjustable='box')
     
     # Overlay Points
-    if physics_points is not None:
+    if physics_points is not None and len(physics_points) > 0:
         xy_phys = physics_points.detach().cpu().numpy()
-        ax.scatter(xy_phys[:, 0], xy_phys[:, 1], s=10, c='white', marker='x', alpha=0.6, label='Physics Points')
+        ax.scatter(xy_phys[:, 0], xy_phys[:, 1], s=10, c='white', marker='x', alpha=0.5, label='Physics Points')
         
-    if data_points is not None:
-        xy_data = data_points.detach().cpu().numpy()
-        ax.scatter(xy_data[:, 0], xy_data[:, 1], s=15, c='white', marker='o', alpha=0.8, label='Data Points')
+    if internal_points is not None and len(internal_points) > 0:
+        xy_int = internal_points.detach().cpu().numpy()
+        ax.scatter(xy_int[:, 0], xy_int[:, 1], s=15, c='cyan', marker='o', alpha=0.8, edgecolor='k', label='Internal Points')
         
-    if physics_points is not None or data_points is not None:
-        ax.legend(loc='upper right', framealpha=0.9)
+    if boundary_points is not None and len(boundary_points) > 0:
+        xy_bc = boundary_points.detach().cpu().numpy()
+        ax.scatter(xy_bc[:, 0], xy_bc[:, 1], s=20, c='red', marker='s', alpha=0.8, edgecolor='k', label='Boundary Points')
+        
+    if physics_points is not None or internal_points is not None or boundary_points is not None:
+        ax.legend(loc='upper right', framealpha=0.9, fontsize='small')
 
     # 2. Relative Error
     ax = axes[1]
@@ -129,6 +138,7 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, data_points=None
     ax.set_title('Relative Error % (|err| / |T_true|)')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
+    ax.set_aspect('equal', adjustable='box')
 
     plt.tight_layout()
     if save_path:
@@ -192,6 +202,7 @@ def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_pat
         ax.set_title(label, fontsize=14)
         ax.set_xlabel('x')
         ax.set_ylabel('y')
+        ax.set_aspect('equal', adjustable='box')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust for suptitle
     
@@ -207,7 +218,8 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
     Plots side-by-side relative error maps for multiple models.
     """
     num_models = len(T_preds)
-    fig, axes = plt.subplots(1, num_models, figsize=(6 * num_models, 5))
+    # Stacked vertically for channel geometries
+    fig, axes = plt.subplots(num_models, 1, figsize=(12, 5 * num_models))
     if num_models == 1:
         axes = [axes]
         
@@ -237,6 +249,7 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
         ax.set_xlabel('x')
         if i == 0:
             ax.set_ylabel('y')
+        ax.set_aspect('equal', adjustable='box')
             
     plt.tight_layout()
     

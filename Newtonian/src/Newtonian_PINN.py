@@ -13,7 +13,7 @@ from func.history_tracker import TrainingHistory, compute_pinn_loss
 
 # Configurazione dispositivo e precisione
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-torch.set_default_dtype(torch.float64)
+# Rimosso set_default_dtype globale per non interferire con Adam @ FP32
 
 # ---  DEFINIZIONE DELLA LOSS FISICA ---
 def heat2d_physics_loss(model, xy_p):
@@ -36,7 +36,8 @@ def train_modelPINN(
     show_plots_interactively=True, log_gradients_every=0, loss_weights=None,
     warmup_epochs=None, n_collocation=(50, 50), collocation_points=None,
     lr_strategy='fixed', dynamic_weighting=False, update_weights_every=100,
-    max_total_lbfgs=5000, resample_every=0, resample_fn=None
+    max_total_lbfgs=100, resample_every=0, resample_fn=None,
+    experiment_name="PINN Training", val_label="Value"
 ):
     """
     Esegue il training della PINN.
@@ -178,12 +179,24 @@ def train_modelPINN(
                     # Fallback per 3-output o altri casi
                     T_pred_grid = model(xy_grid)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
             plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
-            plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path, physics_points=xy_physics)
+            plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path, physics_points=xy_physics, val_label=val_label)
             plot_files.append(plot_path)
 
-    # L-BFGS con retry logic su LR
-    print("\nInizio fase di raffinamento con L-BFGS...")
+    # --- STAGED PRECISION SWITCH ---
+    # Prima di iniziare L-BFGS, passiamo a FP64 (Float64) per la massima precisione scientifica
+    print("\n--- Switching to FP64 for L-BFGS Refinement ---")
+    torch.set_default_dtype(torch.float64)
+    torch.backends.cuda.matmul.allow_tf32 = False # Disabilitato per FP64
+    model.double()
+    xy_int, T_int = xy_int.double(), T_int.double()
+    xy_bc, T_bc = xy_bc.double(), T_bc.double()
+    xy_physics = xy_physics.double()
+    xy_grid, T_exact_grid = xy_grid.double(), T_exact_grid.double()
+    X, Y = X.double(), Y.double()
+
     lbfgs_iter = [0]
+    pbar_lbfgs = tqdm(total=max_total_lbfgs, desc="Training PINN (L-BFGS)")
+    
     for current_lr in [1.0, 0.5]:
         start_iter_call = lbfgs_iter[0]
         remaining_evals = max_total_lbfgs - start_iter_call
@@ -218,8 +231,13 @@ def train_modelPINN(
             )
             loss.backward()
             if lbfgs_iter[0] % 10 == 0: 
-                loss_history.update(epochs + lbfgs_iter[0], loss_dict, lr=current_lr)
+                history_entry = loss_dict.copy()
+                history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
+                loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=current_lr)
+            
             lbfgs_iter[0] += 1
+            pbar_lbfgs.update(1)
+            pbar_lbfgs.set_postfix({'Loss': f"{loss.item():.2e}"})
             return loss
             
         optimizer_lbfgs.step(closure)
@@ -229,7 +247,9 @@ def train_modelPINN(
             break
         
         if current_lr == 1.0:
-            print(f"L-BFGS interrotto a {lbfgs_iter[0]} chiamate (LR=1.0). Riprovo con LR=0.5 per le restanti {max_total_lbfgs - lbfgs_iter[0]}...")
+            print(f"\nL-BFGS interrotto a {lbfgs_iter[0]} chiamate (LR=1.0). Riprovo con LR=0.5 per le restanti {max_total_lbfgs - lbfgs_iter[0]}...")
+    
+    pbar_lbfgs.close()
     
    # Final loss check after L-BFGS
     final_loss, final_loss_dict = compute_pinn_loss(
@@ -245,7 +265,9 @@ def train_modelPINN(
             lambda_bc=lambda_bc,
             lambda_physics=target_lambda_physics
     )
-    loss_history.update(epochs + lbfgs_iter[0], final_loss_dict, lr=current_lr)
+    final_entry = final_loss_dict.copy()
+    final_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
+    loss_history.update(epochs + lbfgs_iter[0], final_entry, lr=current_lr)
     print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss.item():.2e}")    
     # Plot Finale Interattivo
     print("Training completato. Generazione plot finale...")
@@ -258,13 +280,11 @@ def train_modelPINN(
         else:
             T_final = model(xy_grid)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
     lambda_data_viz, lambda_bc_viz = loss_weights.get('data', 1.0), loss_weights.get('bc', 1.0)
-    viz_data_points = []
-    if lambda_data_viz > 0: viz_data_points.append(xy_int)
-    if lambda_bc_viz > 0: viz_data_points.append(xy_bc)
-    xy_data_points = torch.cat(viz_data_points, dim=0) if viz_data_points else None
+    internal_pts = xy_int if lambda_data_viz > 0 else None
+    boundary_pts = xy_bc if lambda_bc_viz > 0 else None
 
     final_path = os.path.join(final_dir, 'PINNfinal_result.png')
-    plot2D_final_result(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, data_points=xy_data_points, physics_points=xy_physics)
+    plot2D_final_result(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, internal_points=internal_pts, boundary_points=boundary_pts, physics_points=xy_physics, val_label=val_label)
     
     # Generazione GIF
     print(f"Creazione GIF con {len(plot_files)} frames...")
@@ -277,20 +297,22 @@ def train_modelPINN(
         warmup_epoch=warmup_epochs, 
         adam_epochs=epochs,
         save_path=os.path.join(final_dir, 'PINNloss_history.png'), 
-        experiment_name="Heat2D PINN", 
+        experiment_name=experiment_name, 
         show_plot=show_plots_interactively,
         skip_epochs=50
     )
     
     # Plot Gradient History if available
-    loss_history.plot_gradients(save_path=os.path.join(final_dir, 'PINN_gradients.png'), experiment_name="Heat2D PINN Gradients", show_plot=show_plots_interactively)
+    loss_history.plot_gradients(save_path=os.path.join(final_dir, 'PINN_gradients.png'), experiment_name=f"{experiment_name} Gradients", show_plot=show_plots_interactively)
     
     # Plot Weight History if available
-    loss_history.plot_weights(save_path=os.path.join(final_dir, 'PINN_weights.png'), experiment_name="Heat2D PINN Weights", show_plot=show_plots_interactively)
+    loss_history.plot_weights(save_path=os.path.join(final_dir, 'PINN_weights.png'), experiment_name=f"{experiment_name} Weights", show_plot=show_plots_interactively)
 
     if show_plots_interactively:
         plt.show()
     else:
         plt.close("all")
 
+    # RIPRISTINO PRECISIONE PER EVENTUALI CHIAMATE SUCCESSIVE
+    torch.set_default_dtype(torch.float32)
     return loss_history
