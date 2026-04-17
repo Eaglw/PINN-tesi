@@ -15,20 +15,47 @@ from func.history_tracker import TrainingHistory, compute_pinn_loss
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Rimosso set_default_dtype globale per non interferire con Adam @ FP32
 
-# ---  DEFINIZIONE DELLA LOSS FISICA ---
-def heat2d_physics_loss(model, xy_p):
-    """
-    Calcola il residuo dell'equazione di Laplace 2D: d2T/dx2 + d2T/dy2 = 0
-    """
-    T = model(xy_p)
-    grads = torch.autograd.grad(T, xy_p, torch.ones_like(T), create_graph=True)[0]
-    dT_dx, dT_dy = grads[:, 0], grads[:, 1]
-    grads2_x = torch.autograd.grad(dT_dx, xy_p, torch.ones_like(dT_dx), create_graph=True, allow_unused=True)[0]
-    d2T_dx2 = grads2_x[:, 0] if grads2_x is not None else torch.zeros_like(dT_dx)
-    grads2_y = torch.autograd.grad(dT_dy, xy_p, torch.ones_like(dT_dy), create_graph=True, allow_unused=True)[0]
-    d2T_dy2 = grads2_y[:, 1] if grads2_y is not None else torch.zeros_like(dT_dy)
-    res = d2T_dx2 + d2T_dy2
-    return torch.mean(res**2)
+# ---  DEFINIZIONE DELLA RETE NEURALE E WRAPPER ---
+class FCN(nn.Module):
+    """Rete Neurale a Connessioni Complete (Fully Connected Network)"""
+    def __init__(self, layers, activation_fn=nn.Tanh):
+        super().__init__()
+        self.activation = activation_fn()
+        self.fcs = nn.ModuleList()
+        for i in range(len(layers) - 1):
+            self.fcs.append(nn.Linear(layers[i], layers[i+1]))
+    def forward(self, x):
+        for layer in self.fcs[:-1]:   # tutti tranne l'ultimo
+            x = self.activation(layer(x))
+        return self.fcs[-1](x) 
+    def loss_fn(self, pred, target):
+        return nn.MSELoss()(pred, target)
+
+def get_activation_name(activation_class):
+    return activation_class.__name__
+
+def format_layers_name(layers):
+    if len(layers) > 3:
+        hidden = layers[1:-1]
+        if all(x == hidden[0] for x in hidden):
+            return f"{layers[0]}_{hidden[0]}x{len(hidden)}_{layers[-1]}"
+    return "_".join(map(str, layers))
+
+class NewtonianModelWrapper(nn.Module):
+    def __init__(self, model, phys_problem):
+        super().__init__()
+        self.model = model
+        self.phys_problem = phys_problem
+    def forward(self, x):
+        with torch.set_grad_enabled(True):
+            if not x.requires_grad: x.requires_grad_(True)
+            u, _, _ = self.phys_problem.get_velocity(self.model, x)
+        return u.detach()
+    def eval(self):
+        self.model.eval()
+        return self
+
+
 
 def train_modelPINN(
     model, optimizer, data_internal, data_boundary, validation_grid,
@@ -92,9 +119,9 @@ def train_modelPINN(
         optimizer.zero_grad(set_to_none=True)
         # Gestione Warmup con solo dati
         if epoch < warmup_epochs:
-            current_physics_fn, current_physics_problem, lambda_physics, phase_desc = None, None, 0.0, "Warmup"
+            current_physics_problem, lambda_physics, phase_desc = None, 0.0, "Warmup"
         else:
-            current_physics_fn, current_physics_problem, lambda_physics, phase_desc = (heat2d_physics_loss if physics_problem is None else None), physics_problem, target_lambda_physics, "Physics"
+            current_physics_problem, lambda_physics, phase_desc = physics_problem, target_lambda_physics, "Physics"
 
         # Calcolo loss
         loss, loss_dict = compute_pinn_loss(
@@ -103,7 +130,7 @@ def train_modelPINN(
             y_data=T_int,
             x_bc=xy_bc,
             y_bc=T_bc,
-            physics_loss_fn=current_physics_fn, 
+            physics_loss_fn=None, 
             physics_problem=current_physics_problem,
             x_physics=xy_physics,
             lambda_data=lambda_data,
@@ -117,7 +144,7 @@ def train_modelPINN(
             max_norm_bc = max([g.norm(2) for g in grads_bc if g is not None]).item() if any(g is not None for g in grads_bc) else 0.0
             
             if lambda_physics > 0:
-                pure_phys = physics_problem.residual(model, xy_physics) if physics_problem else heat2d_physics_loss(model, xy_physics)
+                pure_phys = physics_problem.residual(model, xy_physics)
                 grads_ph = torch.autograd.grad(pure_phys, model.parameters(), retain_graph=True, allow_unused=True)
                 m_n_ph = max([g.norm(2) for g in grads_ph if g is not None]).item() if any(g is not None for g in grads_ph) else 0.0
                 if m_n_ph > 1e-12: target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * (max_norm_bc/m_n_ph)*lambda_bc
@@ -222,7 +249,7 @@ def train_modelPINN(
                 y_data=T_int,
                 x_bc=xy_bc,
                 y_bc=T_bc,
-                physics_loss_fn=heat2d_physics_loss if physics_problem is None else None, 
+                physics_loss_fn=None, 
                 physics_problem=physics_problem,
                 x_physics=xy_physics,
                 lambda_data=lambda_data,
@@ -258,7 +285,7 @@ def train_modelPINN(
             y_data=T_int,
             x_bc=xy_bc,
             y_bc=T_bc,
-            physics_loss_fn=heat2d_physics_loss if physics_problem is None else None, 
+            physics_loss_fn=None, 
             physics_problem=physics_problem,
             x_physics=xy_physics,
             lambda_data=lambda_data,

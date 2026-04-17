@@ -71,3 +71,42 @@ class NewtonianPhysics:
         u, v, p = self.get_velocity(model, x_bc)
         pred = torch.cat([u, v, p], dim=1)
         return nn.MSELoss()(pred, y_bc)
+
+def generate_boundaries(Lx, Ly, u_max, p_exact, P_grid, Nx_dom, Ny_dom, device):
+    """
+    Generates boundary conditions points and target values [u, v, p] for a 2D Poiseuille flow.
+    """
+    num_b_y = Ny_dom 
+    pts_bc = torch.linspace(0, Ly, num_b_y, device=device).reshape(-1, 1)
+    
+    u_parabolic = 4 * u_max * (pts_bc * (Ly - pts_bc)) / (Ly**2)
+    v_zero = torch.zeros_like(pts_bc)
+    
+    # Left (x=0) - Inlet
+    bc_left = torch.cat([torch.zeros(num_b_y, 1, device=device), pts_bc], dim=1)
+    p_in = p_exact.flatten()[0]
+    bc_left_val = torch.cat([u_parabolic, v_zero, torch.ones_like(pts_bc) * p_in], dim=1)
+    
+    # Right (x=Lx) - Outlet
+    bc_right = torch.cat([torch.ones(num_b_y, 1, device=device) * Lx, pts_bc], dim=1)
+    p_out = p_exact.flatten()[-1]
+    bc_right_val = torch.cat([u_parabolic, v_zero, torch.ones_like(pts_bc) * p_out], dim=1)
+    
+    # Walls (Top/Bottom) - No-slip
+    num_b_x = Nx_dom
+    pts_x = torch.linspace(0, Lx, num_b_x, device=device).reshape(-1, 1)
+    
+    # Bottom (y=0)
+    bc_bottom = torch.cat([pts_x, torch.zeros(num_b_x, 1, device=device)], dim=1)
+    p_bottom = P_grid[0, :] 
+    bc_bottom_val = torch.cat([torch.zeros_like(pts_x), torch.zeros_like(pts_x), p_bottom.reshape(-1, 1)], dim=1)
+    
+    # Top (y=Ly)
+    bc_top = torch.cat([pts_x, torch.ones(num_b_x, 1, device=device) * Ly], dim=1)
+    p_top = P_grid[-1, :]
+    bc_top_val = torch.cat([torch.zeros_like(pts_x), torch.zeros_like(pts_x), p_top.reshape(-1, 1)], dim=1)
+    
+    xy_boundary = torch.cat([bc_left, bc_right, bc_bottom, bc_top], dim=0)
+    uvp_boundary = torch.cat([bc_left_val, bc_right_val, bc_bottom_val, bc_top_val], dim=0)
+    
+    return xy_boundary, uvp_boundary
