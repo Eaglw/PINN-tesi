@@ -40,9 +40,9 @@ show_plots_interactively = False
 goals_to_run = [2, 3]
 
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
-layers_options = [[2, 50, 50, 50, 50, 2]]
-epochs_options = [200]
-activation_options = [nn.Tanh]
+layers_options = [[2, 120, 100, 80, 60, 40, 20, 2]]
+epochs_options = [8000]
+activation_options = [nn.SiLU]
 lr_strategies = ['plateau']
 weighting_options = ['dynamic']
 
@@ -186,7 +186,7 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
         if label in final_models:
             model = final_models[label].eval()
             with torch.set_grad_enabled(True):
-                x_input = xy_grid_flat.to(next(model.parameters()).dtype).requires_grad_(True)
+                x_input = xy_grid_flat.clone().to(next(model.parameters()).dtype).requires_grad_(True)
                 u_p, _, _ = phys_problem.get_velocity(model, x_input)
                 pred = u_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
             model_results.append({'T_pred': pred, 'label': label})

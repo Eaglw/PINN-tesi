@@ -47,7 +47,7 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     
     # Setup plot: 3 rows, 1 col for stacked visualization (optimal for channels)
     fig, axes = plt.subplots(3, 1, figsize=(12, 12))
-    X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
+    X_np, Y_np = X.detach().cpu().numpy(), Y.detach().cpu().numpy()
     
     # 1. Soluzione Predetta
     ax = axes[0]
@@ -104,7 +104,7 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, internal_points=
     
     # Setup plot: 2 rows, 1 col for stacked visualization (optimal for channels)
     fig, axes = plt.subplots(2, 1, figsize=(12, 10))
-    X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
+    X_np, Y_np = X.detach().cpu().numpy(), Y.detach().cpu().numpy()
     
     # 1. Solution + Points
     ax = axes[0]
@@ -164,7 +164,7 @@ def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_pat
         return
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-    X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
+    X_np, Y_np = X.detach().cpu().numpy(), Y.detach().cpu().numpy()
     
     # Max for normalization
     T_max = torch.max(torch.abs(T_true)).item()
@@ -223,7 +223,7 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
     if num_models == 1:
         axes = [axes]
         
-    X_np, Y_np = X.cpu().numpy(), Y.cpu().numpy()
+    X_np, Y_np = X.detach().cpu().numpy(), Y.detach().cpu().numpy()
     
     # Max for normalization
     T_max = torch.max(torch.abs(T_true)).item()

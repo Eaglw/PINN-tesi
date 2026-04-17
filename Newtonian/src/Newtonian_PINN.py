@@ -87,7 +87,7 @@ def train_modelPINN(
     os.makedirs(final_dir, exist_ok=True)
     plot_files = []
     
-    pbar = tqdm(range(epochs), desc=f"Training PINN (Adam) ({lr_strategy})")
+    pbar = tqdm(range(epochs), desc=f"Training PINN (Adam) ({lr_strategy})", mininterval=2.0)
     loss_history = TrainingHistory()
     
     if loss_weights is None: loss_weights = {'data': 1.0, 'bc': 1.0, 'physics': 1.0}
@@ -222,7 +222,7 @@ def train_modelPINN(
     X, Y = X.double(), Y.double()
 
     lbfgs_iter = [0]
-    pbar_lbfgs = tqdm(total=max_total_lbfgs, desc="Training PINN (L-BFGS)")
+    pbar_lbfgs = tqdm(total=max_total_lbfgs, desc="Training PINN (L-BFGS)", mininterval=2.0)
     
     for current_lr in [1.0, 0.5]:
         start_iter_call = lbfgs_iter[0]

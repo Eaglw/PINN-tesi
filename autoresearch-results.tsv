@@ -1,0 +1,17 @@
+iteration	commit	metric	delta	status	guard	description
+0	-	0.1163090467453002	0.0	baseline	pass	initial measurement
+1	-	0.8408787250518799	0.7245696783065796	discard	skip	switch activation to SiLU
+2	b45bb76	0.0480933859944343	-0.0682156607508659	keep	pass	increase epochs to 1000
+3	0a42e3c	0.0099054165184497	-0.0381879694759846	keep	pass	tapered architecture [120, 100, 80, 60, 40, 20]
+4	6923367	0.0047686854377388	-0.0051367310807109	keep	pass	retry SiLU with tapered arch and 1000 epochs
+5	d0c110e	0.0038056494668126	-0.0009630359709262	keep	pass	increase epochs to 2000
+6	1e86709	0.0021214333828538	-0.0016842160839588	keep	pass	increase epochs to 3000
+7	669955b	0.0014553910586982	-0.0006660423241556	keep	pass	increase epochs to 4000
+8	-	0.0019346465123817	0.0004792554536835	discard	skip	wider tapered architecture [180, 150, 120, 90, 60, 30]
+9	3983470	0.0010666575981304	-0.0003887334605678	keep	pass	increase epochs to 6000
+10	-	0.0013823457993566	0.0003156882012262	discard	skip	increase dynamic weight update frequency to 50
+11	-	0.0012204783270135	0.0001538207288831	discard	skip	wider tapered architecture [200, 160, 120, 80, 40, 20]
+12	0934fbf	0.0006463970057666	-0.0004202605923638	keep	pass	increase epochs to 8000
+13	-	0.0013572820462286	0.0007108850404620	discard	skip	increase epochs to 10000
+14	-	0.001049909624271	0.0004035126185044	discard	skip	increase collocation points (num_subset=1500)
+15	-	0.0011019931407645	0.0004555961349979	discard	skip	repeat bottleneck layer [120, 100, 80, 80, 60, 40, 20]
