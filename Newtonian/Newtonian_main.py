@@ -54,14 +54,10 @@ base_output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'expe
 results_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results.csv')
 
 # --- CARICAMENTO DATASET ---
-possible_paths = [
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dataset', 'poiseuille_clean.pt'),
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Newtonian', 'dataset', 'poiseuille_clean.pt')
-]
-dataset_path = next((p for p in possible_paths if os.path.exists(p)), None)
+dataset_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dataset', 'poiseuille_clean.pt')
 
-if not dataset_path:
-    print(f"❌ Dataset non trovato.")
+if not os.path.exists(dataset_path):
+    print(f"❌ Dataset non trovato in: {dataset_path}")
     sys.exit(1)
 
 dataset = torch.load(dataset_path, map_location=device)

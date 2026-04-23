@@ -91,10 +91,13 @@ def verify_dataset(file_path):
     # plt.show() # Rimosso per non bloccare lo script
 
 if __name__ == "__main__":
-    # Lista di file da verificare
+    # La cartella del dataset è quella dove si trova lo script
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Lista di file da verificare (usa percorsi relativi alla posizione dello script o assoluti)
     files_to_verify = [
-        "Newtonian/dataset/poiseuille_noisy.pt",
-        "Newtonian/dataset/poiseuille_clean.pt"
+        os.path.join(current_dir, "poiseuille_noisy.pt"),
+        os.path.join(current_dir, "poiseuille_clean.pt")
     ]
     
     for pt_file in files_to_verify:

@@ -20,7 +20,7 @@ def generate_poiseuille_dataset(
     sampling_type='grid',
     noise_type='percentage', 
     noise_value=0.01,
-    save_dir='Newtonian/dataset',
+    save_dir=os.path.dirname(os.path.abspath(__file__)),
     filename='poiseuille_data'
 ):
     """
