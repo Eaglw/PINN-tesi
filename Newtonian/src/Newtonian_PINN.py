@@ -41,7 +41,25 @@ def format_layers_name(layers):
             return f"{layers[0]}_{hidden[0]}x{len(hidden)}_{layers[-1]}"
     return "_".join(map(str, layers))
 
-class NewtonianModelWrapper(nn.Module):
+class NewtonianCombinedModel(nn.Module):
+    """
+    Wrapper to unify separate networks for Training (e.g. model_psi and model_p).
+    Mimics a single model with multiple outputs [psi, p].
+    """
+    def __init__(self, model_psi, model_p):
+        super().__init__()
+        self.model_psi = model_psi
+        self.model_p = model_p
+    def forward(self, x):
+        psi = self.model_psi(x)
+        p = self.model_p(x)
+        return torch.cat([psi, p], dim=1)
+
+class VelocityInferenceWrapper(nn.Module):
+    """
+    Wrapper to extract Velocity (u) from a Combined Model or Single Model.
+    Used for metrics and validation plots.
+    """
     def __init__(self, model, phys_problem):
         super().__init__()
         self.model = model
@@ -57,7 +75,7 @@ class NewtonianModelWrapper(nn.Module):
 
 
 
-def train_modelPINN(
+def train_NewtonianPINN(
     model, optimizer, data_internal, data_boundary, validation_grid,
     epochs=20000, physics_problem=None, plots_dir='plots', final_dir='Heat2D/Results',
     show_plots_interactively=True, log_gradients_every=0, loss_weights=None,
@@ -185,7 +203,7 @@ def train_modelPINN(
             if lambda_data > 0: monitored_loss += loss_dict.get('data_loss', 0.0)
             if lambda_bc > 0: monitored_loss += loss_dict.get('bc_loss', 0.0)
             if lambda_physics > 0: monitored_loss += loss_dict.get('pde_loss', 0.0)
-            scheduler.step(monitored_loss)
+            scheduler.step(monitored_loss.item() if hasattr(monitored_loss, 'item') else monitored_loss)
             # Monitoraggio e Plotting periodico
         if (epoch + 1) % 500 == 0:
             pbar.set_postfix({

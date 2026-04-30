@@ -15,7 +15,7 @@ from func.sampling_utils import generate_internal_points, generate_grid_points
 from func.graphic_func import plot2D_unified_comparison, plot_loss_comparison
 
 # Import locali Newtonian
-from Newtonian.src.Newtonian_PINN import train_modelPINN, FCN, NewtonianModelWrapper, get_activation_name, format_layers_name
+from Newtonian.src.Newtonian_PINN import train_NewtonianPINN, FCN, NewtonianCombinedModel, VelocityInferenceWrapper, get_activation_name, format_layers_name
 from Newtonian.src.Newtonian_physics import NewtonianPhysics, generate_boundaries
 
 torch.backends.cuda.matmul.allow_tf32 = True  
@@ -40,8 +40,8 @@ show_plots_interactively = False
 goals_to_run = [2, 3]
 
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
-layers_options = [[2, 120, 100, 80, 60, 40, 20, 2]]
-epochs_options = [8000]
+layers_options = [[2,10,10,1]]#,[2, 120, 100, 80, 60, 40, 20, 2]] OPTIM
+epochs_options = [100]#,8000] OPTIM
 activation_options = [nn.SiLU]
 lr_strategies = ['plateau']
 weighting_options = ['dynamic']
@@ -137,14 +137,24 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
         
         exp_dir, plots_dir = setup_experiment_folder(config_dir, prefix, f"{label} {weight_mode}")
         phys_problem = NewtonianPhysics(mu=mu)
-        model = FCN(layers=layers_config, activation_fn=act_fn).to(device).to(torch.float32)
-        optimizer = torch.optim.Adam(model.parameters(), lr=base_lr)
+        
+        # Forziamo l'ultimo layer a 1 per le reti separate
+        layers_psi = layers_config[:-1] + [1]
+        layers_p = layers_config[:-1] + [1]
+        
+        model_psi = FCN(layers=layers_psi, activation_fn=act_fn).to(device).to(torch.float32)
+        model_p = FCN(layers=layers_p, activation_fn=act_fn).to(device).to(torch.float32)
+        model_combined = NewtonianCombinedModel(model_psi, model_p)
+
+        # Passiamo una lista unica di parametri all'ottimizzatore
+        params = list(model_combined.parameters())
+        optimizer = torch.optim.Adam(params, lr=base_lr)
         
         data_w = 1.0 if goal == 2 else 0.0
         w = {'bc': 1.0, 'physics': 1.0, 'data': data_w} if is_dynamic else {'bc': STATIC_WEIGHTS['bc'], 'physics': STATIC_WEIGHTS['physics'], 'data': data_w}
 
-        history = train_modelPINN(
-            model=model, optimizer=optimizer,
+        history = train_NewtonianPINN(
+            model=model_combined, optimizer=optimizer,
             data_internal=pinn_data_internal, data_boundary=pinn_data_boundary,
             validation_grid=validation_grid_tuple, physics_problem=phys_problem,
             epochs=epochs, plots_dir=plots_dir, final_dir=exp_dir,
@@ -155,7 +165,7 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
             experiment_name=f"Newtonian {label}", val_label="u (Velocity)"
         )
         
-        metrics_wrapper = NewtonianModelWrapper(model, phys_problem)
+        metrics_wrapper = VelocityInferenceWrapper(model_combined, phys_problem)
         l2_err, max_err = compute_metrics(metrics_wrapper, xy_grid_flat, U_grid)
         
         log_data = {
@@ -170,7 +180,7 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
         }
         update_results_csv(results_csv_path, log_data)
         histories[label] = history
-        final_models[label] = model
+        final_models[label] = model_combined
         if os.path.exists(plots_dir): shutil.rmtree(plots_dir)
 
     print(f"  > Generating Comparisons for {config_name}...")
