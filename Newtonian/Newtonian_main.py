@@ -35,9 +35,8 @@ print(f"Using device: {device} with default dtype: {torch.get_default_dtype()}")
 
 show_plots_interactively = False 
 
-# Cases to run: 2 (PINN Data+Phys), 3 (Pure Phys)
-# For this refactored version, we loop over these dynamically
-goals_to_run = [2, 3]
+# Cases to run: 0 (Pure Phys), 1 (Phys+Data), 2 (Solo Data)
+goals_to_run = [0, 1, 2]
 
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
 layers_options = [[2,10,10,1]]#,[2, 120, 100, 80, 60, 40, 20, 2]] OPTIM
@@ -131,8 +130,18 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
     current_weight_str = DYNAMIC_WEIGHT_STR if is_dynamic else STATIC_WEIGHT_STR
 
     for goal in goals_to_run:
-        label = "PINN Data+Phys" if goal == 2 else "PINN PurePhys"
-        prefix = f"{goal}_{label.replace(' ', '')}"
+        # Mapping dei Goal: 0=PurePhys, 1=Phys+Data, 2=SoloData
+        if goal == 0:
+            label = "PurePhys"
+            current_w = {'bc': 1.0, 'physics': 1.0, 'data': 0.0}
+        elif goal == 1:
+            label = "Phys+Data"
+            current_w = {'bc': 1.0, 'physics': 1.0, 'data': 1.0}
+        else: # goal == 2
+            label = "SoloData"
+            current_w = {'bc': 0.0, 'physics': 0.0, 'data': 1.0}
+
+        prefix = f"{goal}_{label}"
         print(f"  > {label} ({config_name})")
         
         exp_dir, plots_dir = setup_experiment_folder(config_dir, prefix, f"{label} {weight_mode}")
@@ -150,8 +159,15 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
         params = list(model_combined.parameters())
         optimizer = torch.optim.Adam(params, lr=base_lr)
         
-        data_w = 1.0 if goal == 2 else 0.0
-        w = {'bc': 1.0, 'physics': 1.0, 'data': data_w} if is_dynamic else {'bc': STATIC_WEIGHTS['bc'], 'physics': STATIC_WEIGHTS['physics'], 'data': data_w}
+        # Se siamo nel Goal 2 (SoloData), il dynamic weighting non ha senso (una sola componente)
+        # Lo disabilitiamo localmente per questa run
+        run_is_dynamic = is_dynamic if goal != 2 else False
+
+        # Se non siamo in modalità dinamica, applichiamo i pesi statici (tranne che per SoloData)
+        if not run_is_dynamic and goal != 2:
+            current_w['bc'] *= STATIC_WEIGHTS['bc']
+            current_w['physics'] *= STATIC_WEIGHTS['physics']
+            current_w['data'] *= STATIC_WEIGHTS['data']
 
         history = train_NewtonianPINN(
             model=model_combined, optimizer=optimizer,
@@ -160,7 +176,7 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
             epochs=epochs, plots_dir=plots_dir, final_dir=exp_dir,
             show_plots_interactively=show_plots_interactively,
             log_gradients_every=500, collocation_points=xy_master_grid,
-            lr_strategy=lr_strat, loss_weights=w, dynamic_weighting=is_dynamic,
+            lr_strategy=lr_strat, loss_weights=current_w, dynamic_weighting=run_is_dynamic,
             update_weights_every=100, warmup_epochs=0,
             experiment_name=f"Newtonian {label}", val_label="u (Velocity)"
         )
@@ -170,12 +186,12 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
         
         log_data = {
             'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 'Architecture': str(layers_config),
-            'Activation_Func': act_str, 'Epochs': epochs, 'Run_Type': label.replace(' ', '_'),
-            'Optimizer': 'Adam + L-BFGS', 'Learning_Rate': lr_log_str, 
+            'Activation_Func': act_str, 'Epochs': epochs, 'Run_Type': label,
+            'Optimizer': 'Adam', 'Learning_Rate': lr_log_str, 
             'Loss_Total': get_last(history, 'total_loss'), 'Loss_Physics': get_last(history, 'pde_loss'),
             'Loss_Boundary': get_last(history, 'bc_loss'), 'Loss_Data': get_last(history, 'data_loss'),
             'L2_Relative_Error': l2_err, 'Max_Relative_Error_Peak': max_err,
-            'Seed': 123, 'n_points': xy_pinn_data.shape[0] if goal == 2 else 0,
+            'Seed': 123, 'n_points': xy_pinn_data.shape[0] if goal in [1, 2] else 0,
             'Loss_Weight': current_weight_str
         }
         update_results_csv(results_csv_path, log_data)
@@ -188,20 +204,21 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
     os.makedirs(results_dir, exist_ok=True)
     
     model_results = []
-    for label in ['PINN Data+Phys', 'PINN PurePhys']:
-        if label in final_models:
-            model = final_models[label].eval()
-            with torch.set_grad_enabled(True):
-                x_input = xy_grid_flat.clone().to(next(model.parameters()).dtype).requires_grad_(True)
-                u_p, _, _ = phys_problem.get_velocity(model, x_input)
-                pred = u_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
-            model_results.append({'T_pred': pred, 'label': label})
+    for label, model in final_models.items():
+        model.eval()
+        with torch.set_grad_enabled(True):
+            x_input = xy_grid_flat.clone().to(next(model.parameters()).dtype).requires_grad_(True)
+            u_p, _, _ = phys_problem.get_velocity(model, x_input)
+            pred = u_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
+        model_results.append({'T_pred': pred, 'label': label})
     
     if model_results:
         hparams = {'arch': layers_str, 'epochs': str(epochs), 'act': act_str, 'lr_strategy': lr_strat, 'weight': current_weight_str}
         plot2D_unified_comparison(X, Y, U_grid, model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
     
-    if 'PINN Data+Phys' in histories and 'PINN PurePhys' in histories:
-        plot_loss_comparison([histories['PINN Data+Phys'], histories['PINN PurePhys']], ['PINN Data+Phys', 'PINN PurePhys'], save_path=os.path.join(results_dir, 'Comparison_Loss_DataPhys_vs_PurePhys.png'))
+    if len(histories) > 1:
+        labels_list = list(histories.keys())
+        hist_list = [histories[l] for l in labels_list]
+        plot_loss_comparison(hist_list, labels_list, save_path=os.path.join(results_dir, 'Comparison_Loss_All_Goals.png'))
 
 print("\nWeighted Grid Search configurations completed.")

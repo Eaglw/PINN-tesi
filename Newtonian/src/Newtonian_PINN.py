@@ -155,23 +155,27 @@ def train_NewtonianPINN(
             lambda_bc=lambda_bc,
             lambda_physics=lambda_physics
         )        
-        # Dynamic Weighting
+        # Dynamic Weighting (Learning Rate Annealing style)
         if dynamic_weighting and epoch >= warmup_epochs and (epoch + 1) % update_weights_every == 0:
+            # Calcoliamo i gradienti per le BC (riferimento standard)
             pure_bc = physics_problem.boundary_loss(model, xy_bc, T_bc) if physics_problem else nn.MSELoss()(model(xy_bc), T_bc)
             grads_bc = torch.autograd.grad(pure_bc, model.parameters(), retain_graph=True, allow_unused=True)
             max_norm_bc = max([g.norm(2) for g in grads_bc if g is not None]).item() if any(g is not None for g in grads_bc) else 0.0
             
-            if lambda_physics > 0:
-                pure_phys = physics_problem.residual(model, xy_physics)
-                grads_ph = torch.autograd.grad(pure_phys, model.parameters(), retain_graph=True, allow_unused=True)
-                m_n_ph = max([g.norm(2) for g in grads_ph if g is not None]).item() if any(g is not None for g in grads_ph) else 0.0
-                if m_n_ph > 1e-12: target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * (max_norm_bc/m_n_ph)*lambda_bc
+            # Applichiamo l'aggiornamento solo se il riferimento (BC) è attivo (>0)
+            # Se lambda_bc è 0, non possiamo usarlo come ancora per bilanciare gli altri.
+            if lambda_bc > 0:
+                if lambda_physics > 0:
+                    pure_phys = physics_problem.residual(model, xy_physics)
+                    grads_ph = torch.autograd.grad(pure_phys, model.parameters(), retain_graph=True, allow_unused=True)
+                    m_n_ph = max([g.norm(2) for g in grads_ph if g is not None]).item() if any(g is not None for g in grads_ph) else 0.0
+                    if m_n_ph > 1e-12: target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * (max_norm_bc/m_n_ph)*lambda_bc
 
-            if lambda_data > 0:
-                pure_data = nn.MSELoss()(model(xy_int), T_int)
-                grads_dt = torch.autograd.grad(pure_data, model.parameters(), retain_graph=True, allow_unused=True)
-                m_n_dt = max([g.norm(2) for g in grads_dt if g is not None]).item() if any(g is not None for g in grads_dt) else 0.0
-                if m_n_dt > 1e-12: lambda_data = alpha_dynamic * lambda_data + (1-alpha_dynamic) * (max_norm_bc/m_n_dt)*lambda_bc
+                if lambda_data > 0:
+                    pure_data = nn.MSELoss()(model(xy_int), T_int)
+                    grads_dt = torch.autograd.grad(pure_data, model.parameters(), retain_graph=True, allow_unused=True)
+                    m_n_dt = max([g.norm(2) for g in grads_dt if g is not None]).item() if any(g is not None for g in grads_dt) else 0.0
+                    if m_n_dt > 1e-12: lambda_data = alpha_dynamic * lambda_data + (1-alpha_dynamic) * (max_norm_bc/m_n_dt)*lambda_bc
         
         # Logging context
         current_lr = optimizer.param_groups[0]['lr']
