@@ -132,28 +132,21 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, P_grid, Nx, Ny, device):
     u_wall = torch.zeros_like(x_wall).to(device)
     v_wall = torch.zeros_like(x_wall).to(device)
     
-    # Left & Right (Inlet / Outlet) -> Pressure
+    # 2. Inlet/Outlet -> Velocità Parabolica + Pressione
     y_inout = torch.linspace(0, Ly, Ny).reshape(-1, 1).to(device)
+    u_parabolic = 4 * u_max * (y_inout * (Ly - y_inout)) / (Ly**2)
+    v_zero = torch.zeros_like(y_inout).to(device)
+    
     x_inlet = torch.zeros_like(y_inout).to(device)
     x_outlet = torch.full_like(y_inout, Lx).to(device)
-    
-    inlet = torch.cat([x_inlet, y_inout], dim=1)
-    outlet = torch.cat([x_outlet, y_inout], dim=1)
     
     p_inlet = p_exact.reshape(Ny, Nx)[:, 0].reshape(-1, 1).to(device)
     p_outlet = p_exact.reshape(Ny, Nx)[:, -1].reshape(-1, 1).to(device)
     
-    # Appende tutto (usando NaN dove non c'è BC)
-    xy_boundary_list.extend([bottom_wall, top_wall])
+    xy_boundary_list.extend([torch.cat([x_inlet, y_inout], dim=1), torch.cat([x_outlet, y_inout], dim=1)])
     uvp_boundary_list.extend([
-        torch.cat([u_wall, v_wall, torch.full_like(u_wall, float('nan'))], dim=1),
-        torch.cat([u_wall, v_wall, torch.full_like(u_wall, float('nan'))], dim=1)
-    ])
-    
-    xy_boundary_list.extend([inlet, outlet])
-    uvp_boundary_list.extend([
-        torch.cat([torch.full_like(p_inlet, float('nan')), torch.full_like(p_inlet, float('nan')), p_inlet], dim=1),
-        torch.cat([torch.full_like(p_outlet, float('nan')), torch.full_like(p_outlet, float('nan')), p_outlet], dim=1)
+        torch.cat([u_parabolic, v_zero, p_inlet], dim=1),
+        torch.cat([u_parabolic, v_zero, p_outlet], dim=1)
     ])
     
     xy_boundary = torch.cat(xy_boundary_list, dim=0)
