@@ -24,3 +24,18 @@
 - Summarized ViscoelasticNet framework for stress discovery.
 - Extracted methodology: Multi-network architecture (Velocity/Stress/Pressure), constitutive model selection (Oldroyd-B, Giesekus, PTT), and backward Euler discretization.
 - Created [[Viscoelastic_Fluids]] system page and updated [[Fluid_Dynamics]].
+## [2026-05-06] ingest | Oldroyd-B model.md & Viscoelasticity.md
+- Processed theoretical foundations for viscoelastic fluids.
+- Extracted constitutive equations (Oldroyd-B, Maxwell, Kelvin-Voigt) and physical properties (creep, relaxation).
+- Integrated into [[Viscoelasticity]] topic and [[Viscoelastic_Fluids]] system.
+
+## [2026-05-06] ingest | PINNs_maurizio.py & Harmonic oscillator PINN.ipynb
+- Summarized implementation of Damped Harmonic Oscillator PINN.
+- Extracted methodology for direct and inverse problems, including parameter estimation (mu, k).
+- Documented optimization techniques: L-BFGS, GELU, and lambda scheduling for PDE loss.
+- Created [[Harmonic_Oscillator]] system page.
+## [2026-05-06] ingest | Viscoelastic/ (Codebase)
+- Documented implementation of ViscoelasticNet for Oldroyd-B channel flow.
+- Extracted physical residuals (Navier-Stokes + Oldroyd-B) and stream function formulation (\(\psi\)).
+- Logged training workflow: Adam (FP32) -> L-BFGS (FP64) with Dynamic Weighting (Learning Rate Annealing).
+- Updated [[ViscoelasticNet]], [[Dynamic_Weighting]], and [[Staged_Precision_Strategy]].

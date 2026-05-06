@@ -20,6 +20,10 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Hazra_et_al_Convective_Heat_Transfer]]: Inverse heat transfer in jet cooling
 - [[Sharma_et_al_Hyperparameter_Selection]]: PINN hyperparameter optimization study
 - [[Thakur_et_al_ViscoelasticNet]]: Stress discovery in viscoelastic flows
+- [[Oldroyd_B_Model]]: Constitutive modeling of viscoelasticity
+- [[Viscoelasticity_Theory]]: Fundamental theoretical principles
+- [[Maurizio_Harmonic_Oscillator]]: 1D Damped Oscillator implementation
+
 
 ## Thematic Topics
 - [[Activation_Functions]]: Tanh, GELU, SiLU, and LAA
@@ -29,6 +33,10 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Inverse_Problems]]: Parameter identification and law discovery
 - [[Nondimensionalization]]: Scaling for numerical stability
 - [[Fluid_Dynamics]]: Navier-Stokes and complex flow modeling
+- [[Viscoelasticity]]: Theory and modeling of time-dependent materials
+- [[Creep]]: Time-dependent deformation under constant stress
+- [[Stress_Relaxation]]: Stress reduction under constant strain
+
 
 ## Technical Methods
 - [[Tapered_Architectures]]: Funnel-style networks
@@ -37,6 +45,8 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[DeepXDE]]: Multi-backend PIML library
 - [[SDF_for_Discontinuities]]: Handling sharp transitions in BCs
 - [[Integral_Loss_Scaling]]: Volume-proportional loss balancing
+- [[ViscoelasticNet]]: PINN framework for stress discovery
+
 
 ## Physical Systems
 - [[CSTR_Modeling]]: Non-isothermal reactor analysis

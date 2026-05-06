@@ -13,7 +13,10 @@ This project focuses on the research and application of Physics-Informed Neural 
     - `Heat2D_main.py`: Main script for 2D Heat experiments.
     - `Heat2D_prova.py`: Experimental/testing script for 2D Heat.
 - **`Newtonian/`**: Module for Navier-Stokes equations and Newtonian fluids.
+- **`PINN-wiki/`**: Knowledge management layer (Obsidian Vault).
+    - `GEMINI.md`: Specific protocols for wiki maintenance (Ingestion, LIST, etc.).
 - **`notes/`**: Consolidated research documentation and technical journals.
+
 - **`func/`**: Shared utility functions.
     - `graphic_func.py`: Plotting and GIF generation.
     - `history_tracker.py`: Loss history tracking and visualization.
@@ -88,6 +91,16 @@ python Heat2D/Heat2D_main.py
 - **Visualizzazione**: Funzioni centralizzate in `func/graphic_func.py`.
 - **Output**: Controllo e creazione automatica di `Results/` e `plots/`.
 - **Device**: Utilizzo di `cuda` con fallback su `cpu`.
+
+## Knowledge Management & Wiki
+
+All'interno della cartella `PINN-wiki/` è presente un **Obsidian Vault** dedicato alla gestione della conoscenza e della letteratura. Questo vault contiene un proprio file `GEMINI.md` che descrive:
+- **Protocolli di Ingestion**: Come aggiungere nuovi paper e script alla wiki.
+- **Procedure di Maintenance**: Come eseguire il comando **LIST** (health check) per verificare l'integrità dei link e dell'indice.
+- **Struttura della Conoscenza**: Organizzazione in Literature, Topics, Methods e Systems.
+
+Si raccomanda di seguire rigorosamente le procedure descritte nel `PINN-wiki/GEMINI.md` per mantenere la wiki coerente e utile nel tempo.
+
 
 ## Note aggiunte
 Prima di scrivere qualsiasi tipo di codice spiegami cosa stai cercando di fare. 
