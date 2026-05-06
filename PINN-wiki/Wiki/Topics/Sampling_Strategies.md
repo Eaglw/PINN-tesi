@@ -13,7 +13,7 @@ A dynamic sampling method that increases point density in regions with high PDE 
 
 ## Management of Overlaps and Boundaries
 - **Duplicate Prevention**: Use `torch.unique` on boundary points.
-- **Distance Check**: Verify minimum distance (e.g., \(10^{-4}\)) using `torch.cdist`.
+- **Distance Check**: Verify minimum distance (e.g., $10^{-4}$) using `torch.cdist`.
 - **Safety Margin**: Synchronize internal point generation with boundary margins.
 
 ## References

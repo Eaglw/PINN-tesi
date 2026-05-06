@@ -14,7 +14,7 @@ This paper provides a systematic evaluation of PINN hyperparameters focusing on 
   - **Avoid**: **ReLU** (vanishing gradients) and **SELU** (exploding gradients in deep PINNs).
   - **Tanh/Sin**: Effective but can be sensitive to initialization and high learning rates in stiff problems.
 - **Network Depth**: Accuracy generally increases with depth. **20 hidden layers** were found optimal for capturing complex gradients, provided sufficient training iterations are used.
-- **Learning Rate**: Avoid large learning rates (e.g., \(1 \times 10^{-2}\)) in stiff or discontinuous problems, as they lead to convergence anomalies. Optimal range: \(5 \times 10^{-4}\) to \(7.5 \times 10^{-3}\).
+- **Learning Rate**: Avoid large learning rates (e.g., $1 \times 10^{-2}$) in stiff or discontinuous problems, as they lead to convergence anomalies. Optimal range: $5 \times 10^{-4}$ to $7.5 \times 10^{-3}$.
 - **Architecture**: Standard Feedforward (FCNN) outperformed Modified Fourier Neural Networks (MFNN) for these specific discontinuous problems due to MFNN's susceptibility to spectral bias in some contexts.
 
 ## Advanced Techniques

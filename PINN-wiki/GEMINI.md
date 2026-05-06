@@ -49,7 +49,7 @@ When a new source is added to `Reference/`:
 ## Formatting Rules
 - Use `[[Wikilinks]]` for all internal references.
 - Use standard Markdown headers.
-- Include LaTeX for math: `\( ... \)` for inline, `\[ ... \]` for blocks.
+- Include LaTeX for math: `$ ... $` for inline, `$$ ... $$` for blocks.
 - Every claim in a `Topic` or `Method` page must cite its source.
 
 ## Health Checks (Linting)

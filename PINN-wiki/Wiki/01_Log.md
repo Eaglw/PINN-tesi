@@ -36,6 +36,6 @@
 - Created [[Harmonic_Oscillator]] system page.
 ## [2026-05-06] ingest | Viscoelastic/ (Codebase)
 - Documented implementation of ViscoelasticNet for Oldroyd-B channel flow.
-- Extracted physical residuals (Navier-Stokes + Oldroyd-B) and stream function formulation (\(\psi\)).
+- Extracted physical residuals (Navier-Stokes + Oldroyd-B) and stream function formulation ($\psi$).
 - Logged training workflow: Adam (FP32) -> L-BFGS (FP64) with Dynamic Weighting (Learning Rate Annealing).
 - Updated [[ViscoelasticNet]], [[Dynamic_Weighting]], and [[Staged_Precision_Strategy]].

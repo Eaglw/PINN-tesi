@@ -9,16 +9,16 @@ As discussed in [[Klaudio_Peqini_PINNs]], PINNs leverage the "informed" nature o
 
 ## The PINN Loss Function
 The total loss in a PINN training process typically combines data-driven loss with physics-based residuals:
-\[ L_{total} = \omega_{data} L_{data} + \omega_{phys} L_{phys} + \omega_{bc} L_{bc} \]
+$$ L_{total} = \omega_{data} L_{data} + \omega_{phys} L_{phys} + \omega_{bc} L_{bc} $$
 
-- **Data Loss (\(L_{data}\))**: Mean Squared Error (MSE) between the network prediction and available experimental or simulation data.
-- **Physics Loss (\(L_{phys}\))**: The residual of the differential equation evaluated at collocation points (often sampled via [[Sampling_Strategies]]).
-- **Boundary/Initial Condition Loss (\(L_{bc}\))**: Ensures the solution satisfies the specific boundary and initial conditions of the problem.
+- **Data Loss ($L_{data}$)**: Mean Squared Error (MSE) between the network prediction and available experimental or simulation data.
+- **Physics Loss ($L_{phys}$)**: The residual of the differential equation evaluated at collocation points (often sampled via [[Sampling_Strategies]]).
+- **Boundary/Initial Condition Loss ($L_{bc}$)**: Ensures the solution satisfies the specific boundary and initial conditions of the problem.
 
 ## Key Methodologies
 
 ### Inverse Problems
-One of the most powerful applications of PINNs is solving inverse problems, where unknown parameters in the physical equation (e.g., CHTC in [[Hazra_et_al_Convective_Heat_Transfer]]) are treated as trainable variables. By minimizing the discrepancy with sparse sensor data (\(L_{data}\)), PINNs can infer these parameters while ensuring the overall field satisfies physical laws.
+One of the most powerful applications of PINNs is solving inverse problems, where unknown parameters in the physical equation (e.g., CHTC in [[Hazra_et_al_Convective_Heat_Transfer]]) are treated as trainable variables. By minimizing the discrepancy with sparse sensor data ($L_{data}$), PINNs can infer these parameters while ensuring the overall field satisfies physical laws.
 
 ### Nondimensionalization
 Representing physical equations in nondimensional form is a common preprocessing step in PINNs. It scales the variables to a similar order of magnitude (typically `[0, 1]` or `[-1, 1]`), which:
@@ -33,7 +33,7 @@ Representing physical equations in nondimensional form is a common preprocessing
 3. **Data Efficiency**: Physical constraints significantly reduce the amount of labeled data required for accurate training.
 
 ## Limitations
-- **Hyperparameter Sensitivity**: The weights (\(\omega\)) for different loss terms are critical and often require tuning (see [[Dynamic_Weighting]]).
+- **Hyperparameter Sensitivity**: The weights ($\omega$) for different loss terms are critical and often require tuning (see [[Dynamic_Weighting]]).
 - **Convergence**: Training can be slower than traditional methods for well-behaved problems, often requiring multi-stage optimization (see [[Staged_Precision_Strategy]]).
 
 ## Related

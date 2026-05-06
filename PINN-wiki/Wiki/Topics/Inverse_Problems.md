@@ -11,9 +11,9 @@ PINNs are exceptionally well-suited for inverse problems because they treat unkn
 - **Reaction Engineering**: Estimating Arrhenius parameters in reactor models.
 
 ## Methodology
-1. Define the PDE with unknown parameter \(\lambda\).
+1. Define the PDE with unknown parameter $\lambda$.
 2. Augment the loss function with a data-driven term from sparse sensors.
-3. Optimize weights \(\theta\) and parameter \(\lambda\) simultaneously.
+3. Optimize weights $\theta$ and parameter $\lambda$ simultaneously.
 
 ## Related
 - **Literature**: [[Hazra_et_al_Convective_Heat_Transfer]], [[Sharma_et_al_Hyperparameter_Selection]]

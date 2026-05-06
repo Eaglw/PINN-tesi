@@ -13,8 +13,8 @@ The choice of activation function is critical for PINN stability, especially for
 
 ## Learnable Adaptive Activations (LAA)
 Introduced to capture sharp gradients or slow variations:
-\[ f(x) = \sigma(a \cdot x) \]
-Where \( a \) is a learnable scaling parameter.
+$f(x) = \sigma(a \cdot x)$
+Where $ a $ is a learnable scaling parameter.
 
 ## References
 - Discussed in [[Note_01_Framework]] and [[Note_03_Heat2D]].

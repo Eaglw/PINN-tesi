@@ -4,9 +4,9 @@
 Viscoelasticity is the study of materials that exhibit both viscous and elastic characteristics when undergoing deformation. Unlike purely elastic materials, which store energy and return to their original shape instantly, viscoelastic materials dissipate energy (hysteresis) and show time-dependent behavior such as [[Creep]] and [[Stress_Relaxation]].
 
 Core concepts include:
-- **Elasticity**: Modeled as springs (Hooke's Law: \(\sigma = E\epsilon\)).
-- **Viscosity**: Modeled as dashpots (Newton's Law: \(\sigma = \eta\dot{\epsilon}\)).
-- **Deborah Number**: \(De = \lambda / t\), where \(\lambda\) is the material relaxation time.
+- **Elasticity**: Modeled as springs (Hooke's Law: $\sigma = E\epsilon$).
+- **Viscosity**: Modeled as dashpots (Newton's Law: $\sigma = \eta\dot{\epsilon}$).
+- **Deborah Number**: $De = \lambda / t$, where $\lambda$ is the material relaxation time.
 
 ## Technical Implementation
 In the context of PINNs, viscoelasticity is modeled by incorporating constitutive equations into the loss function. Common models include:

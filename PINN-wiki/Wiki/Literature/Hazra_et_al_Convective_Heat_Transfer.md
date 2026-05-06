@@ -10,16 +10,16 @@ This paper investigates the use of PINNs for solving a complex **inverse heat tr
 
 ## Key Methodology
 - **Problem Formulation**: 2D transient heat conduction in a solid circular disc.
-- **Nondimensionalization**: All variables (\(T, x, y, t\)) are transformed into dimensionless forms to improve PINN training stability and eliminate the need for manual data scaling.
+- **Nondimensionalization**: All variables ($T, x, y, t$) are transformed into dimensionless forms to improve PINN training stability and eliminate the need for manual data scaling.
 - **PINN Architecture**: 
   - Feedforward NN with 5-6 hidden layers (40 neurons each).
   - **Activation Function**: Tanh.
   - **Library**: DeepXDE with TensorFlow backend.
 - **Loss Function Components**:
-  - \(L_{data}\): Sensor data MSE.
-  - \(L_{PDE}\): Transient heat conduction residual.
-  - \(L_{bc}\): Boundary conditions (forced/free convection, adiabatic, symmetry).
-  - \(L_{init}\): Initial condition enforcement.
+  - $L_{data}$: Sensor data MSE.
+  - $L_{PDE}$: Transient heat conduction residual.
+  - $L_{bc}$: Boundary conditions (forced/free convection, adiabatic, symmetry).
+  - $L_{init}$: Initial condition enforcement.
 - **Optimization**: Adam optimizer (50,000 iterations).
 - **Hyperparameter Tuning**: Optuna (Bayesian optimization) used for architecture and sampling strategy.
 
