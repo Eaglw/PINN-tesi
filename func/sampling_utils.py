@@ -17,13 +17,15 @@ def generate_internal_points(num_points, Lx=1.0, Ly=1.0, margin=1e-5, device='cp
     xy[:, 1] = xy[:, 1] * (Ly - 2 * margin) + margin
     return xy
 
-def generate_sobol_points(num_points, Lx=1.0, Ly=1.0, margin=1e-5, device='cpu', dtype=None):
+def generate_sobol_points(num_points, Lx=1.0, Ly=1.0, margin=1e-5, device='cpu', dtype=None, seed=42):
     """
     Generates Sobol sequence points (Quasi-Monte Carlo) within a safety margin.
     """
     if dtype is None: dtype = torch.get_default_dtype()
     if HAS_QMC:
-        sampler = qmc.Sobol(d=2, scramble=True)
+        # seed esplicito per riproducibilità: senza seed, scramble=True
+        # produce sequenze diverse ad ogni invocazione
+        sampler = qmc.Sobol(d=2, scramble=True, seed=seed)
         # Sobol requires power of 2 for optimal properties, but we can sample any number
         sample = sampler.random(n=num_points)
     else:
@@ -35,13 +37,13 @@ def generate_sobol_points(num_points, Lx=1.0, Ly=1.0, margin=1e-5, device='cpu',
     xy[:, 1] = xy[:, 1] * (Ly - 2 * margin) + margin
     return xy
 
-def generate_halton_points(num_points, Lx=1.0, Ly=1.0, margin=1e-5, device='cpu', dtype=None):
+def generate_halton_points(num_points, Lx=1.0, Ly=1.0, margin=1e-5, device='cpu', dtype=None, seed=42):
     """
     Generates Halton sequence points (Quasi-Monte Carlo) within a safety margin.
     """
     if dtype is None: dtype = torch.get_default_dtype()
     if HAS_QMC:
-        sampler = qmc.Halton(d=2, scramble=True)
+        sampler = qmc.Halton(d=2, scramble=True, seed=seed)
         sample = sampler.random(n=num_points)
     else:
         return generate_internal_points(num_points, Lx, Ly, margin, device, dtype)

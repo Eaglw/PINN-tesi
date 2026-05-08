@@ -2,14 +2,29 @@ import torch
 import torch.nn as nn
 
 class ViscoelasticPhysics(nn.Module):
-    def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0):
+    def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0, rho=1.0):
         """
         Modulo per calcolare i residui fisici (equazioni di Navier-Stokes e modello Oldroyd-B).
+        
+        NOTA FISICA — Scelta della Stream Function:
+            L'equazione di continuità (∇·u = 0) è automaticamente soddisfatta
+            dall'uso della stream function: u = ∂ψ/∂y, v = -∂ψ/∂x.
+            Dimostrazione: ∂u/∂x + ∂v/∂y = ∂²ψ/∂x∂y - ∂²ψ/∂y∂x = 0.
+            Perciò NON è inclusa esplicitamente tra i residui.
+            Se si passasse a output diretto (u, v), va aggiunta come residuo.
+        
+        Args:
+            mu_s: Viscosità del solvente [Pa·s]
+            mu_p: Viscosità polimerica [Pa·s]
+            lam: Tempo di rilassamento [s]
+            rho: Densità del fluido [kg/m³]. Default=1.0 (adimensionale).
+                 Se rho != 1, le equazioni del momento vengono scalate di conseguenza.
         """
         super().__init__()
         self.mu_s = mu_s
         self.mu_p = mu_p
         self.lam = lam
+        self.rho = rho
         self.mse_loss = nn.MSELoss()
 
     def get_velocity(self, model, x):
@@ -22,8 +37,9 @@ class ViscoelasticPhysics(nn.Module):
         tau = out[:, 2:5]
         
         # Derivate spaziali per ottenere u, v da psi
-        psi_x = torch.autograd.grad(psi.sum(), x, create_graph=True)[0][:, 0:1]
-        psi_y = torch.autograd.grad(psi.sum(), x, create_graph=True)[0][:, 1:2]
+        grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=True)[0]
+        psi_x = grad_psi[:, 0:1]
+        psi_y = grad_psi[:, 1:2]
         
         u = psi_y
         v = -psi_x
@@ -45,48 +61,77 @@ class ViscoelasticPhysics(nn.Module):
         tau_yy = out[:, 4:5]
         
         # u, v da psi
-        psi_x = torch.autograd.grad(psi.sum(), x, create_graph=True)[0][:, 0:1]
-        psi_y = torch.autograd.grad(psi.sum(), x, create_graph=True)[0][:, 1:2]
+        grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=True)[0]
+        psi_x, psi_y = grad_psi[:, 0:1], grad_psi[:, 1:2]
         u = psi_y
         v = -psi_x
         
         # Derivate prime di u, v, p
-        u_x = torch.autograd.grad(u.sum(), x, create_graph=True)[0][:, 0:1]
-        u_y = torch.autograd.grad(u.sum(), x, create_graph=True)[0][:, 1:2]
-        v_x = torch.autograd.grad(v.sum(), x, create_graph=True)[0][:, 0:1]
-        v_y = torch.autograd.grad(v.sum(), x, create_graph=True)[0][:, 1:2]
-        p_x = torch.autograd.grad(p.sum(), x, create_graph=True)[0][:, 0:1]
-        p_y = torch.autograd.grad(p.sum(), x, create_graph=True)[0][:, 1:2]
+        grad_u = torch.autograd.grad(u.sum(), x, create_graph=True)[0]
+        u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
+        grad_v = torch.autograd.grad(v.sum(), x, create_graph=True)[0]
+        v_x, v_y = grad_v[:, 0:1], grad_v[:, 1:2]
+        grad_p = torch.autograd.grad(p.sum(), x, create_graph=True)[0]
+        p_x, p_y = grad_p[:, 0:1], grad_p[:, 1:2]
         
         # Derivate seconde di u, v
-        u_xx = torch.autograd.grad(u_x.sum(), x, create_graph=True)[0][:, 0:1]
-        u_yy = torch.autograd.grad(u_y.sum(), x, create_graph=True)[0][:, 1:2]
-        v_xx = torch.autograd.grad(v_x.sum(), x, create_graph=True)[0][:, 0:1]
-        v_yy = torch.autograd.grad(v_y.sum(), x, create_graph=True)[0][:, 1:2]
+        grad_u_x = torch.autograd.grad(u_x.sum(), x, create_graph=True)[0]
+        u_xx = grad_u_x[:, 0:1]
+        grad_u_y = torch.autograd.grad(u_y.sum(), x, create_graph=True)[0]
+        u_yy = grad_u_y[:, 1:2]
+        grad_v_x = torch.autograd.grad(v_x.sum(), x, create_graph=True)[0]
+        v_xx = grad_v_x[:, 0:1]
+        grad_v_y = torch.autograd.grad(v_y.sum(), x, create_graph=True)[0]
+        v_yy = grad_v_y[:, 1:2]
         
         # Derivate prime di tau
-        tau_xx_x = torch.autograd.grad(tau_xx.sum(), x, create_graph=True)[0][:, 0:1]
-        tau_xx_y = torch.autograd.grad(tau_xx.sum(), x, create_graph=True)[0][:, 1:2]
-        tau_xy_x = torch.autograd.grad(tau_xy.sum(), x, create_graph=True)[0][:, 0:1]
-        tau_xy_y = torch.autograd.grad(tau_xy.sum(), x, create_graph=True)[0][:, 1:2]
-        tau_yy_x = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0][:, 0:1]
-        tau_yy_y = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0][:, 1:2]
+        grad_tau_xx = torch.autograd.grad(tau_xx.sum(), x, create_graph=True)[0]
+        tau_xx_x, tau_xx_y = grad_tau_xx[:, 0:1], grad_tau_xx[:, 1:2]
+        grad_tau_xy = torch.autograd.grad(tau_xy.sum(), x, create_graph=True)[0]
+        tau_xy_x, tau_xy_y = grad_tau_xy[:, 0:1], grad_tau_xy[:, 1:2]
+        grad_tau_yy = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0]
+        tau_yy_x, tau_yy_y = grad_tau_yy[:, 0:1], grad_tau_yy[:, 1:2]
         
         # Equazioni di Quantità di Moto (Navier-Stokes)
-        f_u = (u * u_x + v * u_y) + p_x - self.mu_s * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
-        f_v = (u * v_x + v * v_y) + p_y - self.mu_s * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
+        # ρ(u·∇u) + ∇p - μ_s∇²u - ∇·τ = 0
+        f_u = self.rho * (u * u_x + v * u_y) + p_x - self.mu_s * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
+        f_v = self.rho * (u * v_x + v * v_y) + p_y - self.mu_s * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
         
         # Equazioni Costitutive (Oldroyd-B)
         f_tau_xx = tau_xx + self.lam * (u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy) - 2 * self.mu_p * u_x
         f_tau_yy = tau_yy + self.lam * (u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy) - 2 * self.mu_p * v_y
-        f_tau_xy = tau_xy + self.lam * (u * tau_xy_x + v * tau_xy_y - v_x * tau_xx - u_y * tau_yy) - self.mu_p * (u_y + v_x)
+        # Upper-Convected Derivative, componente xy:
+        # (nabla_u · tau)_xy = u_x*tau_xy + u_y*tau_yy
+        # (tau · nabla_u^T)_xy = tau_xx*v_x + tau_xy*v_y
+        f_tau_xy = tau_xy + self.lam * (
+            u * tau_xy_x + v * tau_xy_y
+            - u_x * tau_xy
+            - u_y * tau_yy
+            - tau_xx * v_x
+            - tau_xy * v_y
+        ) - self.mu_p * (u_y + v_x)
         
         return f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy
 
-    def residual(self, model, x):
+    def residual(self, model, x, pde_weights=None):
         """
-        Ritorna la somma degli MSE dei residui.
+        Ritorna la somma pesata degli MSE dei residui.
+        
+        Args:
+            pde_weights: Dict con pesi individuali per le componenti PDE.
+                Default: {'momentum': 1.0, 'constitutive': 1.0}
+                
+                NOTA: Per Oldroyd-B i residui degli stress (tau_xx soprattutto)
+                hanno magnitudini strutturalmente diverse dai residui di momentum,
+                perché tau_xx scala come γ̇² (quadratico) mentre f_u scala come γ̇ (lineare).
+                Se il training non converge sulla parte di momentum, provare
+                pde_weights={'momentum': 5.0, 'constitutive': 1.0}.
         """
+        if pde_weights is None:
+            pde_weights = {'momentum': 1.0, 'constitutive': 1.0}
+        w_m = pde_weights.get('momentum', 1.0)
+        w_c = pde_weights.get('constitutive', 1.0)
+        
         f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy = self.compute_residuals(model, x)
         zeros = torch.zeros_like(f_u)
         loss_u = self.mse_loss(f_u, zeros)
@@ -94,7 +139,7 @@ class ViscoelasticPhysics(nn.Module):
         loss_txx = self.mse_loss(f_tau_xx, zeros)
         loss_tyy = self.mse_loss(f_tau_yy, zeros)
         loss_txy = self.mse_loss(f_tau_xy, zeros)
-        return loss_u + loss_v + loss_txx + loss_tyy + loss_txy
+        return w_m * (loss_u + loss_v) + w_c * (loss_txx + loss_tyy + loss_txy)
 
     def boundary_loss(self, model, x_bc, target_bc):
         """
@@ -122,7 +167,10 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, P_grid, Nx, Ny, device):
     uvp_boundary_list = []
     
     # Bottom & Top (Wall) -> No-slip
-    x_wall = torch.linspace(0, Lx, Nx).reshape(-1, 1).to(device)
+    # NOTA: Escludiamo i corner (primo e ultimo punto) per evitare duplicazione
+    # con inlet/outlet. I corner ricevono target conflittuali (p=NaN dal wall
+    # vs p=valore reale dall'inlet), creando incoerenza nel MSE.
+    x_wall = torch.linspace(0, Lx, Nx+2)[1:-1].reshape(-1, 1).to(device)
     y_wall_bottom = torch.zeros_like(x_wall).to(device)
     y_wall_top = torch.full_like(x_wall, Ly).to(device)
     
@@ -131,6 +179,8 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, P_grid, Nx, Ny, device):
     
     u_wall = torch.zeros_like(x_wall).to(device)
     v_wall = torch.zeros_like(x_wall).to(device)
+    nan_p = torch.full_like(u_wall, float('nan'))
+    wall_target = torch.cat([u_wall, v_wall, nan_p], dim=1)
     
     # 2. Inlet/Outlet -> Velocità Parabolica + Pressione
     y_inout = torch.linspace(0, Ly, Ny).reshape(-1, 1).to(device)
@@ -142,11 +192,23 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, P_grid, Nx, Ny, device):
     
     p_inlet = p_exact.reshape(Ny, Nx)[:, 0].reshape(-1, 1).to(device)
     p_outlet = p_exact.reshape(Ny, Nx)[:, -1].reshape(-1, 1).to(device)
+    p_outlet_target = torch.cat([
+        torch.full_like(v_zero, float('nan')),  # u libera
+        torch.full_like(v_zero, float('nan')),  # v libera
+        p_outlet
+    ], dim=1)
     
-    xy_boundary_list.extend([torch.cat([x_inlet, y_inout], dim=1), torch.cat([x_outlet, y_inout], dim=1)])
+    xy_boundary_list.extend([
+        bottom_wall,
+        top_wall,
+        torch.cat([x_inlet, y_inout], dim=1), 
+        torch.cat([x_outlet, y_inout], dim=1)
+    ])
     uvp_boundary_list.extend([
+        wall_target,
+        wall_target,
         torch.cat([u_parabolic, v_zero, p_inlet], dim=1),
-        torch.cat([u_parabolic, v_zero, p_outlet], dim=1)
+        p_outlet_target
     ])
     
     xy_boundary = torch.cat(xy_boundary_list, dim=0)

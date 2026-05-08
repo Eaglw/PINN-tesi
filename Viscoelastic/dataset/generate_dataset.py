@@ -23,7 +23,8 @@ def generate_oldroyd_b_dataset(
     noise_type='percentage', 
     noise_value=0.0,
     save_dir=os.path.dirname(os.path.abspath(__file__)),
-    filename='oldroydb_data'
+    filename='oldroydb_data',
+    seed=42
 ):
     """
     Genera un dataset sintetico per il flusso di Poiseuille stazionario in un canale
@@ -80,21 +81,28 @@ def generate_oldroyd_b_dataset(
     tau_yy_noisy = tau_yy_base.clone()
     
     if noise_value > 0:
+        # Seed per riproducibilità del rumore
+        if seed is not None:
+            torch.manual_seed(seed)
         if noise_type == 'percentage':
             std_u = noise_value * u_max
+            # std_v separato: per Poiseuille v=0, ma se si estende a casi con v≠0
+            # serve la deviazione standard corretta sulla componente v
+            std_v = noise_value * u_max  # scala su u_max perché v_base=0
             std_p = noise_value * abs(p_in - p_out) if p_in != p_out else noise_value * p_in
             std_psi = noise_value * (2.0/3.0 * u_max * H) 
             std_tau_xy = noise_value * torch.max(torch.abs(tau_xy_base))
             std_tau_xx = noise_value * torch.max(torch.abs(tau_xx_base))
         else: # absolute
             std_u = noise_value
+            std_v = noise_value
             std_p = noise_value
             std_psi = noise_value
             std_tau_xy = noise_value
             std_tau_xx = noise_value
         
         u_noisy += torch.randn_like(u_base) * std_u
-        v_noisy += torch.randn_like(v_base) * std_u 
+        v_noisy += torch.randn_like(v_base) * std_v
         p_noisy += torch.randn_like(p_base) * std_p
         psi_noisy += torch.randn_like(psi_base) * std_psi
         tau_xy_noisy += torch.randn_like(tau_xy_base) * std_tau_xy

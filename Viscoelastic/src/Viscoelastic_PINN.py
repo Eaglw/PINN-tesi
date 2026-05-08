@@ -72,28 +72,59 @@ class VelocityInferenceWrapper(nn.Module):
             u, _, _, _ = self.phys_problem.get_velocity(self.model, x)
         return u.detach()
     def eval(self):
+        super().eval()
         self.model.eval()
         return self
+
+def set_model_trainable(model_combined, active_components=['psi', 'p', 'tau']):
+    """
+    Congela o sblocca le sottoreti del modello combinato.
+    active_components: lista di stringhe ('psi', 'p', 'tau')
+    """
+    # Prima congeliamo tutto
+    for p in model_combined.parameters():
+        p.requires_grad = False
+    
+    # Sblocchiamo solo i componenti richiesti
+    if 'psi' in active_components:
+        for p in model_combined.model_psi.parameters(): p.requires_grad = True
+    if 'p' in active_components:
+        for p in model_combined.model_p.parameters(): p.requires_grad = True
+    if 'tau' in active_components:
+        for p in model_combined.model_tau.parameters(): p.requires_grad = True
+        
+    print(f"  [Trainable status] Psi: {'psi' in active_components}, P: {'p' in active_components}, Tau: {'tau' in active_components}")
 
 
 
 def train_ViscoelasticPINN(
     model, optimizer, data_internal, data_boundary, validation_grid,
-    epochs=20000, physics_problem=None, plots_dir='plots', final_dir='Heat2D/Results',
+    epochs=20000, physics_problem=None, plots_dir='plots', final_dir='Viscoelastic/Results',
     show_plots_interactively=True, log_gradients_every=0, loss_weights=None,
     warmup_epochs=None, n_collocation=(50, 50), collocation_points=None,
     lr_strategy='fixed', dynamic_weighting=False, update_weights_every=100,
     max_total_lbfgs=100, resample_every=0, resample_fn=None,
-    experiment_name="PINN Training", val_label="Value"
+    experiment_name="PINN Training", val_label="Value",
+    grad_clip_norm=5.0, stress_exact_grids=None,
+    active_components=['psi', 'p', 'tau']
 ):
     """
-    Esegue il training della PINN.
+    Esegue il training della PINN con supporto per training disaccoppiato.
     
     Args:
-        ... (altri args rimangono invariati)
+        active_components: Lista dei componenti da addestrare ('psi', 'p', 'tau').
         resample_every: (Int) Se > 0, ricampiona i punti di collocazione ogni N epoche.
         resample_fn: (Callable) Funzione che restituisce nuovi punti di collocazione.
+        grad_clip_norm: (Float) Norma massima per il gradient clipping.
+        stress_exact_grids: (Dict) Se fornito, contiene le soluzioni analitiche degli stress.
+    
+    NOTA sulla data_loss:
+        La data_loss confronta direttamente l'output raw del modello [psi, p, tau_xx, tau_xy, tau_yy].
+        Il fit su psi è più vincolante del fit su u perché fissa la costante di integrazione.
+        La boundary_loss invece opera su [u, v, p] derivati dalla stream function.
     """
+    # Applichiamo la configurazione di sblocco/congelamento
+    set_model_trainable(model, active_components)
     xy_int, T_int = data_internal
     xy_bc, T_bc = data_boundary
     xy_grid, T_exact_grid, X, Y = validation_grid
@@ -121,7 +152,11 @@ def train_ViscoelasticPINN(
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=600, min_lr=1e-6, cooldown=3000)
 
     if collocation_points is not None:
-        xy_physics = collocation_points.clone()
+        # Casting esplicito a dtype/device del modello per evitare mismatch
+        # se i punti sono stati creati prima di un eventuale switch FP64
+        _dtype = next(model.parameters()).dtype
+        _device = next(model.parameters()).device
+        xy_physics = collocation_points.clone().to(dtype=_dtype, device=_device)
         if not xy_physics.requires_grad: xy_physics.requires_grad_(True)
     else:
         xy_physics = torch.rand((n_collocation[0]*n_collocation[1], 2), device=device)
@@ -132,7 +167,9 @@ def train_ViscoelasticPINN(
     for epoch in pbar:
         # Periodic Resampling
         if resample_every > 0 and resample_fn is not None and epoch > 0 and epoch % resample_every == 0:
-            xy_physics = resample_fn().clone().detach()
+            _dtype = next(model.parameters()).dtype
+            _device = next(model.parameters()).device
+            xy_physics = resample_fn().clone().detach().to(device=_device, dtype=_dtype)
             xy_physics.requires_grad_(True)
 
         model.train()
@@ -144,6 +181,8 @@ def train_ViscoelasticPINN(
             current_physics_problem, lambda_physics, phase_desc = physics_problem, target_lambda_physics, "Physics"
 
         # Calcolo loss
+        # Se siamo in warmup, passiamo x_physics=None per saltare il calcolo dei residui PDE
+        # ma manteniamo physics_problem per il corretto calcolo delle BC (psi -> u,v)
         loss, loss_dict = compute_pinn_loss(
             model, 
             x_data=xy_int, 
@@ -151,8 +190,8 @@ def train_ViscoelasticPINN(
             x_bc=xy_bc,
             y_bc=T_bc,
             physics_loss_fn=None, 
-            physics_problem=current_physics_problem,
-            x_physics=xy_physics,
+            physics_problem=physics_problem,
+            x_physics=xy_physics if epoch >= warmup_epochs else None,
             lambda_data=lambda_data,
             lambda_bc=lambda_bc,
             lambda_physics=lambda_physics
@@ -171,13 +210,17 @@ def train_ViscoelasticPINN(
                     pure_phys = physics_problem.residual(model, xy_physics)
                     grads_ph = torch.autograd.grad(pure_phys, model.parameters(), retain_graph=True, allow_unused=True)
                     m_n_ph = max([g.norm(2) for g in grads_ph if g is not None]).item() if any(g is not None for g in grads_ph) else 0.0
-                    if m_n_ph > 1e-12: target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * (max_norm_bc/m_n_ph)*lambda_bc
+                    if m_n_ph > 1e-12: 
+                        ratio = min(max_norm_bc / m_n_ph, 100.0)
+                        target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * ratio * lambda_bc
 
                 if lambda_data > 0:
                     pure_data = nn.MSELoss()(model(xy_int), T_int)
                     grads_dt = torch.autograd.grad(pure_data, model.parameters(), retain_graph=True, allow_unused=True)
                     m_n_dt = max([g.norm(2) for g in grads_dt if g is not None]).item() if any(g is not None for g in grads_dt) else 0.0
-                    if m_n_dt > 1e-12: lambda_data = alpha_dynamic * lambda_data + (1-alpha_dynamic) * (max_norm_bc/m_n_dt)*lambda_bc
+                    if m_n_dt > 1e-12: 
+                        ratio_d = min(max_norm_bc / m_n_dt, 100.0)
+                        lambda_data = alpha_dynamic * lambda_data + (1-alpha_dynamic) * ratio_d * lambda_bc
         
         # Logging context
         current_lr = optimizer.param_groups[0]['lr']
@@ -197,19 +240,20 @@ def train_ViscoelasticPINN(
         loss_history.update(epoch, history_entry, lr=current_lr)
         loss.backward()
         
-        # Gradient Clipping
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        # Gradient Clipping — con 3 reti e 5 equazioni la norma è strutturalmente alta
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
         
         optimizer.step()
         
         if lr_strategy == 'step_decay': scheduler.step()
         elif lr_strategy == 'plateau':
             # Use unweighted loss for stable scheduling, monitoring only active components (weight > 0)
-            monitored_loss = 0.0
-            if lambda_data > 0: monitored_loss += loss_dict.get('data_loss', 0.0)
-            if lambda_bc > 0: monitored_loss += loss_dict.get('bc_loss', 0.0)
-            if lambda_physics > 0: monitored_loss += loss_dict.get('pde_loss', 0.0)
-            scheduler.step(monitored_loss.item() if hasattr(monitored_loss, 'item') else monitored_loss)
+            active_losses = [
+                loss_dict[k] for k in ['data_loss', 'bc_loss', 'pde_loss']
+                if loss_dict.get(k) is not None and isinstance(loss_dict[k], torch.Tensor)
+            ]
+            monitored_loss = sum(active_losses) if active_losses else torch.tensor(0.0)
+            scheduler.step(monitored_loss.item())
             # Monitoraggio e Plotting periodico
         if (epoch + 1) % 500 == 0:
             pbar.set_postfix({
@@ -221,17 +265,39 @@ def train_ViscoelasticPINN(
             model.eval()
             # Per calcolare u = psi_y serve attivare i gradienti, usiamo set_grad_enabled(True) 
             with torch.set_grad_enabled(True): 
-                if not xy_grid.requires_grad: xy_grid.requires_grad_(True)
+                xy_grid_val = xy_grid.clone().detach().requires_grad_(True)
                 # Ricaviamo u dal problema fisico (Stream Function)
                 if hasattr(physics_problem, 'get_velocity'):
-                    u_pred, _, _, _ = physics_problem.get_velocity(model, xy_grid)
+                    u_pred, _, _, _ = physics_problem.get_velocity(model, xy_grid_val)
                     T_pred_grid = u_pred.detach().cpu().reshape(Ny_dom, Nx_dom)
+                    
+                    # Estraggo anche gli stress
+                    out = model(xy_grid_val)
+                    tau_xx_pred = out[:, 2].detach().cpu().reshape(Ny_dom, Nx_dom)
+                    tau_xy_pred = out[:, 3].detach().cpu().reshape(Ny_dom, Nx_dom)
+                    tau_yy_pred = out[:, 4].detach().cpu().reshape(Ny_dom, Nx_dom)
                 else:
                     # Fallback per 3-output o altri casi
-                    T_pred_grid = model(xy_grid)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
+                    T_pred_grid = model(xy_grid_val)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
+                del xy_grid_val
+                
             plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
             plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path, physics_points=xy_physics, val_label=val_label)
             plot_files.append(plot_path)
+            
+            if hasattr(physics_problem, 'get_velocity'):
+                # Usa ground truth se disponibile, altrimenti mostra solo la predizione
+                if stress_exact_grids is not None:
+                    tau_xx_exact_g = stress_exact_grids.get('tau_xx', torch.zeros_like(T_exact_grid))
+                    tau_xy_exact_g = stress_exact_grids.get('tau_xy', torch.zeros_like(T_exact_grid))
+                    tau_yy_exact_g = stress_exact_grids.get('tau_yy', torch.zeros_like(T_exact_grid))
+                else:
+                    tau_xx_exact_g = torch.zeros_like(T_exact_grid)
+                    tau_xy_exact_g = torch.zeros_like(T_exact_grid)
+                    tau_yy_exact_g = torch.zeros_like(T_exact_grid)
+                plot2D_comparison(X, Y, tau_xx_exact_g, tau_xx_pred, epoch+1, os.path.join(plots_dir, f'tau_xx_{epoch+1}.png'), physics_points=xy_physics, val_label='tau_xx')
+                plot2D_comparison(X, Y, tau_xy_exact_g, tau_xy_pred, epoch+1, os.path.join(plots_dir, f'tau_xy_{epoch+1}.png'), physics_points=xy_physics, val_label='tau_xy')
+                plot2D_comparison(X, Y, tau_yy_exact_g, tau_yy_pred, epoch+1, os.path.join(plots_dir, f'tau_yy_{epoch+1}.png'), physics_points=xy_physics, val_label='tau_yy')
 
     # --- STAGED PRECISION SWITCH ---
     # Prima di iniziare L-BFGS, passiamo a FP64 (Float64) per la massima precisione scientifica
@@ -239,11 +305,18 @@ def train_ViscoelasticPINN(
     torch.set_default_dtype(torch.float64)
     torch.backends.cuda.matmul.allow_tf32 = False # Disabilitato per FP64
     model.double()
-    xy_int, T_int = xy_int.double(), T_int.double()
-    xy_bc, T_bc = xy_bc.double(), T_bc.double()
-    xy_physics = xy_physics.double()
-    xy_grid, T_exact_grid = xy_grid.double(), T_exact_grid.double()
+    xy_int      = xy_int.double()
+    T_int       = T_int.double()
+    xy_bc       = xy_bc.double()
+    T_bc        = T_bc.double()
+    xy_physics  = xy_physics.detach().double().requires_grad_(True)
+    xy_grid     = xy_grid.double()
+    T_exact_grid = T_exact_grid.double()
     X, Y = X.double(), Y.double()
+    
+    # Verifica
+    assert all(p.dtype == torch.float64 for p in model.parameters()), \
+        "Errore: parametri del modello non tutti in float64 dopo .double()"
 
     lbfgs_iter = [0]
     pbar_lbfgs = tqdm(total=max_total_lbfgs, desc="Training PINN (L-BFGS)", mininterval=2.0)
@@ -258,40 +331,46 @@ def train_ViscoelasticPINN(
             model.parameters(), 
             lr=current_lr, 
             max_iter=remaining_evals, 
-            max_eval=remaining_evals, 
+            # max_eval deve essere maggiore di max_iter perché la strong Wolfe line search
+            # richiede 2-5 valutazioni per iterazione. Senza margine, L-BFGS si ferma
+            # molto prima del budget previsto.
+            max_eval=remaining_evals * 5, 
             tolerance_grad=1e-7, 
             tolerance_change=1e-9,
             history_size=300,
             line_search_fn="strong_wolfe"
         )
         
-        def closure():
-            optimizer_lbfgs.zero_grad()
-            loss, loss_dict = compute_pinn_loss(
-                model, 
-                x_data=xy_int, 
-                y_data=T_int,
-                x_bc=xy_bc,
-                y_bc=T_bc,
-                physics_loss_fn=None, 
-                physics_problem=physics_problem,
-                x_physics=xy_physics,
-                lambda_data=lambda_data,
-                lambda_bc=lambda_bc,
-                lambda_physics=target_lambda_physics
-            )
-            loss.backward()
-            if lbfgs_iter[0] % 10 == 0: 
-                history_entry = loss_dict.copy()
-                history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
-                loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=current_lr)
+        # Closure factory per evitare late binding dell'ottimizzatore nel loop
+        def make_closure(opt_ref):
+            def closure():
+                opt_ref.zero_grad()
+                loss, loss_dict = compute_pinn_loss(
+                    model, 
+                    x_data=xy_int, 
+                    y_data=T_int,
+                    x_bc=xy_bc,
+                    y_bc=T_bc,
+                    physics_loss_fn=None, 
+                    physics_problem=physics_problem,
+                    x_physics=xy_physics,
+                    lambda_data=lambda_data,
+                    lambda_bc=lambda_bc,
+                    lambda_physics=target_lambda_physics
+                )
+                loss.backward()
+                if lbfgs_iter[0] % 10 == 0: 
+                    history_entry = loss_dict.copy()
+                    history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
+                    loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=current_lr)
+                
+                lbfgs_iter[0] += 1
+                pbar_lbfgs.update(1)
+                pbar_lbfgs.set_postfix({'Loss': f"{loss.item():.2e}"})
+                return loss
+            return closure
             
-            lbfgs_iter[0] += 1
-            pbar_lbfgs.update(1)
-            pbar_lbfgs.set_postfix({'Loss': f"{loss.item():.2e}"})
-            return loss
-            
-        optimizer_lbfgs.step(closure)
+        optimizer_lbfgs.step(make_closure(optimizer_lbfgs))
         
         # Se abbiamo raggiunto il limite massimo, usciamo
         if lbfgs_iter[0] >= max_total_lbfgs:
@@ -302,7 +381,7 @@ def train_ViscoelasticPINN(
     
     pbar_lbfgs.close()
     
-   # Final loss check after L-BFGS
+    # Final loss check after L-BFGS
     final_loss, final_loss_dict = compute_pinn_loss(
             model, 
             x_data=xy_int, 
@@ -319,17 +398,19 @@ def train_ViscoelasticPINN(
     final_entry = final_loss_dict.copy()
     final_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
     loss_history.update(epochs + lbfgs_iter[0], final_entry, lr=current_lr)
-    print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss.item():.2e}")    
+    print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss.item():.2e}")
+
     # Plot Finale Interattivo
     print("Training completato. Generazione plot finale...")
     model.eval()
     with torch.set_grad_enabled(True): 
-        if not xy_grid.requires_grad: xy_grid.requires_grad_(True)
+        xy_grid_val = xy_grid.clone().detach().requires_grad_(True)
         if hasattr(physics_problem, 'get_velocity'):
-            u_p, _, _, _ = physics_problem.get_velocity(model, xy_grid)
+            u_p, _, _, _ = physics_problem.get_velocity(model, xy_grid_val)
             T_final = u_p.detach().cpu().reshape(Ny_dom, Nx_dom)
         else:
-            T_final = model(xy_grid)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
+            T_final = model(xy_grid_val)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
+        del xy_grid_val
     lambda_data_viz, lambda_bc_viz = loss_weights.get('data', 1.0), loss_weights.get('bc', 1.0)
     internal_pts = xy_int if lambda_data_viz > 0 else None
     boundary_pts = xy_bc if lambda_bc_viz > 0 else None
@@ -343,7 +424,7 @@ def train_ViscoelasticPINN(
         gif_path = os.path.join(final_dir, 'PINNtraining_evolution.gif')
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
-# Plot Loss History con split tra Adam e L-BFGS
+    # Plot Loss History con split tra Adam e L-BFGS
     loss_history.plot_losses(
         warmup_epoch=warmup_epochs, 
         adam_epochs=epochs,

@@ -150,24 +150,28 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, internal_points=
 
 def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_path=None):
     """
-    Generates a 2x2 grid of relative error maps.
+    Generates a dynamic grid of relative error maps.
     
     Args:
         X, Y: Meshgrid tensors.
         T_true: Analytical solution tensor.
-        model_results: List of dictionaries [{'T_pred': tensor, 'label': str}, ...] (exactly 4 expected).
+        model_results: List of dictionaries [{'T_pred': tensor, 'label': str}, ...].
+            Supporta qualsiasi numero di risultati (1, 2, 3, 4, ...).
+            Il layout della griglia si adatta automaticamente.
         hyperparams: Dictionary {'arch': str, 'epochs': int, 'act': str}.
         save_path: Path to save the plot.
     """
-    if len(model_results) != 4:
-        print("Warning: plot2D_unified_comparison expects exactly 4 model results for a 2x2 grid.")
+    n = len(model_results)
+    if n == 0:
+        print("Warning: plot2D_unified_comparison called with 0 model results. Skipping.")
         return
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    # Griglia dinamica: max 2 colonne, righe calcolate di conseguenza
+    cols = min(n, 2)
+    rows = (n + cols - 1) // cols
+
+    fig, axes = plt.subplots(rows, cols, figsize=(7 * cols, 6 * rows), squeeze=False)
     X_np, Y_np = X.detach().cpu().numpy(), Y.detach().cpu().numpy()
-    
-    # Max for normalization
-    T_max = torch.max(torch.abs(T_true)).item()
     
     arch = hyperparams.get('arch', 'N/A')
     epochs = hyperparams.get('epochs', 'N/A')
@@ -176,8 +180,8 @@ def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_pat
     fig.suptitle(f"Comparison: {arch} | Epochs: {epochs} | Activation: {act}", fontsize=18, fontweight='bold')
 
     for i, res in enumerate(model_results):
-        row = i // 2
-        col = i % 2
+        row = i // cols
+        col = i % cols
         ax = axes[row, col]
         
         T_pred = res['T_pred']
@@ -203,6 +207,12 @@ def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_pat
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_aspect('equal', adjustable='box')
+
+    # Nasconde gli assi vuoti se il numero di risultati non riempie la griglia
+    for i in range(n, rows * cols):
+        row = i // cols
+        col = i % cols
+        axes[row, col].set_visible(False)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust for suptitle
     

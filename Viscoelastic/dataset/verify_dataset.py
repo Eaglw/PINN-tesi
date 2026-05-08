@@ -13,7 +13,7 @@ def verify_dataset(file_path):
         print(f"❌ Errore: File {file_path} non trovato.")
         return
 
-    data = torch.load(file_path) if file_path.endswith('.pt') else None
+    data = torch.load(file_path, weights_only=False) if file_path.endswith('.pt') else None
     if data is None:
         print("❌ Caricamento fallito o formato non supportato.")
         return

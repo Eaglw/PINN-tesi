@@ -7,8 +7,14 @@ def compute_metrics(model, xy_grid_flat, T_grid_true):
     """
     Computes L2 Relative Error and Max Relative Error Peak.
     
+    IMPORTANTE: Questa funzione assume che model(x) restituisca un singolo output
+    scalare per punto (shape (N, 1) o (N,)). Per modelli multi-output come
+    ViscoelasticCombinedModel (che produce [psi, p, tau_xx, tau_xy, tau_yy]),
+    è NECESSARIO wrappare il modello con VelocityInferenceWrapper prima di
+    chiamare questa funzione, altrimenti le dimensioni non matchano.
+    
     Args:
-        model: Trained PyTorch model.
+        model: Trained PyTorch model (single-output o wrapped).
         xy_grid_flat: Tensor of shape (N, 2) containing grid points.
         T_grid_true: Tensor of shape (Nx, Ny) or (N,) containing analytical solution.
     

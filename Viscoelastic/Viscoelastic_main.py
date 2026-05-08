@@ -38,9 +38,12 @@ show_plots_interactively = False
 # Cases to run: 0 (Pure Phys), 1 (Phys+Data), 2 (Solo Data)
 goals_to_run = [0, 1, 2]
 
+# --- CONFIGURATION FLAGS ---
+STAGED_TRAINING = True 
+
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
 layers_options = [[2, 120, 100, 80, 60, 40, 20, 1]] 
-epochs_options = [8000]
+epochs_options = [80]
 activation_options = [nn.SiLU]
 lr_strategies = ['plateau']
 weighting_options = ['dynamic']
@@ -59,7 +62,7 @@ if not os.path.exists(dataset_path):
     print(f"❌ Dataset non trovato in: {dataset_path}")
     sys.exit(1)
 
-dataset = torch.load(dataset_path, map_location=device)
+dataset = torch.load(dataset_path, map_location=device, weights_only=False)
 for key in ['coords', 'u', 'v', 'p', 'psi', 'tau_xx', 'tau_xy', 'tau_yy', 'u_exact', 'p_exact', 'psi_exact', 'tau_xx_exact', 'tau_xy_exact', 'tau_yy_exact']:
     if key in dataset:
         dataset[key] = dataset[key].to(torch.float32)
@@ -85,16 +88,25 @@ X = xy_grid_flat[:, 0].reshape(Ny_dom, Nx_dom)
 Y = xy_grid_flat[:, 1].reshape(Ny_dom, Nx_dom)
 U_grid = u_exact.reshape(Ny_dom, Nx_dom)
 P_grid = p_exact.reshape(Ny_dom, Nx_dom)
-validation_grid_tuple = (xy_grid_flat, U_grid, X, Y)
+TAU_XX_grid = tau_xx_exact.reshape(Ny_dom, Nx_dom)
+TAU_XY_grid = tau_xy_exact.reshape(Ny_dom, Nx_dom)
+TAU_YY_grid = tau_yy_exact.reshape(Ny_dom, Nx_dom)
+validation_grid_u = (xy_grid_flat, U_grid, X, Y)
+stress_exact_grids = {'tau_xx': TAU_XX_grid, 'tau_xy': TAU_XY_grid, 'tau_yy': TAU_YY_grid}
 
 margin=2e-2
 Nx_grid_master, Ny_grid_master = 40, 40
 xy_master_grid = generate_grid_points(Nx_grid_master, Ny_grid_master, Lx, Ly, margin=margin, device=device)
 
+# Controlla che tutti i punti rispettino il dominio
+assert xy_master_grid[:, 0].min() >= 0 and xy_master_grid[:, 0].max() <= Lx
+assert xy_master_grid[:, 1].min() >= 0 and xy_master_grid[:, 1].max() <= Ly
+
 # --- BOUNDARY CONDITIONS (u, v, p) ---
 xy_master_boundary, uvp_master_boundary = generate_boundaries(Lx, Ly, u_max, p_exact, P_grid, Nx_dom, Ny_dom, device)
 
 num_subset = 1000
+torch.manual_seed(42)
 idx = torch.randperm(xy_grid_flat.shape[0])[:num_subset]
 xy_pinn_data = xy_grid_flat[idx]
 psip_pinn_data = torch.cat([psi_exact[idx], p_exact[idx], tau_xx_exact[idx], tau_xy_exact[idx], tau_yy_exact[idx]], dim=1) 
@@ -132,6 +144,8 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
     is_dynamic = (weight_mode == 'dynamic')
     current_weight_str = DYNAMIC_WEIGHT_STR if is_dynamic else STATIC_WEIGHT_STR
 
+    phys_problem = ViscoelasticPhysics(mu_s=mu_s, mu_p=mu_p, lam=lam)
+
     for goal in goals_to_run:
         # Mapping dei Goal: 0=PurePhys, 1=Phys+Data, 2=SoloData
         if goal == 0:
@@ -148,7 +162,14 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
         print(f"  > {label} ({config_name})")
         
         exp_dir, plots_dir = setup_experiment_folder(config_dir, prefix, f"{label} {weight_mode}")
-        phys_problem = ViscoelasticPhysics(mu_s=mu_s, mu_p=mu_p, lam=lam)
+        
+        torch.manual_seed(123)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(123)
+            
+        torch.set_default_dtype(torch.float32)
+        pinn_data_internal_fresh = (xy_pinn_data.float(), psip_pinn_data.float())
+        pinn_data_boundary_fresh = (xy_master_boundary.float(), uvp_master_boundary.float())
         
         # Forziamo l'ultimo layer
         layers_psi = layers_config[:-1] + [1]
@@ -161,48 +182,103 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
         model_combined = ViscoelasticCombinedModel(model_psi, model_p, model_tau)
 
         # Passiamo una lista unica di parametri all'ottimizzatore
-        params = list(model_combined.parameters())
-        optimizer = torch.optim.Adam(params, lr=base_lr)
+        optimizer_params = list(model_combined.parameters())
+        optimizer = torch.optim.Adam(optimizer_params, lr=base_lr)
         
         # Se siamo nel Goal 2 (SoloData), il dynamic weighting non ha senso (una sola componente)
         # Lo disabilitiamo localmente per questa run
         run_is_dynamic = is_dynamic if goal != 2 else False
 
         # Se non siamo in modalità dinamica, applichiamo i pesi statici (tranne che per SoloData)
+        effective_w = dict(current_w)
         if not run_is_dynamic and goal != 2:
-            current_w['bc'] *= STATIC_WEIGHTS['bc']
-            current_w['physics'] *= STATIC_WEIGHTS['physics']
-            current_w['data'] *= STATIC_WEIGHTS['data']
+            effective_w['bc'] *= STATIC_WEIGHTS['bc']
+            effective_w['physics'] *= STATIC_WEIGHTS['physics']
+            effective_w['data'] *= STATIC_WEIGHTS['data']
 
-        history = train_ViscoelasticPINN(
-            model=model_combined, optimizer=optimizer,
-            data_internal=pinn_data_internal, data_boundary=pinn_data_boundary,
-            validation_grid=validation_grid_tuple, physics_problem=phys_problem,
-            epochs=epochs, plots_dir=plots_dir, final_dir=exp_dir,
-            show_plots_interactively=show_plots_interactively,
-            log_gradients_every=500, collocation_points=xy_master_grid,
-            lr_strategy=lr_strat, loss_weights=current_w, dynamic_weighting=run_is_dynamic,
-            update_weights_every=100, warmup_epochs=0,
-            experiment_name=f"Viscoelastic {label}", val_label="u (Velocity)"
-        )
-        
-        metrics_wrapper = VelocityInferenceWrapper(model_combined, phys_problem)
-        l2_err, max_err = compute_metrics(metrics_wrapper, xy_grid_flat, U_grid)
-        
-        log_data = {
-            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 'Architecture': str(layers_config),
-            'Activation_Func': act_str, 'Epochs': epochs, 'Run_Type': label,
-            'Optimizer': 'Adam', 'Learning_Rate': lr_log_str, 
-            'Loss_Total': get_last(history, 'total_loss'), 'Loss_Physics': get_last(history, 'pde_loss'),
-            'Loss_Boundary': get_last(history, 'bc_loss'), 'Loss_Data': get_last(history, 'data_loss'),
-            'L2_Relative_Error': l2_err, 'Max_Relative_Error_Peak': max_err,
-            'Seed': 123, 'n_points': xy_pinn_data.shape[0] if goal in [1, 2] else 0,
-            'Loss_Weight': current_weight_str
-        }
-        update_results_csv(results_csv_path, log_data)
-        histories[label] = history
-        final_models[label] = model_combined
-        if os.path.exists(plots_dir): shutil.rmtree(plots_dir)
+        warmup = 0 if goal == 2 else epochs // 5
+
+        try:
+            if STAGED_TRAINING and goal != 2:
+                # Definiamo gli stadi: (Nome, Componenti attivi, % Epoche)
+                stages = [
+                    ("Kinematics (Psi+P)", ['psi', 'p'], 0.4),
+                    ("Constitutive (Tau)", ['tau'], 0.4),
+                    ("Full Coupled (All)", ['psi', 'p', 'tau'], 0.2)
+                ]
+                
+                total_epochs = epochs
+                history = None
+                
+                for stage_name, active_comps, epoch_pct in stages:
+                    stage_epochs = int(total_epochs * epoch_pct)
+                    if stage_epochs == 0: continue
+                    
+                    print(f"\n  >>> Starting Stage: {stage_name} for {stage_epochs} epochs")
+                    
+                    # Filtriamo i parametri per l'ottimizzatore dello stadio
+                    # Anche se non strettamente necessario se requires_grad=False, è più pulito
+                    set_model_trainable(model_combined, active_comps)
+                    stage_params = [p for p in model_combined.parameters() if p.requires_grad]
+                    stage_optimizer = torch.optim.Adam(stage_params, lr=base_lr)
+                    
+                    stage_history = train_ViscoelasticPINN(
+                        model=model_combined, optimizer=stage_optimizer,
+                        data_internal=pinn_data_internal_fresh, data_boundary=pinn_data_boundary_fresh,
+                        validation_grid=validation_grid_u, physics_problem=phys_problem,
+                        epochs=stage_epochs, plots_dir=plots_dir, final_dir=exp_dir,
+                        show_plots_interactively=show_plots_interactively,
+                        log_gradients_every=500, collocation_points=xy_master_grid,
+                        lr_strategy=lr_strat, loss_weights=effective_w, dynamic_weighting=run_is_dynamic,
+                        update_weights_every=100, warmup_epochs=0, # Warmup solo nel primo stadio o gestito internamente
+                        experiment_name=f"{label} - {stage_name}", val_label="u (Velocity)",
+                        stress_exact_grids=stress_exact_grids,
+                        active_components=active_comps
+                    )
+                    
+                    if history is None:
+                        history = stage_history
+                    else:
+                        # Append history (logica semplificata, i plot mostreranno solo l'ultimo stadio se non gestito)
+                        history.loss_history.extend(stage_history.loss_history)
+            else:
+                # Training standard (tutto insieme o SoloData)
+                history = train_ViscoelasticPINN(
+                    model=model_combined, optimizer=optimizer,
+                    data_internal=pinn_data_internal_fresh, data_boundary=pinn_data_boundary_fresh,
+                    validation_grid=validation_grid_u, physics_problem=phys_problem,
+                    epochs=epochs, plots_dir=plots_dir, final_dir=exp_dir,
+                    show_plots_interactively=show_plots_interactively,
+                    log_gradients_every=500, collocation_points=xy_master_grid,
+                    lr_strategy=lr_strat, loss_weights=effective_w, dynamic_weighting=run_is_dynamic,
+                    update_weights_every=100, warmup_epochs=warmup,
+                    experiment_name=f"Viscoelastic {label}", val_label="u (Velocity)",
+                    stress_exact_grids=stress_exact_grids,
+                    active_components=['psi', 'p', 'tau']
+                )
+            
+            # NOTA: compute_metrics richiede il wrapper VelocityInferenceWrapper
+            # perché il modello combinato produce 5 output [psi,p,tau_xx,tau_xy,tau_yy]
+            # mentre le metriche si calcolano solo sulla velocità u.
+            metrics_wrapper = VelocityInferenceWrapper(model_combined, phys_problem)
+            l2_err, max_err = compute_metrics(metrics_wrapper, xy_grid_flat, U_grid)
+            
+            log_data = {
+                'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 'Architecture': str(layers_config),
+                'Activation_Func': act_str, 'Epochs': epochs, 'Run_Type': label,
+                'Optimizer': 'Adam', 'Learning_Rate': lr_log_str, 
+                'Loss_Total': get_last(history, 'total_loss'), 'Loss_Physics': get_last(history, 'pde_loss'),
+                'Loss_Boundary': get_last(history, 'bc_loss'), 'Loss_Data': get_last(history, 'data_loss'),
+                'L2_Relative_Error': l2_err, 'Max_Relative_Error_Peak': max_err,
+                'Seed': 123, 'n_points': xy_pinn_data.shape[0] if goal in [1, 2] else 0,
+                'Loss_Weight': current_weight_str
+            }
+            update_results_csv(results_csv_path, log_data)
+            histories[label] = history
+            final_models[label] = model_combined
+        finally:
+            if os.path.exists(plots_dir):
+                shutil.rmtree(plots_dir)
 
     print(f"  > Generating Comparisons for {config_name}...")
     results_dir = os.path.join(config_dir, 'comparisons')
@@ -219,7 +295,8 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
     
     if model_results:
         hparams = {'arch': layers_str, 'epochs': str(epochs), 'act': act_str, 'lr_strategy': lr_strat, 'weight': current_weight_str}
-        plot2D_unified_comparison(X, Y, U_grid, model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
+        # X, Y, U_grid possono essere su CUDA; i plot li richiedono su CPU
+        plot2D_unified_comparison(X.cpu(), Y.cpu(), U_grid.cpu(), model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
     
     if len(histories) > 1:
         labels_list = list(histories.keys())
