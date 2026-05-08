@@ -23,6 +23,11 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Oldroyd_B_Model]]: Constitutive modeling of viscoelasticity
 - [[Viscoelasticity_Theory]]: Fundamental theoretical principles
 - [[Maurizio_Harmonic_Oscillator]]: 1D Damped Oscillator implementation
+- [[Frequency_Spectral_Bias]]: DNN learning preferences in frequency domain
+- [[Upper_Convected_Maxwell]]: Simplest observer-invariant viscoelastic model
+- [[Viscoelastic_Modeling_Lecture]]: Comprehensive lecture on non-Newtonian fluids
+- [[Giesekus_Viscosity_Model]]: Advanced viscosity model for shear-thinning
+- [[Note_04_Supervisor_Log]]: Methodological decisions and supervisor feedback
 
 
 ## Thematic Topics
@@ -34,6 +39,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Nondimensionalization]]: Scaling for numerical stability
 - [[Fluid_Dynamics]]: Navier-Stokes and complex flow modeling
 - [[Viscoelasticity]]: Theory and modeling of time-dependent materials
+- [[Spectral_Bias]]: Frequency-dependent learning behavior of DNNs
 - [[Creep]]: Time-dependent deformation under constant stress
 - [[Stress_Relaxation]]: Stress reduction under constant strain
 

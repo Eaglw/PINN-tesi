@@ -13,7 +13,8 @@ Key features of the current repository implementation:
 - **Physical Loss**:
     - **Momentum**: Couples velocity, pressure, and the divergence of the extra stress tensor.
     - **Oldroyd-B**: Implements the upper-convected constitutive equation.
-- **Staged Training**: Transitions from Adam (exploration) to L-BFGS (refinement) while switching from `float32` to `float64` for numerical stability.
+- **Staged Training (Decoupling)**: Implements a 3-stage training strategy (Kinematics $\to$ Constitutive $\to$ Full Coupled) to stabilize convergence. See [[Staged_Training_Procedure]] for details.
+- **Precision Switching**: Transitions from Adam (exploration) to L-BFGS (refinement) while switching from `float32` to `float64`. See [[Staged_Precision_Strategy]].
 
 ## References
 - [[Thakur_et_al_ViscoelasticNet]]
