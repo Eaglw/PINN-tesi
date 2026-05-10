@@ -1,35 +1,36 @@
 # Method: Staged Training Procedure
 
 ## Overview
-The Staged Training Procedure (also known as Decoupled Training) is a robust optimization strategy for complex physical systems where multiple neural networks are coupled. In the context of Viscoelastic PINNs, it prevents the instability caused by high-magnitude residuals from one field (e.g., stress) disrupting the learning of another (e.g., velocity).
+The Staged Training Procedure (also known as Decoupled Training) is a robust optimization strategy for complex physical systems where multiple neural networks are coupled. In Viscoelastic PINNs, it prevents instability by decoupling the learning of kinematics (velocity/pressure) from the non-linear constitutive stress field.
 
-## Implementation Details
-The procedure splits the total training epochs into distinct stages, selectively freezing and unfreezing parts of the `ViscoelasticCombinedModel`.
+## Implementation (Standard Architecture)
+As of May 2026, the procedure is integrated directly into the training core (`train_ViscoelasticPINN`), simplifying the user interface and ensuring consistency.
 
-### Stage 1: Kinematics (Flow Field)
-- **Active Networks**: `model_psi`, `model_p`
-- **Frozen Networks**: `model_tau`
-- **Objective**: Learn the velocity field and pressure distribution. By freezing the stress network, the optimizer focuses on solving the Navier-Stokes part of the problem without being distracted by non-linear constitutive residuals.
-- **Duration**: ~40% of total epochs.
+### Phase 1: Kinematics (Adam - First 50%)
+- **Active**: `model_psi`, `model_p`
+- **Frozen**: `model_tau`
+- **Objective**: Establish a stable flow field (velocity and pressure) without the high-gradient interference of polymeric stress residuals.
 
-### Stage 2: Constitutive (Stress Field)
-- **Active Networks**: `model_tau`
-- **Frozen Networks**: `model_psi`, `model_p`
-- **Objective**: Given the fixed velocity field from Stage 1, learn the corresponding polymeric stress components ($\tau_{xx}, \tau_{xy}, \tau_{yy}$) that satisfy the Oldroyd-B constitutive equations.
-- **Duration**: ~40% of total epochs.
+### Phase 2: Constitutive (Adam - Second 50%)
+- **Active**: `model_tau`
+- **Frozen**: `model_psi`, `model_p`
+- **Objective**: Compute the polymeric stress tensor components ($\tau_{xx}, \tau_{xy}, \tau_{yy}$) corresponding to the fixed flow field from Phase 1, solving the Oldroyd-B constitutive equations.
 
-### Stage 3: Full Coupled (Refinement)
-- **Active Networks**: `model_psi`, `model_p`, `model_tau`
-- **Objective**: Jointly optimize all fields. This allows the networks to "talk" to each other and refine the global solution, ensuring all physical laws are simultaneously satisfied.
-- **Duration**: ~20% of total epochs.
+### Phase 3: Full Coupled (L-BFGS Refinement)
+- **Active**: **All Networks** (`psi`, `p`, `tau`)
+- **Precision**: Switch to **FP64** (Double Precision).
+- **Objective**: Jointly optimize all fields. This global refinement ensures that the final solution satisfies both the momentum/continuity equations and the constitutive laws simultaneously with high numerical precision.
 
 ## Control Logic
-The strategy is controlled via the `STAGED_TRAINING` flag in `Viscoelastic_main.py` and the helper function `set_model_trainable()` in `Viscoelastic_PINN.py`.
+The strategy is enabled via the `staged_training=True` flag in the training call. The function internally manages:
+1. `set_model_trainable()` calls to freeze/unfreeze parameters.
+2. Optimizer and scheduler resets at the phase transition point.
+3. Total unfreezing before the L-BFGS precision switch.
 
-## Advantages for Thesis
-1. **Convergence Stability**: Avoids gradient competition in the early stages.
-2. **Modular Verification**: Allows checking if the velocity field is correct before committing to complex stress calculations.
-3. **Hyperparameter Isolation**: Makes it easier to tune learning rates for specific components.
+## Advantages
+1. **Convergence Stability**: Decouples competitive gradients during the early exploration phase.
+2. **Implementation Robustness**: Reduces boilerplate code in experiment scripts and prevents common errors in manual stage management.
+3. **Physical Grade Accuracy**: L-BFGS joint optimization ensures the coupled system reaches a physically consistent state.
 
 ## Related
 - [[ViscoelasticNet]]

@@ -13,9 +13,8 @@ This project focuses on the research and application of Physics-Informed Neural 
     - `Heat2D_main.py`: Main script for 2D Heat experiments.
     - `Heat2D_prova.py`: Experimental/testing script for 2D Heat.
 - **`Newtonian/`**: Module for Navier-Stokes equations and Newtonian fluids.
-- **`PINN-wiki/`**: Knowledge management layer (Obsidian Vault).
+- **`PINN-wiki/`**: Knowledge management layer, consolidated research documentation, and technical journals (Obsidian Vault).
     - `GEMINI.md`: Specific protocols for wiki maintenance (Ingestion, LIST, etc.).
-- **`notes/`**: Consolidated research documentation and technical journals.
 
 - **`func/`**: Shared utility functions.
     - `graphic_func.py`: Plotting and GIF generation.

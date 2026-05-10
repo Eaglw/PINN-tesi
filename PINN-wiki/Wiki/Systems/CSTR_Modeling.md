@@ -9,7 +9,7 @@ Modeling of a Continuous Stirred-Tank Reactor (CSTR) using PINNs.
 ## Coupled PINN (Non-Isothermal)
 Used for systems where concentration and temperature are interdependent.
 - **Architecture**: Dual networks (`ConcentrationNet` and `TemperatureNet`).
-- **Coupling**: The Arrhenius term $ k(T) = k_0 e^{-E/RT} $ links the mass and energy balances.
+- **Coupling**: The Arrhenius term $k(T) = k_0 e^{-E/RT}$ links the mass and energy balances.
 
 ## Training Strategies
 - **Warm-up**: Setting $\lambda_{phys} = 0$ for the first ~1000 steps to stabilize thermal ranges and prevent Arrhenius term explosion.
