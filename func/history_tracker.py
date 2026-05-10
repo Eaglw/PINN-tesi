@@ -13,6 +13,34 @@ class TrainingHistory:
         self.losses = {} # Dizionario di liste: {'total_loss': [v1, v2...], 'pde_loss': [None, ..., v100...]}
         self.lr_history = []
 
+    def extend(self, other):
+        """
+        Concatena un'altra TrainingHistory a questa.
+        Gestisce l'offset delle epoche per rendere la sequenza continua.
+        """
+        if not other.epochs:
+            return
+            
+        last_epoch = self.epochs[-1] if self.epochs else -1
+        # Offset delle epoche per farle seguire l'ultima registrata
+        self.epochs.extend([e + last_epoch + 1 for e in other.epochs])
+        self.lr_history.extend(other.lr_history)
+        
+        # Sincronizza le chiavi di tutte le loss
+        all_keys = set(self.losses.keys()).union(set(other.losses.keys()))
+        current_len_before = len(self.epochs) - len(other.epochs)
+        
+        for name in all_keys:
+            if name not in self.losses:
+                # Se la chiave è nuova per 'self', riempiamo il passato con None
+                self.losses[name] = [None] * current_len_before
+            
+            if name in other.losses:
+                self.losses[name].extend(other.losses[name])
+            else:
+                # Se la chiave manca in 'other', riempiamo la nuova sezione con None
+                self.losses[name].extend([None] * len(other.epochs))
+
     def update(self, epoch, loss_dict, lr=None):
         """
         Registra i valori delle loss per un dato 'epoch'.

@@ -106,13 +106,18 @@ def train_ViscoelasticPINN(
     max_total_lbfgs=100, resample_every=0, resample_fn=None,
     experiment_name="PINN Training", val_label="Value",
     grad_clip_norm=5.0, stress_exact_grids=None,
-    active_components=['psi', 'p', 'tau']
+    staged_training=False, base_lr=1e-3
 ):
     """
-    Esegue il training della PINN con supporto per training disaccoppiato.
+    Esegue il training della PINN viscoelastica.
     
     Args:
-        active_components: Lista dei componenti da addestrare ('psi', 'p', 'tau').
+        staged_training: (Bool) Se True, il training Adam è diviso in due fasi:
+            - Fase 1 (prima metà): allena solo psi+p (cinematica), tau congelato.
+            - Fase 2 (seconda metà): allena solo tau (costitutivo), psi+p congelati.
+            Infine L-BFGS raffina con tutto sbloccato.
+        base_lr: (Float) Learning rate di base per Adam (usato per ricreare
+            l'ottimizzatore al cambio di fase nel staged training).
         resample_every: (Int) Se > 0, ricampiona i punti di collocazione ogni N epoche.
         resample_fn: (Callable) Funzione che restituisce nuovi punti di collocazione.
         grad_clip_norm: (Float) Norma massima per il gradient clipping.
@@ -123,8 +128,15 @@ def train_ViscoelasticPINN(
         Il fit su psi è più vincolante del fit su u perché fissa la costante di integrazione.
         La boundary_loss invece opera su [u, v, p] derivati dalla stream function.
     """
-    # Applichiamo la configurazione di sblocco/congelamento
-    set_model_trainable(model, active_components)
+    # --- SETUP STAGED TRAINING ---
+    half_epochs = epochs // 2
+    if staged_training:
+        print(f"\n  [Staged Training] Fase 1: Cinematica (psi+p) per {half_epochs} epoche")
+        set_model_trainable(model, ['psi', 'p'])
+        phase_params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.Adam(phase_params, lr=base_lr)
+    else:
+        set_model_trainable(model, ['psi', 'p', 'tau'])
     xy_int, T_int = data_internal
     xy_bc, T_bc = data_boundary
     xy_grid, T_exact_grid, X, Y = validation_grid
@@ -165,6 +177,19 @@ def train_ViscoelasticPINN(
 
     alpha_dynamic = 0.9
     for epoch in pbar:
+        # --- STAGED TRAINING: Cambio fase a metà epoche ---
+        if staged_training and epoch == half_epochs:
+            print(f"\n  [Staged Training] Fase 2: Costitutivo (tau) per {epochs - half_epochs} epoche")
+            set_model_trainable(model, ['tau'])
+            phase_params = [p for p in model.parameters() if p.requires_grad]
+            optimizer = torch.optim.Adam(phase_params, lr=base_lr)
+            # Ricreiamo lo scheduler per la nuova fase
+            scheduler = None
+            if lr_strategy == 'step_decay':
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=int((epochs - half_epochs) * 0.25), gamma=0.5)
+            elif lr_strategy == 'plateau':
+                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=600, min_lr=1e-6, cooldown=3000)
+
         # Periodic Resampling
         if resample_every > 0 and resample_fn is not None and epoch > 0 and epoch % resample_every == 0:
             _dtype = next(model.parameters()).dtype
@@ -299,7 +324,11 @@ def train_ViscoelasticPINN(
                 plot2D_comparison(X, Y, tau_xy_exact_g, tau_xy_pred, epoch+1, os.path.join(plots_dir, f'tau_xy_{epoch+1}.png'), physics_points=xy_physics, val_label='tau_xy')
                 plot2D_comparison(X, Y, tau_yy_exact_g, tau_yy_pred, epoch+1, os.path.join(plots_dir, f'tau_yy_{epoch+1}.png'), physics_points=xy_physics, val_label='tau_yy')
 
-    # --- STAGED PRECISION SWITCH ---
+    # --- SBLOCCO TOTALE + PRECISION SWITCH PER L-BFGS ---
+    if staged_training:
+        print(f"\n  [Staged Training] Fase 3: Raffinamento L-BFGS (tutto sbloccato)")
+        set_model_trainable(model, ['psi', 'p', 'tau'])
+    
     # Prima di iniziare L-BFGS, passiamo a FP64 (Float64) per la massima precisione scientifica
     print("\n--- Switching to FP64 for L-BFGS Refinement ---")
     torch.set_default_dtype(torch.float64)

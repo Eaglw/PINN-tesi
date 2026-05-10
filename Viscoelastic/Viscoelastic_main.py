@@ -199,63 +199,20 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
         warmup = 0 if goal == 2 else epochs // 5
 
         try:
-            if STAGED_TRAINING and goal != 2:
-                # Definiamo gli stadi: (Nome, Componenti attivi, % Epoche)
-                stages = [
-                    ("Kinematics (Psi+P)", ['psi', 'p'], 0.4),
-                    ("Constitutive (Tau)", ['tau'], 0.4),
-                    ("Full Coupled (All)", ['psi', 'p', 'tau'], 0.2)
-                ]
-                
-                total_epochs = epochs
-                history = None
-                
-                for stage_name, active_comps, epoch_pct in stages:
-                    stage_epochs = int(total_epochs * epoch_pct)
-                    if stage_epochs == 0: continue
-                    
-                    print(f"\n  >>> Starting Stage: {stage_name} for {stage_epochs} epochs")
-                    
-                    # Filtriamo i parametri per l'ottimizzatore dello stadio
-                    # Anche se non strettamente necessario se requires_grad=False, è più pulito
-                    set_model_trainable(model_combined, active_comps)
-                    stage_params = [p for p in model_combined.parameters() if p.requires_grad]
-                    stage_optimizer = torch.optim.Adam(stage_params, lr=base_lr)
-                    
-                    stage_history = train_ViscoelasticPINN(
-                        model=model_combined, optimizer=stage_optimizer,
-                        data_internal=pinn_data_internal_fresh, data_boundary=pinn_data_boundary_fresh,
-                        validation_grid=validation_grid_u, physics_problem=phys_problem,
-                        epochs=stage_epochs, plots_dir=plots_dir, final_dir=exp_dir,
-                        show_plots_interactively=show_plots_interactively,
-                        log_gradients_every=500, collocation_points=xy_master_grid,
-                        lr_strategy=lr_strat, loss_weights=effective_w, dynamic_weighting=run_is_dynamic,
-                        update_weights_every=100, warmup_epochs=0, # Warmup solo nel primo stadio o gestito internamente
-                        experiment_name=f"{label} - {stage_name}", val_label="u (Velocity)",
-                        stress_exact_grids=stress_exact_grids,
-                        active_components=active_comps
-                    )
-                    
-                    if history is None:
-                        history = stage_history
-                    else:
-                        # Append history (logica semplificata, i plot mostreranno solo l'ultimo stadio se non gestito)
-                        history.loss_history.extend(stage_history.loss_history)
-            else:
-                # Training standard (tutto insieme o SoloData)
-                history = train_ViscoelasticPINN(
-                    model=model_combined, optimizer=optimizer,
-                    data_internal=pinn_data_internal_fresh, data_boundary=pinn_data_boundary_fresh,
-                    validation_grid=validation_grid_u, physics_problem=phys_problem,
-                    epochs=epochs, plots_dir=plots_dir, final_dir=exp_dir,
-                    show_plots_interactively=show_plots_interactively,
-                    log_gradients_every=500, collocation_points=xy_master_grid,
-                    lr_strategy=lr_strat, loss_weights=effective_w, dynamic_weighting=run_is_dynamic,
-                    update_weights_every=100, warmup_epochs=warmup,
-                    experiment_name=f"Viscoelastic {label}", val_label="u (Velocity)",
-                    stress_exact_grids=stress_exact_grids,
-                    active_components=['psi', 'p', 'tau']
-                )
+            use_staged = STAGED_TRAINING and goal != 2
+            history = train_ViscoelasticPINN(
+                model=model_combined, optimizer=optimizer,
+                data_internal=pinn_data_internal_fresh, data_boundary=pinn_data_boundary_fresh,
+                validation_grid=validation_grid_u, physics_problem=phys_problem,
+                epochs=epochs, plots_dir=plots_dir, final_dir=exp_dir,
+                show_plots_interactively=show_plots_interactively,
+                log_gradients_every=500, collocation_points=xy_master_grid,
+                lr_strategy=lr_strat, loss_weights=effective_w, dynamic_weighting=run_is_dynamic,
+                update_weights_every=100, warmup_epochs=warmup,
+                experiment_name=f"Viscoelastic {label}", val_label="u (Velocity)",
+                stress_exact_grids=stress_exact_grids,
+                staged_training=use_staged, base_lr=base_lr
+            )
             
             # NOTA: compute_metrics richiede il wrapper VelocityInferenceWrapper
             # perché il modello combinato produce 5 output [psi,p,tau_xx,tau_xy,tau_yy]
