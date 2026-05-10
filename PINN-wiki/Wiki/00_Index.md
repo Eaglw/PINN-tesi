@@ -28,6 +28,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Viscoelastic_Modeling_Lecture]]: Comprehensive lecture on non-Newtonian fluids
 - [[Giesekus_Viscosity_Model]]: Advanced viscosity model for shear-thinning
 - [[Note_04_Supervisor_Log]]: Methodological decisions and supervisor feedback
+- [[Viscoelastic_Plotting_Updates]]: Overhaul of visualization and multi-field metrics
 
 
 ## Thematic Topics
@@ -42,6 +43,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Spectral_Bias]]: Frequency-dependent learning behavior of DNNs
 - [[Creep]]: Time-dependent deformation under constant stress
 - [[Stress_Relaxation]]: Stress reduction under constant strain
+- [[EMA_Smoothing]]: Noise reduction in loss tracking
 
 
 ## Technical Methods
@@ -52,6 +54,8 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[SDF_for_Discontinuities]]: Handling sharp transitions in BCs
 - [[Integral_Loss_Scaling]]: Volume-proportional loss balancing
 - [[ViscoelasticNet]]: PINN framework for stress discovery
+- [[Viscoelastic_Metrics]]: Multi-field error aggregation
+- [[Loss_History_Tracking]]: Convergence and gradient visualization
 
 
 ## Physical Systems

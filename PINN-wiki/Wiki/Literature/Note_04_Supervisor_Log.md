@@ -1,6 +1,6 @@
 ---
 title: "Supervisor Meetings: Log & Feedback"
-source: "[[04_Supervisor_Meetings_Log.md]]"
+source: "[04_Supervisor_Meetings_Log.md](file:///c:/Users/eaglw/Documents/PINN%20tesi/PINN-wiki/Reference/Note_mio_studio/04_Supervisor_Meetings_Log.md)"
 author: "Student"
 type: "notes"
 ---

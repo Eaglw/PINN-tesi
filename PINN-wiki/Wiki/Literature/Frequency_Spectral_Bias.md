@@ -1,6 +1,6 @@
 ---
 title: "Frequency principle/spectral bias"
-source: "[[Frequency principlespectral bias.md]]"
+source: "[Frequency principlespectral bias.md](file:///c:/Users/eaglw/Documents/PINN%20tesi/PINN-wiki/Reference/Frequency%20principlespectral%20bias.md)"
 author: "Wikipedia"
 type: "clipping"
 ---

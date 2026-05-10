@@ -72,12 +72,18 @@ class TrainingHistory:
             
             self.losses[name].append(val)
 
-    def plot_losses(self, warmup_epoch=0, adam_epochs=None, save_path=None, experiment_name="", show_plot=True, skip_epochs=0):
+    def plot_losses(self, warmup_epoch=0, adam_epochs=None, save_path=None, experiment_name="", show_plot=True, skip_epochs=0, phase_markers=None, smoothing_alpha=0.0, active_loss_keys=None):
         """
         Genera un grafico con l'andamento di tutte le loss registrate.
         
         Arguments:
             skip_epochs: Numero di epoche iniziali da non visualizzare nel grafico.
+            phase_markers: Lista di dict [{'epoch': N, 'label': 'Fase 2', 'color': 'purple'}]
+                per disegnare linee verticali ai cambi di fase (es. Staged Training).
+            smoothing_alpha: Float tra 0 e 1. Se > 0, sovrappone una curva EMA smoothed
+                alle loss per rendere il trend leggibile. 0 = nessuno smoothing.
+            active_loss_keys: Set di chiavi loss che hanno peso > 0. Se fornito,
+                le loss non presenti vengono escluse dalla visualizzazione.
         """
         has_lbfgs = adam_epochs is not None and any(e >= adam_epochs for e in self.epochs)
         
@@ -97,6 +103,14 @@ class TrainingHistory:
             for name, values in self.losses.items():
                 if name.startswith('grad_') or name.startswith('weight_'): continue
                 
+                # Filtra loss con peso 0 (es. data_loss in PurePhys)
+                if active_loss_keys is not None and name != 'total_loss':
+                    # Mappa il nome della loss alla chiave nel set
+                    loss_key_map = {'data_loss': 'data', 'bc_loss': 'bc', 'pde_loss': 'physics'}
+                    mapped_key = loss_key_map.get(name, name)
+                    if mapped_key not in active_loss_keys:
+                        continue
+                
                 r_epochs = [self.epochs[i] for i in epoch_range_indices]
                 r_values = [values[i] if values[i] is not None else np.nan for i in epoch_range_indices]
                 
@@ -112,7 +126,23 @@ class TrainingHistory:
                     linewidth = 1.2
                     alpha = 0.8
 
-                ax.plot(r_epochs, r_values, linewidth=linewidth, label=label, alpha=alpha)
+                line, = ax.plot(r_epochs, r_values, linewidth=linewidth, label=label, alpha=alpha)
+                
+                # Smoothing EMA overlay
+                if smoothing_alpha > 0 and len(r_values) > 10:
+                    ema = []
+                    current = None
+                    for v in r_values:
+                        if np.isnan(v):
+                            ema.append(np.nan)
+                        elif current is None:
+                            current = v
+                            ema.append(v)
+                        else:
+                            current = smoothing_alpha * current + (1 - smoothing_alpha) * v
+                            ema.append(current)
+                    ax.plot(r_epochs, ema, linewidth=linewidth + 0.5, alpha=0.5, 
+                            color=line.get_color(), linestyle='--')
             
             # Disegno linee verticali per i cambi di Learning Rate
             if len(self.lr_history) > 0:
@@ -141,6 +171,17 @@ class TrainingHistory:
             ax.grid(True, which="both", ls="--", alpha=0.5)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
+            
+            # Phase markers (Staged Training)
+            if phase_markers:
+                for pm in phase_markers:
+                    pm_epoch = pm.get('epoch', 0)
+                    pm_label = pm.get('label', 'Phase Change')
+                    pm_color = pm.get('color', 'purple')
+                    # Solo se il marker è nel range visualizzato
+                    displayed_epochs = [self.epochs[i] for i in epoch_range_indices]
+                    if displayed_epochs and min(displayed_epochs) <= pm_epoch <= max(displayed_epochs):
+                        ax.axvline(pm_epoch, color=pm_color, linestyle='-.', linewidth=1.5, alpha=0.7, label=pm_label)
 
         if has_lbfgs:
             adam_indices = [i for i, e in enumerate(self.epochs) if e < adam_epochs]

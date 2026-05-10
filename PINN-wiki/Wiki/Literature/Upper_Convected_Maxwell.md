@@ -1,6 +1,6 @@
 ---
 title: "Upper-convected Maxwell model"
-source: "[[Upper-convected Maxwell model.md]]"
+source: "[Upper-convected Maxwell model.md](file:///c:/Users/eaglw/Documents/PINN%20tesi/PINN-wiki/Reference/Upper-convected%20Maxwell%20model.md)"
 author: "Wikipedia"
 type: "clipping"
 ---

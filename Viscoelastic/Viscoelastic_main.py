@@ -10,9 +10,9 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # Import funzioni esterne
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from func.logging_utils import compute_metrics, update_results_csv
+from func.logging_utils import compute_metrics, compute_viscoelastic_metrics, update_results_csv
 from func.sampling_utils import generate_internal_points, generate_grid_points
-from func.graphic_func import plot2D_unified_comparison, plot_loss_comparison
+from func.graphic_func import plot2D_unified_comparison, plot_loss_comparison, plot2D_viscoelastic_comparison
 
 # Import locali Viscoelastic
 from Viscoelastic.src.Viscoelastic_PINN import train_ViscoelasticPINN, FCN, ViscoelasticCombinedModel, VelocityInferenceWrapper, get_activation_name, format_layers_name
@@ -42,8 +42,7 @@ goals_to_run = [0, 1, 2]
 STAGED_TRAINING = True 
 
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
-layers_options = [[2, 120, 100, 80, 60, 40, 20, 1]] 
-epochs_options = [80]
+layers_options = [[2, 120, 100, 80, 60, 40, 20, 1]] \r\nepochs_options = [80]
 activation_options = [nn.SiLU]
 lr_strategies = ['plateau']
 weighting_options = ['dynamic']
@@ -92,7 +91,7 @@ TAU_XX_grid = tau_xx_exact.reshape(Ny_dom, Nx_dom)
 TAU_XY_grid = tau_xy_exact.reshape(Ny_dom, Nx_dom)
 TAU_YY_grid = tau_yy_exact.reshape(Ny_dom, Nx_dom)
 validation_grid_u = (xy_grid_flat, U_grid, X, Y)
-stress_exact_grids = {'tau_xx': TAU_XX_grid, 'tau_xy': TAU_XY_grid, 'tau_yy': TAU_YY_grid}
+stress_exact_grids = {'p': P_grid, 'tau_xx': TAU_XX_grid, 'tau_xy': TAU_XY_grid, 'tau_yy': TAU_YY_grid}
 
 margin=2e-2
 Nx_grid_master, Ny_grid_master = 40, 40
@@ -214,11 +213,21 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
                 staged_training=use_staged, base_lr=base_lr
             )
             
-            # NOTA: compute_metrics richiede il wrapper VelocityInferenceWrapper
-            # perché il modello combinato produce 5 output [psi,p,tau_xx,tau_xy,tau_yy]
-            # mentre le metriche si calcolano solo sulla velocità u.
-            metrics_wrapper = VelocityInferenceWrapper(model_combined, phys_problem)
-            l2_err, max_err = compute_metrics(metrics_wrapper, xy_grid_flat, U_grid)
+            # Metriche multi-campo per il caso viscoelastico
+            fields_exact_for_metrics = {
+                'u': U_grid, 'p': P_grid,
+                'tau_xx': TAU_XX_grid, 'tau_xy': TAU_XY_grid, 'tau_yy': TAU_YY_grid
+            }
+            visco_metrics = compute_viscoelastic_metrics(
+                model_combined, phys_problem, xy_grid_flat, fields_exact_for_metrics, Ny_dom, Nx_dom
+            )
+            
+            # Metriche aggregate: media L2 su campi non-banali, max globale
+            # Escludo campi con L2=0 (soluzione esatta nulla, es. tau_yy in Poiseuille)
+            l2_values = [v[0] for v in visco_metrics.values() if v[0] > 1e-10]
+            max_values = [v[1] for v in visco_metrics.values()]
+            l2_avg = sum(l2_values) / len(l2_values) if l2_values else 0.0
+            max_global = max(max_values) if max_values else 0.0
             
             log_data = {
                 'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 'Architecture': str(layers_config),
@@ -226,34 +235,61 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
                 'Optimizer': 'Adam', 'Learning_Rate': lr_log_str, 
                 'Loss_Total': get_last(history, 'total_loss'), 'Loss_Physics': get_last(history, 'pde_loss'),
                 'Loss_Boundary': get_last(history, 'bc_loss'), 'Loss_Data': get_last(history, 'data_loss'),
-                'L2_Relative_Error': l2_err, 'Max_Relative_Error_Peak': max_err,
+                'L2_Relative_Error': l2_avg, 'Max_Relative_Error_Peak': max_global,
+                'L2_u': visco_metrics['u'][0], 'Max_u': visco_metrics['u'][1],
+                'L2_p': visco_metrics['p'][0], 'Max_p': visco_metrics['p'][1],
+                'L2_tau_xx': visco_metrics['tau_xx'][0], 'Max_tau_xx': visco_metrics['tau_xx'][1],
+                'L2_tau_xy': visco_metrics['tau_xy'][0], 'Max_tau_xy': visco_metrics['tau_xy'][1],
+                'L2_tau_yy': visco_metrics['tau_yy'][0], 'Max_tau_yy': visco_metrics['tau_yy'][1],
                 'Seed': 123, 'n_points': xy_pinn_data.shape[0] if goal in [1, 2] else 0,
                 'Loss_Weight': current_weight_str
             }
             update_results_csv(results_csv_path, log_data)
             histories[label] = history
             final_models[label] = model_combined
-        finally:
-            if os.path.exists(plots_dir):
-                shutil.rmtree(plots_dir)
+        except Exception as e:
+            print(f"  [X] Errore nel training {label}: {e}")
+            import traceback
+            traceback.print_exc()
 
     print(f"  > Generating Comparisons for {config_name}...")
     results_dir = os.path.join(config_dir, 'comparisons')
     os.makedirs(results_dir, exist_ok=True)
     
     model_results = []
+    model_results_multi = []  # Per comparison multi-campo
     for label, model in final_models.items():
         model.eval()
         with torch.set_grad_enabled(True):
             x_input = xy_grid_flat.clone().to(next(model.parameters()).dtype).requires_grad_(True)
-            u_p, _, _, _ = phys_problem.get_velocity(model, x_input)
-            pred = u_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
-        model_results.append({'T_pred': pred, 'label': label})
+            u_p, _, p_p, _ = phys_problem.get_velocity(model, x_input)
+            out = model(x_input)
+            pred_u = u_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
+            pred_p = p_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
+            pred_txx = out[:, 2].detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
+            pred_txy = out[:, 3].detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
+            pred_tyy = out[:, 4].detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
+        model_results.append({'T_pred': pred_u, 'label': label})
+        model_results_multi.append({
+            'label': label,
+            'fields': {'u': pred_u, 'p': pred_p, 'tau_xx': pred_txx, 'tau_xy': pred_txy, 'tau_yy': pred_tyy}
+        })
     
     if model_results:
         hparams = {'arch': layers_str, 'epochs': str(epochs), 'act': act_str, 'lr_strategy': lr_strat, 'weight': current_weight_str}
         # X, Y, U_grid possono essere su CUDA; i plot li richiedono su CPU
         plot2D_unified_comparison(X.cpu(), Y.cpu(), U_grid.cpu(), model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
+    
+    # Comparison multi-campo per tutti i campi fisici
+    if model_results_multi:
+        fields_exact_cpu = {
+            'u': U_grid.cpu(), 'p': P_grid.cpu(),
+            'tau_xx': TAU_XX_grid.cpu(), 'tau_xy': TAU_XY_grid.cpu(), 'tau_yy': TAU_YY_grid.cpu()
+        }
+        plot2D_viscoelastic_comparison(
+            X.cpu(), Y.cpu(), fields_exact_cpu, model_results_multi, hparams,
+            save_path=os.path.join(results_dir, 'Comparison_Viscoelastic_AllFields.png')
+        )
     
     if len(histories) > 1:
         labels_list = list(histories.keys())

@@ -1,6 +1,6 @@
 ---
 title: "Viscosity model based on Giesekus equation"
-source: "[[Viscosity model based on Giesekus equation.md]]"
+source: "[Viscosity model based on Giesekus equation.md](file:///c:/Users/eaglw/Documents/PINN%20tesi/PINN-wiki/Reference/Viscosity%20model%20based%20on%20Giesekus%20equation.md)"
 author: "Sun Kyoung Kim"
 published: 2024-01-01
 type: "paper"

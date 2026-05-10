@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 # Import function for GIF and loss comparison
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-from func.graphic_func import save_gif_PIL, plot2D_comparison, plot2D_final_result
+from func.graphic_func import save_gif_PIL, plot2D_comparison, plot2D_final_result, plot2D_viscoelastic_final
 from func.history_tracker import TrainingHistory, compute_pinn_loss
 
 # Configurazione dispositivo e precisione
@@ -447,11 +447,62 @@ def train_ViscoelasticPINN(
     final_path = os.path.join(final_dir, 'PINNfinal_result.png')
     plot2D_final_result(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, internal_points=internal_pts, boundary_points=boundary_pts, physics_points=xy_physics, val_label=val_label)
     
+    # Plot Finale Multi-Campo Viscoelastic (u, p, tau_xx, tau_xy, tau_yy)
+    if hasattr(physics_problem, 'get_velocity') and stress_exact_grids is not None:
+        print("Generazione plot multi-campo viscoelastico...")
+        with torch.set_grad_enabled(True):
+            xy_grid_val = xy_grid.clone().detach().requires_grad_(True)
+            u_final, v_final, p_final, _ = physics_problem.get_velocity(model, xy_grid_val)
+            out_final = model(xy_grid_val)
+            
+            fields_pred = {
+                'u': u_final.detach().cpu().reshape(Ny_dom, Nx_dom),
+                'p': p_final.detach().cpu().reshape(Ny_dom, Nx_dom),
+                'tau_xx': out_final[:, 2].detach().cpu().reshape(Ny_dom, Nx_dom),
+                'tau_xy': out_final[:, 3].detach().cpu().reshape(Ny_dom, Nx_dom),
+                'tau_yy': out_final[:, 4].detach().cpu().reshape(Ny_dom, Nx_dom),
+            }
+            del xy_grid_val
+        
+        # Prepara exact grids (possono essere su CUDA)
+        p_exact_grid = T_exact_grid  # Per ora, ma potremo passare separatamente
+        fields_exact = {
+            'u': T_exact_grid.cpu(),
+            'p': stress_exact_grids.get('p', torch.zeros_like(T_exact_grid)).cpu(),
+            'tau_xx': stress_exact_grids.get('tau_xx', torch.zeros_like(T_exact_grid)).cpu(),
+            'tau_xy': stress_exact_grids.get('tau_xy', torch.zeros_like(T_exact_grid)).cpu(),
+            'tau_yy': stress_exact_grids.get('tau_yy', torch.zeros_like(T_exact_grid)).cpu(),
+        }
+        
+        visco_final_path = os.path.join(final_dir, 'PINN_viscoelastic_fields.png')
+        plot2D_viscoelastic_final(
+            X, Y, fields_pred, fields_exact, epochs,
+            save_path=visco_final_path,
+            internal_points=internal_pts,
+            boundary_points=boundary_pts,
+            physics_points=xy_physics
+        )
+    
     # Generazione GIF
     print(f"Creazione GIF con {len(plot_files)} frames...")
     if plot_files:
         gif_path = os.path.join(final_dir, 'PINNtraining_evolution.gif')
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
+    
+    # Costruzione dei phase markers per Staged Training
+    _phase_markers = None
+    if staged_training:
+        _phase_markers = [
+            {'epoch': half_epochs, 'label': 'Fase 2 (Tau)', 'color': 'purple'},
+        ]
+        if warmup_epochs > 0:
+            _phase_markers.insert(0, {'epoch': warmup_epochs, 'label': 'End Warmup', 'color': 'red'})
+    
+    # Determina quali loss sono attive (peso > 0)
+    _active_keys = set()
+    if loss_weights.get('data', 0) > 0: _active_keys.add('data')
+    if loss_weights.get('bc', 0) > 0: _active_keys.add('bc')
+    if loss_weights.get('physics', 0) > 0: _active_keys.add('physics')
     
     # Plot Loss History con split tra Adam e L-BFGS
     loss_history.plot_losses(
@@ -460,7 +511,10 @@ def train_ViscoelasticPINN(
         save_path=os.path.join(final_dir, 'PINNloss_history.png'), 
         experiment_name=experiment_name, 
         show_plot=show_plots_interactively,
-        skip_epochs=50
+        skip_epochs=50,
+        phase_markers=_phase_markers,
+        smoothing_alpha=0.95,
+        active_loss_keys=_active_keys if _active_keys else None
     )
     
     # Plot Gradient History if available

@@ -1,6 +1,6 @@
 ---
 title: "Viscoelastic modeling"
-source: "[[Viscoelastic modeling.md]]"
+source: "[Viscoelastic modeling.md](file:///c:/Users/eaglw/Documents/PINN%20tesi/PINN-wiki/Reference/Viscoelastic%20modeling.md)"
 author: "Lecture Notes"
 type: "notes"
 ---

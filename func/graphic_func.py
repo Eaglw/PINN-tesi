@@ -75,7 +75,9 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     # 3. Errore Relativo (Locale)
     ax = axes[2]
     # Usiamo vmin/vmax per evitare saturazione da outlier
-    c3 = ax.contourf(X_np, Y_np, rel_error.detach().cpu().numpy(), levels=50, cmap='jet', vmin=0, vmax=10) 
+    rel_error_np = rel_error.detach().cpu().numpy()
+    vmax_adaptive = max(np.percentile(rel_error_np, 95), 1.0)  # Almeno 1% per evitare scale degeneri
+    c3 = ax.contourf(X_np, Y_np, rel_error_np, levels=50, cmap='jet', vmin=0, vmax=vmax_adaptive) 
     cbar = plt.colorbar(c3, ax=ax, label='% Errore Relativo (|err|/|T_true|)')
     ax.set_title('Errore Relativo % (|err| / |T_true|)')
     ax.set_xlabel('x')
@@ -133,7 +135,9 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, internal_points=
 
     # 2. Relative Error
     ax = axes[1]
-    c2 = ax.contourf(X_np, Y_np, rel_error.detach().cpu().numpy(), levels=50, cmap='jet', vmin=0, vmax=10)
+    rel_error_np_final = rel_error.detach().cpu().numpy()
+    vmax_adaptive = max(np.percentile(rel_error_np_final, 95), 1.0)
+    c2 = ax.contourf(X_np, Y_np, rel_error_np_final, levels=50, cmap='jet', vmin=0, vmax=vmax_adaptive)
     plt.colorbar(c2, ax=ax, label='% Relative Error (|err|/|T_true|)')
     ax.set_title('Relative Error % (|err| / |T_true|)')
     ax.set_xlabel('x')
@@ -197,8 +201,9 @@ def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_pat
             
         rel_error_np = rel_error.detach().cpu().numpy()
         
-        # Plot with individual colorbar
-        c = ax.contourf(X_np, Y_np, rel_error_np, levels=50, cmap='jet', vmin=0, vmax=10)
+        # Plot with individual colorbar — vmax adattivo
+        vmax_adaptive = max(np.percentile(rel_error_np, 95), 1.0)
+        c = ax.contourf(X_np, Y_np, rel_error_np, levels=50, cmap='jet', vmin=0, vmax=vmax_adaptive)
         cbar = plt.colorbar(c, ax=ax)
         cbar.set_label('% Relative Error (|err|/|T_true|)', rotation=270, labelpad=15)
         
@@ -252,7 +257,8 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
         rel_error_np = rel_error.detach().cpu().numpy()
         
         # Use vmin/vmax to handle outliers in relative error
-        c = ax.contourf(X_np, Y_np, rel_error_np, levels=50, cmap='jet', vmin=0, vmax=10)
+        vmax_adaptive = max(np.percentile(rel_error_np, 95), 1.0)
+        c = ax.contourf(X_np, Y_np, rel_error_np, levels=50, cmap='jet', vmin=0, vmax=vmax_adaptive)
         plt.colorbar(c, ax=ax, label='% Relative Error (|err|/|T_true|)')
         ax.set_facecolor('lightgray') # Color excluded regions
         ax.set_title(f'{label} - Rel Error %')
@@ -296,6 +302,178 @@ def plot_loss_comparison(histories, labels, save_path=None, title="Loss Comparis
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
+def _compute_rel_error(pred, exact):
+    """Calcola errore relativo percentuale con masking per valori piccoli."""
+    # Cast to same dtype (L-BFGS usa float64, ma i plot vogliono float32)
+    pred = pred.float()
+    exact = exact.float()
+    abs_error = torch.abs(pred - exact)
+    rel_error = torch.zeros_like(exact)
+    mask = torch.abs(exact) > 0.01
+    if mask.sum() > 0:
+        rel_error[mask] = (abs_error[mask] / torch.abs(exact[mask])) * 100
+    return rel_error
+
+def plot2D_viscoelastic_final(X, Y, fields_pred, fields_exact, epoch, save_path,
+                              internal_points=None, boundary_points=None,
+                              physics_points=None):
+    """
+    Plot multi-campo finale per il caso viscoelastico.
+    Genera una griglia con: Predizione | Soluzione Esatta | Errore Relativo
+    per ogni campo fisico (u, p, τ_xx, τ_xy, τ_yy).
+    
+    Args:
+        X, Y: Meshgrid tensors (CPU).
+        fields_pred: Dict {'u': tensor, 'p': tensor, 'tau_xx': ..., 'tau_xy': ..., 'tau_yy': ...}
+        fields_exact: Dict con le stesse chiavi.
+        epoch: Numero di epoche totali.
+        save_path: Path per salvare la figura.
+    """
+    field_names = ['u', 'p', 'tau_xx', 'tau_xy', 'tau_yy']
+    field_labels = ['u (Velocity)', 'p (Pressure)', 'τ_xx', 'τ_xy', 'τ_yy']
+    cmaps_field = ['inferno', 'viridis', 'plasma', 'plasma', 'plasma']
+    
+    n_fields = len(field_names)
+    fig, axes = plt.subplots(n_fields, 3, figsize=(18, 4 * n_fields))
+    X_np, Y_np = X.detach().cpu().numpy(), Y.detach().cpu().numpy()
+    
+    fig.suptitle(f'Viscoelastic PINN — Final Results (Epoch {epoch})', fontsize=18, fontweight='bold', y=0.995)
+    
+    for i, (fname, flabel, cmap) in enumerate(zip(field_names, field_labels, cmaps_field)):
+        pred = fields_pred.get(fname)
+        exact = fields_exact.get(fname)
+        
+        if pred is None or exact is None:
+            for j in range(3):
+                axes[i, j].set_visible(False)
+            continue
+        
+        pred_np = pred.detach().cpu().numpy()
+        exact_np = exact.detach().cpu().numpy()
+        
+        # Shared color limits tra pred e exact
+        vmin_shared = min(pred_np.min(), exact_np.min())
+        vmax_shared = max(pred_np.max(), exact_np.max())
+        
+        # Col 0: Predizione
+        ax = axes[i, 0]
+        c = ax.contourf(X_np, Y_np, pred_np, levels=50, cmap=cmap, vmin=vmin_shared, vmax=vmax_shared)
+        plt.colorbar(c, ax=ax, label=flabel)
+        ax.set_title(f'{flabel} — Prediction')
+        ax.set_ylabel('y')
+        ax.set_aspect('equal', adjustable='box')
+        
+        # Overlay punti solo sulla prima riga
+        if i == 0:
+            if physics_points is not None and len(physics_points) > 0:
+                xy_p = physics_points.detach().cpu().numpy()
+                ax.scatter(xy_p[:, 0], xy_p[:, 1], s=5, c='white', marker='x', alpha=0.4, label='Physics')
+            if internal_points is not None and len(internal_points) > 0:
+                xy_i = internal_points.detach().cpu().numpy()
+                ax.scatter(xy_i[:, 0], xy_i[:, 1], s=10, c='cyan', marker='o', alpha=0.6, edgecolor='k', linewidth=0.3, label='Data')
+            if boundary_points is not None and len(boundary_points) > 0:
+                xy_b = boundary_points.detach().cpu().numpy()
+                ax.scatter(xy_b[:, 0], xy_b[:, 1], s=15, c='red', marker='s', alpha=0.7, edgecolor='k', linewidth=0.3, label='BC')
+            ax.legend(loc='upper right', fontsize='x-small', framealpha=0.8)
+        
+        # Col 1: Soluzione Esatta
+        ax = axes[i, 1]
+        c = ax.contourf(X_np, Y_np, exact_np, levels=50, cmap=cmap, vmin=vmin_shared, vmax=vmax_shared)
+        plt.colorbar(c, ax=ax, label=flabel)
+        ax.set_title(f'{flabel} — Exact')
+        ax.set_aspect('equal', adjustable='box')
+        
+        # Col 2: Errore Relativo
+        ax = axes[i, 2]
+        rel_err = _compute_rel_error(pred.cpu(), exact.cpu())
+        rel_err_np = rel_err.numpy()
+        vmax_err = max(np.percentile(rel_err_np, 95), 1.0)
+        c = ax.contourf(X_np, Y_np, rel_err_np, levels=50, cmap='jet', vmin=0, vmax=vmax_err)
+        plt.colorbar(c, ax=ax, label='% Relative Error')
+        ax.set_title(f'{flabel} — Rel. Error %')
+        ax.set_aspect('equal', adjustable='box')
+        
+        # Label x solo sull'ultima riga
+        if i == n_fields - 1:
+            for j in range(3):
+                axes[i, j].set_xlabel('x')
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
+
+def plot2D_viscoelastic_comparison(X, Y, fields_exact, model_results_multi, hyperparams, save_path=None):
+    """
+    Comparison multi-campo tra diversi goal (PurePhys, Phys+Data, SoloData)
+    per tutti i campi fisici.
+    
+    Args:
+        X, Y: Meshgrid tensors.
+        fields_exact: Dict {'u': tensor, 'p': tensor, 'tau_xx': ..., ...}
+        model_results_multi: List of dicts:
+            [{'label': 'PurePhys', 'fields': {'u': tensor, 'p': tensor, ...}}, ...]
+        hyperparams: Dict per il suptitle.
+        save_path: Path per salvare.
+    """
+    field_names = ['u', 'p', 'tau_xx', 'tau_xy', 'tau_yy']
+    field_labels = ['u (Velocity)', 'p (Pressure)', 'τ_xx', 'τ_xy', 'τ_yy']
+    
+    n_models = len(model_results_multi)
+    n_fields = len(field_names)
+    
+    fig, axes = plt.subplots(n_fields, n_models, figsize=(6 * n_models, 3.5 * n_fields), squeeze=False)
+    X_np, Y_np = X.detach().cpu().numpy(), Y.detach().cpu().numpy()
+    
+    arch = hyperparams.get('arch', 'N/A')
+    epochs = hyperparams.get('epochs', 'N/A')
+    act = hyperparams.get('act', 'N/A')
+    fig.suptitle(f'Relative Error Comparison | {arch} | E={epochs} | {act}', fontsize=16, fontweight='bold')
+    
+    for row, (fname, flabel) in enumerate(zip(field_names, field_labels)):
+        exact = fields_exact.get(fname)
+        if exact is None:
+            for col in range(n_models):
+                axes[row, col].set_visible(False)
+            continue
+        
+        for col, mres in enumerate(model_results_multi):
+            ax = axes[row, col]
+            pred = mres['fields'].get(fname)
+            label = mres['label']
+            
+            if pred is None:
+                ax.set_visible(False)
+                continue
+            
+            rel_err = _compute_rel_error(pred.cpu(), exact.cpu())
+            rel_err_np = rel_err.numpy()
+            vmax_err = max(np.percentile(rel_err_np, 95), 1.0)
+            
+            c = ax.contourf(X_np, Y_np, rel_err_np, levels=50, cmap='jet', vmin=0, vmax=vmax_err)
+            cbar = plt.colorbar(c, ax=ax)
+            cbar.set_label('%', rotation=0, labelpad=10)
+            
+            if row == 0:
+                ax.set_title(f'{label}', fontsize=13, fontweight='bold')
+            
+            ax.set_ylabel(f'{flabel}' if col == 0 else '')
+            ax.set_aspect('equal', adjustable='box')
+            
+            if row == n_fields - 1:
+                ax.set_xlabel('x')
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close()
     else:
         plt.show()
