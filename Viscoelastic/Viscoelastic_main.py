@@ -42,7 +42,8 @@ goals_to_run = [0, 1, 2]
 STAGED_TRAINING = True 
 
 # --- HYPERPARAMETERS GRID SEARCH SETUP ---
-layers_options = [[2, 120, 100, 80, 60, 40, 20, 1]] \r\nepochs_options = [80]
+layers_options = [[2, 120, 100, 80, 60, 40, 20, 1]]
+epochs_options = [10000]
 activation_options = [nn.SiLU]
 lr_strategies = ['plateau']
 weighting_options = ['dynamic']
@@ -101,8 +102,8 @@ xy_master_grid = generate_grid_points(Nx_grid_master, Ny_grid_master, Lx, Ly, ma
 assert xy_master_grid[:, 0].min() >= 0 and xy_master_grid[:, 0].max() <= Lx
 assert xy_master_grid[:, 1].min() >= 0 and xy_master_grid[:, 1].max() <= Ly
 
-# --- BOUNDARY CONDITIONS (u, v, p) ---
-xy_master_boundary, uvp_master_boundary = generate_boundaries(Lx, Ly, u_max, p_exact, P_grid, Nx_dom, Ny_dom, device)
+# --- BOUNDARY CONDITIONS (u, v, p, tau) ---
+xy_master_boundary, uvp_master_boundary = generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_grids, Nx_dom, Ny_dom, device)
 
 num_subset = 1000
 torch.manual_seed(42)

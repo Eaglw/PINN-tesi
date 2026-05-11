@@ -224,8 +224,9 @@ def train_ViscoelasticPINN(
         # Dynamic Weighting (Learning Rate Annealing style)
         if dynamic_weighting and epoch >= warmup_epochs and (epoch + 1) % update_weights_every == 0:
             # Calcoliamo i gradienti per le BC (riferimento standard)
+            trainable_params = [p for p in model.parameters() if p.requires_grad]
             pure_bc = physics_problem.boundary_loss(model, xy_bc, T_bc) if physics_problem else nn.MSELoss()(model(xy_bc), T_bc)
-            grads_bc = torch.autograd.grad(pure_bc, model.parameters(), retain_graph=True, allow_unused=True)
+            grads_bc = torch.autograd.grad(pure_bc, trainable_params, retain_graph=True, allow_unused=True)
             max_norm_bc = max([g.norm(2) for g in grads_bc if g is not None]).item() if any(g is not None for g in grads_bc) else 0.0
             
             # Applichiamo l'aggiornamento solo se il riferimento (BC) è attivo (>0)
@@ -233,7 +234,7 @@ def train_ViscoelasticPINN(
             if lambda_bc > 0:
                 if lambda_physics > 0:
                     pure_phys = physics_problem.residual(model, xy_physics)
-                    grads_ph = torch.autograd.grad(pure_phys, model.parameters(), retain_graph=True, allow_unused=True)
+                    grads_ph = torch.autograd.grad(pure_phys, trainable_params, retain_graph=True, allow_unused=True)
                     m_n_ph = max([g.norm(2) for g in grads_ph if g is not None]).item() if any(g is not None for g in grads_ph) else 0.0
                     if m_n_ph > 1e-12: 
                         ratio = min(max_norm_bc / m_n_ph, 100.0)
@@ -241,7 +242,7 @@ def train_ViscoelasticPINN(
 
                 if lambda_data > 0:
                     pure_data = nn.MSELoss()(model(xy_int), T_int)
-                    grads_dt = torch.autograd.grad(pure_data, model.parameters(), retain_graph=True, allow_unused=True)
+                    grads_dt = torch.autograd.grad(pure_data, trainable_params, retain_graph=True, allow_unused=True)
                     m_n_dt = max([g.norm(2) for g in grads_dt if g is not None]).item() if any(g is not None for g in grads_dt) else 0.0
                     if m_n_dt > 1e-12: 
                         ratio_d = min(max_norm_bc / m_n_dt, 100.0)
@@ -258,7 +259,8 @@ def train_ViscoelasticPINN(
                 if name == 'total_loss': continue
                 # Per i gradienti usiamo la componente pesata effettiva nel calcolo della loss totale
                 w = lambda_data if name == 'data_loss' else (lambda_bc if name == 'bc_loss' else (lambda_physics if name == 'pde_loss' else 1.0))
-                grads = torch.autograd.grad(l_val * w, model.parameters(), retain_graph=True, allow_unused=True)
+                trainable_params = [p for p in model.parameters() if p.requires_grad]
+                grads = torch.autograd.grad(l_val * w, trainable_params, retain_graph=True, allow_unused=True)
                 grad_norms[f'grad_{name}'] = sum(g.data.norm(2).item()**2 for g in grads if g is not None)**0.5
             history_entry.update(grad_norms)
 
@@ -313,9 +315,9 @@ def train_ViscoelasticPINN(
             if hasattr(physics_problem, 'get_velocity'):
                 # Usa ground truth se disponibile, altrimenti mostra solo la predizione
                 if stress_exact_grids is not None:
-                    tau_xx_exact_g = stress_exact_grids.get('tau_xx', torch.zeros_like(T_exact_grid))
-                    tau_xy_exact_g = stress_exact_grids.get('tau_xy', torch.zeros_like(T_exact_grid))
-                    tau_yy_exact_g = stress_exact_grids.get('tau_yy', torch.zeros_like(T_exact_grid))
+                    tau_xx_exact_g = stress_exact_grids.get('tau_xx', torch.zeros_like(T_exact_grid)).cpu()
+                    tau_xy_exact_g = stress_exact_grids.get('tau_xy', torch.zeros_like(T_exact_grid)).cpu()
+                    tau_yy_exact_g = stress_exact_grids.get('tau_yy', torch.zeros_like(T_exact_grid)).cpu()
                 else:
                     tau_xx_exact_g = torch.zeros_like(T_exact_grid)
                     tau_xy_exact_g = torch.zeros_like(T_exact_grid)

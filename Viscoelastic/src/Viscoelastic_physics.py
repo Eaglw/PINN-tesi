@@ -144,13 +144,14 @@ class ViscoelasticPhysics(nn.Module):
     def boundary_loss(self, model, x_bc, target_bc):
         """
         Calcola la MSE loss sui boundary points, ignorando i valori NaN.
-        Il target_bc deve contenere: [u, v, p].
+        Il target_bc deve contenere: [u, v, p, tau_xx, tau_xy, tau_yy].
         """
         if not x_bc.requires_grad:
             x_bc.requires_grad_(True)
             
-        u, v, p, _ = self.get_velocity(model, x_bc)
-        pred_bc = torch.cat([u, v, p], dim=1)
+        u, v, p, tau = self.get_velocity(model, x_bc)
+        # Unifichiamo le predizioni in un unico tensore [u, v, p, txx, txy, tyy]
+        pred_bc = torch.cat([u, v, p, tau], dim=1)
         
         mask = ~torch.isnan(target_bc)
         if mask.sum() == 0:
@@ -158,60 +159,79 @@ class ViscoelasticPhysics(nn.Module):
             
         return self.mse_loss(pred_bc[mask], target_bc[mask])
 
-def generate_boundaries(Lx, Ly, u_max, p_exact, P_grid, Nx, Ny, device):
+def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, device):
     """
-    Genera le condizioni al contorno per il dominio rettangolare (u, v, p).
+    Genera le condizioni al contorno per il dominio rettangolare.
+    Include: u, v, p, tau_xx, tau_xy, tau_yy.
     I target non forniti vengono impostati a NaN.
     """
     xy_boundary_list = []
-    uvp_boundary_list = []
+    target_boundary_list = []
     
-    # Bottom & Top (Wall) -> No-slip
-    # NOTA: Escludiamo i corner (primo e ultimo punto) per evitare duplicazione
-    # con inlet/outlet. I corner ricevono target conflittuali (p=NaN dal wall
-    # vs p=valore reale dall'inlet), creando incoerenza nel MSE.
+    # 1. Bottom & Top (Wall) -> No-slip + Stress analitici
     x_wall = torch.linspace(0, Lx, Nx+2)[1:-1].reshape(-1, 1).to(device)
     y_wall_bottom = torch.zeros_like(x_wall).to(device)
     y_wall_top = torch.full_like(x_wall, Ly).to(device)
     
-    bottom_wall = torch.cat([x_wall, y_wall_bottom], dim=1)
-    top_wall = torch.cat([x_wall, y_wall_top], dim=1)
+    # Estraggo gli stress analitici alle pareti (se disponibili nel dict)
+    txx_exact = stress_exact_dict.get('tau_xx', torch.full((Ny, Nx), float('nan'))).to(device)
+    txy_exact = stress_exact_dict.get('tau_xy', torch.full((Ny, Nx), float('nan'))).to(device)
+    tyy_exact = stress_exact_dict.get('tau_yy', torch.full((Ny, Nx), float('nan'))).to(device)
+
+    # Nota: y=0 è riga 0, y=Ly è riga Ny-1
+    txx_bottom = txx_exact[0, :].reshape(-1, 1)
+    txx_top    = txx_exact[-1, :].reshape(-1, 1)
+    txy_bottom = txy_exact[0, :].reshape(-1, 1)
+    txy_top    = txy_exact[-1, :].reshape(-1, 1)
+    tyy_bottom = tyy_exact[0, :].reshape(-1, 1)
+    tyy_top    = tyy_exact[-1, :].reshape(-1, 1)
+
+    u_wall = torch.zeros_like(x_wall)
+    v_wall = torch.zeros_like(x_wall)
+    nan_p  = torch.full_like(u_wall, float('nan'))
+
+    wall_bottom_target = torch.cat([u_wall, v_wall, nan_p, txx_bottom, txy_bottom, tyy_bottom], dim=1)
+    wall_top_target    = torch.cat([u_wall, v_wall, nan_p, txx_top, txy_top, tyy_top], dim=1)
     
-    u_wall = torch.zeros_like(x_wall).to(device)
-    v_wall = torch.zeros_like(x_wall).to(device)
-    nan_p = torch.full_like(u_wall, float('nan'))
-    wall_target = torch.cat([u_wall, v_wall, nan_p], dim=1)
-    
-    # 2. Inlet/Outlet -> Velocità Parabolica + Pressione
+    # 2. Inlet/Outlet -> Velocità Parabolica + Pressione + Stress
     y_inout = torch.linspace(0, Ly, Ny).reshape(-1, 1).to(device)
     u_parabolic = 4 * u_max * (y_inout * (Ly - y_inout)) / (Ly**2)
-    v_zero = torch.zeros_like(y_inout).to(device)
+    v_zero = torch.zeros_like(y_inout)
     
-    x_inlet = torch.zeros_like(y_inout).to(device)
-    x_outlet = torch.full_like(y_inout, Lx).to(device)
+    x_inlet = torch.zeros_like(y_inout)
+    x_outlet = torch.full_like(y_inout, Lx)
     
-    p_inlet = p_exact.reshape(Ny, Nx)[:, 0].reshape(-1, 1).to(device)
+    p_inlet  = p_exact.reshape(Ny, Nx)[:, 0].reshape(-1, 1).to(device)
     p_outlet = p_exact.reshape(Ny, Nx)[:, -1].reshape(-1, 1).to(device)
-    p_outlet_target = torch.cat([
+    
+    # Stress Inlet/Outlet
+    txx_inlet  = txx_exact[:, 0].reshape(-1, 1)
+    txy_inlet  = txy_exact[:, 0].reshape(-1, 1)
+    tyy_inlet  = tyy_exact[:, 0].reshape(-1, 1)
+    txx_outlet = txx_exact[:, -1].reshape(-1, 1)
+    txy_outlet = txy_exact[:, -1].reshape(-1, 1)
+    tyy_outlet = tyy_exact[:, -1].reshape(-1, 1)
+
+    inlet_target = torch.cat([u_parabolic, v_zero, p_inlet, txx_inlet, txy_inlet, tyy_inlet], dim=1)
+    outlet_target = torch.cat([
         torch.full_like(v_zero, float('nan')),  # u libera
         torch.full_like(v_zero, float('nan')),  # v libera
-        p_outlet
+        p_outlet,
+        txx_outlet, txy_outlet, tyy_outlet
     ], dim=1)
     
-    xy_boundary_list.extend([
-        bottom_wall,
-        top_wall,
+    xy_boundary = torch.cat([
+        torch.cat([x_wall, y_wall_bottom], dim=1),
+        torch.cat([x_wall, y_wall_top], dim=1),
         torch.cat([x_inlet, y_inout], dim=1), 
         torch.cat([x_outlet, y_inout], dim=1)
-    ])
-    uvp_boundary_list.extend([
-        wall_target,
-        wall_target,
-        torch.cat([u_parabolic, v_zero, p_inlet], dim=1),
-        p_outlet_target
-    ])
+    ], dim=0)
+
+    target_boundary = torch.cat([
+        wall_bottom_target,
+        wall_top_target,
+        inlet_target,
+        outlet_target
+    ], dim=0)
     
-    xy_boundary = torch.cat(xy_boundary_list, dim=0)
-    uvp_boundary = torch.cat(uvp_boundary_list, dim=0)
-    
-    return xy_boundary, uvp_boundary
+    return xy_boundary, target_boundary

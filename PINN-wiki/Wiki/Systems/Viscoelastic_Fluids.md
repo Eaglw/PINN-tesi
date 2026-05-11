@@ -31,6 +31,11 @@ As proposed in [[Thakur_et_al_ViscoelasticNet]], a multi-network architecture is
 - **Model Discovery**: Treating extensibility ($\epsilon$) and mobility ($\alpha$) as trainable parameters allows the PINN to select the most appropriate constitutive model for a given dataset.
 - **Backward Euler PINN**: Using temporal discretization within the loss residue to handle transient non-linear dynamics.
 
+## Monitoring & Visualization
+During the training process, the velocity field ($u$) and the stress components ($\tau_{xx}, \tau_{xy}, \tau_{yy}$) are plotted periodically to monitor convergence.
+
+The **pressure field ($p$)** is omitted from periodic visualization by design. In incompressible flows, the pressure is determined by its gradient ($\nabla p$) and is typically the slowest variable to stabilize. Visualizing it in the early or intermediate stages of training provides limited physical insight until the kinematics (velocity) and constitutive (stress) fields have reached a stable state. A comprehensive validation of the pressure field is performed only at the end of the training process (post L-BFGS refinement) to ensure final physical consistency.
+
 ## Benchmark: Oldroyd-B Channel Flow
 The project includes a synthetic dataset generator (`generate_dataset.py`) for stationary Poiseuille flow in a 2D channel.
 - **Velocity Profile**: $u(y) = 4 u_{max} \frac{y(H-y)}{H^2}$
