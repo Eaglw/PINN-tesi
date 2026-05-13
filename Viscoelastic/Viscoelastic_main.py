@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
+plt.switch_backend('Agg')  # Forza backend non interattivo per evitare pause
+import gc
 import os
 import sys
-import shutil
 import itertools
 from datetime import datetime
 
@@ -10,67 +12,120 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # Import funzioni esterne
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from func.logging_utils import compute_metrics, compute_viscoelastic_metrics, update_results_csv
-from func.sampling_utils import generate_internal_points, generate_grid_points
+from func.logging_utils import compute_viscoelastic_metrics, update_results_csv
 from func.graphic_func import plot2D_unified_comparison, plot_loss_comparison, plot2D_viscoelastic_comparison
 
 # Import locali Viscoelastic
-from Viscoelastic.src.Viscoelastic_PINN import train_ViscoelasticPINN, FCN, ViscoelasticCombinedModel, VelocityInferenceWrapper, get_activation_name, format_layers_name
+from Viscoelastic.src.Viscoelastic_PINN import (
+    train_ViscoelasticPINN, TrainingConfig,
+    FCN, ViscoelasticCombinedModel, VelocityInferenceWrapper,
+    get_activation_name, format_layers_name
+)
 from Viscoelastic.src.Viscoelastic_physics import ViscoelasticPhysics, generate_boundaries
 
-torch.backends.cuda.matmul.allow_tf32 = True  
-torch.backends.cudnn.benchmark = True           
-torch.backends.cudnn.deterministic = False      
 
-def setup_experiment_folder(parent_dir, goal_folder, description):
-    exp_dir = os.path.join(parent_dir, goal_folder)
-    plots_dir = os.path.join(exp_dir, 'plots')
-    os.makedirs(plots_dir, exist_ok=True)
-    return exp_dir, plots_dir
+# ╔══════════════════════════════════════════════════╗
+# ║              CONFIGURATION BLOCK                 ║
+# ╚══════════════════════════════════════════════════╝
+
+# --- Hardware & Precision ---
+PRECISION_MODE = 'staged'           # 'full_32' | 'staged' | 'full_64'
+SEED = 123
+
+# --- Training Goals ---
+# 0=PurePhys, 1=Phys+Data, 2=SoloData
+GOALS_TO_RUN = [0, 1, 2]
+
+GOAL_CONFIGS = {
+    0: {'label': 'PurePhys',  'weights': {'bc': 1.0, 'physics': 1.0, 'data': 0.0}, 'mode': 'standard'},
+    1: {'label': 'Phys+Data', 'weights': {'bc': 1.0, 'physics': 1.0, 'data': 1.0}, 'mode': 'semi_inverse'},
+    2: {'label': 'SoloData',  'weights': {'bc': 1.0, 'physics': 0.0, 'data': 1.0}, 'mode': 'standard'},
+}
+
+# --- Architecture (Grid Search) ---
+LAYERS_OPTIONS = [[2, 120, 100, 80, 60, 40, 20, 1]]
+EPOCHS_OPTIONS = [1000]
+ACTIVATION_OPTIONS = [nn.SiLU]
+LR_STRATEGY_OPTIONS = ['cosine']
+WEIGHTING_OPTIONS = ['dynamic']
+
+# --- Optimizer ---
+BASE_LR = 1e-3
+ADAM_EPS = 1e-7
+
+# --- Staged Training ---
+STAGED_TRAINING = True
+
+# --- Mini-Batching ---
+MINIBATCH_INTERNAL = 1024
+MINIBATCH_BOUNDARY = 256
+
+# --- Loss Weighting ---
+STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}
+STATIC_WEIGHT_STR = "BC=1-PHYS=10-DATA=100"
+DYNAMIC_WEIGHT_STR = "Dynamic-Annealing"
+
+# --- PDE Weights (Momentum vs Constitutive) ---
+PDE_WEIGHTS = {'momentum': 10.0, 'constitutive': 1.0}
+
+# --- Data ---
+NUM_DATA_SUBSET = 5000
+VARIANCE_EPS = 1.0  # Epsilon per varianze: 1.0 disabilita lo scaling aggressivo
+
+# --- L-BFGS ---
+MAX_LBFGS_ITERS = 100
+
+# --- Logging & Plotting ---
+LOG_GRADIENTS_EVERY = 500
+PLOT_EVERY = 500
+
+# --- Paths ---
+BASE_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'experiments_weighted')
+RESULTS_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results.csv')
+DATASET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dataset', 'oldroydb_clean.pt')
+
+
+# ╔══════════════════════════════════════════════════╗
+# ║              SETUP & DATA LOADING                ║
+# ╚══════════════════════════════════════════════════╝
 
 # --- SETUP DISPOSITIVO ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-torch.set_default_dtype(torch.float32)
-print(f"Using device: {device} with default dtype: {torch.get_default_dtype()}")
 
-show_plots_interactively = False 
+initial_dtype = torch.float64 if PRECISION_MODE == 'full_64' else torch.float32
+torch.set_default_dtype(initial_dtype)
 
-# Cases to run: 0 (Pure Phys), 1 (Phys+Data), 2 (Solo Data)
-goals_to_run = [0, 1, 2]
+if initial_dtype == torch.float64:
+    torch.backends.cuda.matmul.allow_tf32 = False
+else:
+    torch.backends.cuda.matmul.allow_tf32 = True
 
-# --- CONFIGURATION FLAGS ---
-STAGED_TRAINING = True 
+# Per reti FC con mini-batch dinamici, benchmark non offre vantaggi
+# e causa overhead per il re-profiling ad ogni cambio di dimensione.
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = False
 
-# --- HYPERPARAMETERS GRID SEARCH SETUP ---
-layers_options = [[2, 120, 100, 80, 60, 40, 20, 1]]
-epochs_options = [10000]
-activation_options = [nn.SiLU]
-lr_strategies = ['plateau']
-weighting_options = ['dynamic']
-
-STATIC_WEIGHTS = {'bc': 1.0, 'physics': 20.0, 'data': 100.0}
-STATIC_WEIGHT_STR = "BC=1-PHYS=20-DATA=100"
-DYNAMIC_WEIGHT_STR = "Dynamic-Annealing"
-
-base_output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'experiments_weighted')
-results_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results.csv')
+print(f"Using device: {device} with Precision Mode: {PRECISION_MODE} (Initial dtype: {initial_dtype})")
 
 # --- CARICAMENTO DATASET ---
-dataset_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dataset', 'oldroydb_clean.pt')
-
-if not os.path.exists(dataset_path):
-    print(f"❌ Dataset non trovato in: {dataset_path}")
+if not os.path.exists(DATASET_PATH):
+    print(f"❌ Dataset non trovato in: {DATASET_PATH}")
     sys.exit(1)
 
-dataset = torch.load(dataset_path, map_location=device, weights_only=False)
+dataset = torch.load(DATASET_PATH, map_location=device, weights_only=False)
 for key in ['coords', 'u', 'v', 'p', 'psi', 'tau_xx', 'tau_xy', 'tau_yy', 'u_exact', 'p_exact', 'psi_exact', 'tau_xx_exact', 'tau_xy_exact', 'tau_yy_exact']:
     if key in dataset:
-        dataset[key] = dataset[key].to(torch.float32)
+        dataset[key] = dataset[key].to(initial_dtype)
 params = dataset['params']
 
-Lx, Ly, mu_s, mu_p, lam, u_max = params['L'], params['H'], params.get('mu_s', 0.005), params.get('mu_p', 0.005), params.get('lam', 1.0), params['u_max']
+Lx, Ly = params['L'], params['H']
+mu_s = params.get('mu_s', 0.005)
+mu_p = params.get('mu_p', 0.005)
+lam = params.get('lam', 1.0)
+u_max = params['u_max']
 print(f"Dataset caricato: L={Lx}, H={Ly}, mu_s={mu_s}, mu_p={mu_p}, lam={lam}, u_max={u_max}")
 
+# --- Preparazione Grid e Soluzioni Esatte ---
 xy_grid_flat = dataset['coords']
 u_exact = dataset['u_exact']
 p_exact = dataset['p_exact']
@@ -91,130 +146,161 @@ P_grid = p_exact.reshape(Ny_dom, Nx_dom)
 TAU_XX_grid = tau_xx_exact.reshape(Ny_dom, Nx_dom)
 TAU_XY_grid = tau_xy_exact.reshape(Ny_dom, Nx_dom)
 TAU_YY_grid = tau_yy_exact.reshape(Ny_dom, Nx_dom)
+
 validation_grid_u = (xy_grid_flat, U_grid, X, Y)
 stress_exact_grids = {'p': P_grid, 'tau_xx': TAU_XX_grid, 'tau_xy': TAU_XY_grid, 'tau_yy': TAU_YY_grid}
 
-margin=2e-2
-Nx_grid_master, Ny_grid_master = 40, 40
-xy_master_grid = generate_grid_points(Nx_grid_master, Ny_grid_master, Lx, Ly, margin=margin, device=device)
+# Varianze per normalizzazione (Goal 1 - ViscoelasticNet)
+sigma2_u   = max(u_exact.var().item(), VARIANCE_EPS)
+sigma2_v   = max(v_exact.var().item(), VARIANCE_EPS)
+sigma2_p   = max(p_exact.var().item(), VARIANCE_EPS)
+sigma2_txx = max(tau_xx_exact.var().item(), VARIANCE_EPS)
+sigma2_txy = max(tau_xy_exact.var().item(), VARIANCE_EPS)
+sigma2_tyy = max(tau_yy_exact.var().item(), VARIANCE_EPS)
+print(f"Variances for normalization: u={sigma2_u:.2e}, v={sigma2_v:.2e}, p={sigma2_p:.2e}, txx={sigma2_txx:.2e}, txy={sigma2_txy:.2e}, tyy={sigma2_tyy:.2e}")
 
-# Controlla che tutti i punti rispettino il dominio
-assert xy_master_grid[:, 0].min() >= 0 and xy_master_grid[:, 0].max() <= Lx
-assert xy_master_grid[:, 1].min() >= 0 and xy_master_grid[:, 1].max() <= Ly
+VAR_WEIGHTS = {'u': sigma2_u, 'v': sigma2_v, 'p': sigma2_p, 'txx': sigma2_txx, 'txy': sigma2_txy, 'tyy': sigma2_tyy}
 
-# --- BOUNDARY CONDITIONS (u, v, p, tau) ---
+# --- BOUNDARY CONDITIONS ---
 xy_master_boundary, uvp_master_boundary = generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_grids, Nx_dom, Ny_dom, device)
 
-num_subset = 1000
+# --- Data Subset ---
 torch.manual_seed(42)
-idx = torch.randperm(xy_grid_flat.shape[0])[:num_subset]
+idx = torch.randperm(xy_grid_flat.shape[0])[:NUM_DATA_SUBSET]
 xy_pinn_data = xy_grid_flat[idx]
-psip_pinn_data = torch.cat([psi_exact[idx], p_exact[idx], tau_xx_exact[idx], tau_xy_exact[idx], tau_yy_exact[idx]], dim=1) 
+psip_pinn_data = torch.cat([psi_exact[idx], p_exact[idx], tau_xx_exact[idx], tau_xy_exact[idx], tau_yy_exact[idx]], dim=1)
+uv_pinn_data = torch.cat([u_exact[idx], v_exact[idx]], dim=1)
 
-pinn_data_internal = (xy_pinn_data, psip_pinn_data)
-pinn_data_boundary = (xy_master_boundary, uvp_master_boundary)
+# Pre-cast al dtype iniziale una volta sola (evita .to() ridondanti nel goal loop)
+xy_pinn_data = xy_pinn_data.to(initial_dtype)
+psip_pinn_data = psip_pinn_data.to(initial_dtype)
+uv_pinn_data = uv_pinn_data.to(initial_dtype)
+xy_master_boundary = xy_master_boundary.to(initial_dtype)
+uvp_master_boundary = uvp_master_boundary.to(initial_dtype)
 
-# --- GRID SEARCH EXECUTION ---
-configs = list(itertools.product(layers_options, epochs_options, activation_options, lr_strategies, weighting_options))
-print(f"Starting Weighted Grid Search over {len(configs)} configurations...")
 
-def get_last(hist, key): 
+# ╔══════════════════════════════════════════════════╗
+# ║              HELPER FUNCTIONS                    ║
+# ╚══════════════════════════════════════════════════╝
+
+def setup_experiment_folder(parent_dir, goal_folder):
+    exp_dir = os.path.join(parent_dir, goal_folder)
+    plots_dir = os.path.join(exp_dir, 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
+    return exp_dir, plots_dir
+
+def get_last(hist, key):
     return hist.losses[key][-1] if (key in hist.losses and hist.losses[key]) else 0
 
+
+# ╔══════════════════════════════════════════════════╗
+# ║              GRID SEARCH EXECUTION               ║
+# ╚══════════════════════════════════════════════════╝
+
+configs = list(itertools.product(LAYERS_OPTIONS, EPOCHS_OPTIONS, ACTIVATION_OPTIONS, LR_STRATEGY_OPTIONS, WEIGHTING_OPTIONS))
+print(f"Starting Weighted Grid Search over {len(configs)} configurations...")
+
 for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
-    torch.set_default_dtype(torch.float32)
+    torch.set_default_dtype(initial_dtype)
     layers_str = format_layers_name(layers_config)
     act_str = get_activation_name(act_fn)
     config_name = f"L{layers_str}_E{epochs}_{act_str}_{lr_strat}_{weight_mode}"
     
-    config_dir = os.path.join(base_output_dir, config_name)
+    config_dir = os.path.join(BASE_OUTPUT_DIR, config_name)
     os.makedirs(config_dir, exist_ok=True)
     
     print(f"\n=== Running Configuration: {config_name} ===")
     
     histories, final_models = {}, {}
-    base_lr = 1e-3
-    if lr_strat == 'step_decay':
-        lr_log_str = f"[{base_lr} -> {base_lr * (0.5**4)}]"
-    elif lr_strat == 'plateau':
-        lr_log_str = "[plateau min:1e-6]"
-    else:
-        lr_log_str = str(base_lr)
-
     is_dynamic = (weight_mode == 'dynamic')
     current_weight_str = DYNAMIC_WEIGHT_STR if is_dynamic else STATIC_WEIGHT_STR
 
-    phys_problem = ViscoelasticPhysics(mu_s=mu_s, mu_p=mu_p, lam=lam)
+    phys_problem = ViscoelasticPhysics(mu_s=mu_s, mu_p=mu_p, lam=lam, pde_weights=PDE_WEIGHTS)
 
-    for goal in goals_to_run:
-        # Mapping dei Goal: 0=PurePhys, 1=Phys+Data, 2=SoloData
-        if goal == 0:
-            label = "PurePhys"
-            current_w = {'bc': 1.0, 'physics': 1.0, 'data': 0.0}
-        elif goal == 1:
-            label = "Phys+Data"
-            current_w = {'bc': 1.0, 'physics': 1.0, 'data': 1.0}
-        else: # goal == 2
-            label = "SoloData"
-            current_w = {'bc': 0.0, 'physics': 0.0, 'data': 1.0}
+    for goal in GOALS_TO_RUN:
+        goal_cfg = GOAL_CONFIGS[goal]
+        label = goal_cfg['label']
+        mode_param = goal_cfg['mode']
+        current_w = dict(goal_cfg['weights'])
 
         prefix = f"{goal}_{label}"
         print(f"  > {label} ({config_name})")
         
-        exp_dir, plots_dir = setup_experiment_folder(config_dir, prefix, f"{label} {weight_mode}")
+        exp_dir, plots_dir = setup_experiment_folder(config_dir, prefix)
         
-        torch.manual_seed(123)
+        torch.manual_seed(SEED)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(123)
+            torch.cuda.manual_seed_all(SEED)
             
-        torch.set_default_dtype(torch.float32)
-        pinn_data_internal_fresh = (xy_pinn_data.float(), psip_pinn_data.float())
-        pinn_data_boundary_fresh = (xy_master_boundary.float(), uvp_master_boundary.float())
+        torch.set_default_dtype(initial_dtype)
         
-        # Forziamo l'ultimo layer
-        layers_psi = layers_config[:-1] + [1]
-        layers_p = layers_config[:-1] + [1]
-        layers_tau = layers_config[:-1] + [3] # tau ha 3 componenti (xx, xy, yy)
-        
-        model_psi = FCN(layers=layers_psi, activation_fn=act_fn).to(device).to(torch.float32)
-        model_p = FCN(layers=layers_p, activation_fn=act_fn).to(device).to(torch.float32)
-        model_tau = FCN(layers=layers_tau, activation_fn=act_fn).to(device).to(torch.float32)
-        model_combined = ViscoelasticCombinedModel(model_psi, model_p, model_tau)
-
-        # Passiamo una lista unica di parametri all'ottimizzatore
-        optimizer_params = list(model_combined.parameters())
-        optimizer = torch.optim.Adam(optimizer_params, lr=base_lr)
-        
-        # Se siamo nel Goal 2 (SoloData), il dynamic weighting non ha senso (una sola componente)
-        # Lo disabilitiamo localmente per questa run
+        # Dynamic weighting non ha senso per SoloData (una sola componente)
         run_is_dynamic = is_dynamic if goal != 2 else False
 
-        # Se non siamo in modalità dinamica, applichiamo i pesi statici (tranne che per SoloData)
+        # Pesi effettivi: applica pesi statici se non dynamic
         effective_w = dict(current_w)
         if not run_is_dynamic and goal != 2:
             effective_w['bc'] *= STATIC_WEIGHTS['bc']
             effective_w['physics'] *= STATIC_WEIGHTS['physics']
             effective_w['data'] *= STATIC_WEIGHTS['data']
 
-        warmup = 0 if goal == 2 else epochs // 5
+        # Configurazione dati per Goal
+        if goal == 1:
+            pinn_data_internal_fresh = (xy_pinn_data, uv_pinn_data)
+            var_weights = VAR_WEIGHTS
+        else:
+            pinn_data_internal_fresh = (xy_pinn_data, psip_pinn_data)
+            var_weights = None
+
+        pinn_data_boundary_fresh = (xy_master_boundary, uvp_master_boundary)
+        
+        # Costruzione modello
+        layers_psi = layers_config[:-1] + [1]
+        layers_p = layers_config[:-1] + [1]
+        layers_tau = layers_config[:-1] + [3]
+        
+        model_psi = FCN(layers=layers_psi, activation_fn=act_fn).to(device).to(initial_dtype)
+        model_p = FCN(layers=layers_p, activation_fn=act_fn).to(device).to(initial_dtype)
+        model_tau = FCN(layers=layers_tau, activation_fn=act_fn).to(device).to(initial_dtype)
+        model_combined = ViscoelasticCombinedModel(model_psi, model_p, model_tau)
+
+        # Costruzione TrainingConfig
+        use_staged = STAGED_TRAINING and goal != 2
+        train_config = TrainingConfig(
+            epochs=epochs,
+            base_lr=BASE_LR,
+            adam_eps=ADAM_EPS,
+            lr_strategy=lr_strat,
+            staged_training=use_staged,
+            precision_mode=PRECISION_MODE,
+            max_lbfgs_iters=MAX_LBFGS_ITERS,
+            minibatch_internal=MINIBATCH_INTERNAL,
+            minibatch_boundary=MINIBATCH_BOUNDARY,
+            dynamic_weighting=run_is_dynamic,
+            loss_weights=effective_w,
+            mode=mode_param,
+            variance_weights=var_weights,
+            log_gradients_every=LOG_GRADIENTS_EVERY,
+            plot_every=PLOT_EVERY,
+            experiment_name=f"Viscoelastic {label}",
+            val_label="u (Velocity)",
+        )
 
         try:
-            use_staged = STAGED_TRAINING and goal != 2
             history = train_ViscoelasticPINN(
-                model=model_combined, optimizer=optimizer,
-                data_internal=pinn_data_internal_fresh, data_boundary=pinn_data_boundary_fresh,
-                validation_grid=validation_grid_u, physics_problem=phys_problem,
-                epochs=epochs, plots_dir=plots_dir, final_dir=exp_dir,
-                show_plots_interactively=show_plots_interactively,
-                log_gradients_every=500, collocation_points=xy_master_grid,
-                lr_strategy=lr_strat, loss_weights=effective_w, dynamic_weighting=run_is_dynamic,
-                update_weights_every=100, warmup_epochs=warmup,
-                experiment_name=f"Viscoelastic {label}", val_label="u (Velocity)",
+                model=model_combined,
+                config=train_config,
+                data_internal=pinn_data_internal_fresh,
+                data_boundary=pinn_data_boundary_fresh,
+                validation_grid=validation_grid_u,
+                physics_problem=phys_problem,
+                collocation_points=xy_pinn_data,
+                plots_dir=plots_dir,
+                final_dir=exp_dir,
                 stress_exact_grids=stress_exact_grids,
-                staged_training=use_staged, base_lr=base_lr
             )
             
-            # Metriche multi-campo per il caso viscoelastico
+            # Metriche multi-campo
             fields_exact_for_metrics = {
                 'u': U_grid, 'p': P_grid,
                 'tau_xx': TAU_XX_grid, 'tau_xy': TAU_XY_grid, 'tau_yy': TAU_YY_grid
@@ -223,29 +309,34 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
                 model_combined, phys_problem, xy_grid_flat, fields_exact_for_metrics, Ny_dom, Nx_dom
             )
             
-            # Metriche aggregate: media L2 su campi non-banali, max globale
-            # Escludo campi con L2=0 (soluzione esatta nulla, es. tau_yy in Poiseuille)
+            # Metriche aggregate
             l2_values = [v[0] for v in visco_metrics.values() if v[0] > 1e-10]
             max_values = [v[1] for v in visco_metrics.values()]
             l2_avg = sum(l2_values) / len(l2_values) if l2_values else 0.0
             max_global = max(max_values) if max_values else 0.0
             
+            lr_log_str = str(BASE_LR) if lr_strat == 'cosine' else f"[{BASE_LR}]"
+            
             log_data = {
-                'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 'Architecture': str(layers_config),
+                'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'Architecture': str(layers_config),
                 'Activation_Func': act_str, 'Epochs': epochs, 'Run_Type': label,
-                'Optimizer': 'Adam', 'Learning_Rate': lr_log_str, 
-                'Loss_Total': get_last(history, 'total_loss'), 'Loss_Physics': get_last(history, 'pde_loss'),
-                'Loss_Boundary': get_last(history, 'bc_loss'), 'Loss_Data': get_last(history, 'data_loss'),
+                'Optimizer': 'Adam', 'Learning_Rate': lr_log_str,
+                'Loss_Total': get_last(history, 'total_loss'),
+                'Loss_Physics': get_last(history, 'pde_loss'),
+                'Loss_Boundary': get_last(history, 'bc_loss'),
+                'Loss_Data': get_last(history, 'data_loss'),
                 'L2_Relative_Error': l2_avg, 'Max_Relative_Error_Peak': max_global,
                 'L2_u': visco_metrics['u'][0], 'Max_u': visco_metrics['u'][1],
                 'L2_p': visco_metrics['p'][0], 'Max_p': visco_metrics['p'][1],
                 'L2_tau_xx': visco_metrics['tau_xx'][0], 'Max_tau_xx': visco_metrics['tau_xx'][1],
                 'L2_tau_xy': visco_metrics['tau_xy'][0], 'Max_tau_xy': visco_metrics['tau_xy'][1],
                 'L2_tau_yy': visco_metrics['tau_yy'][0], 'Max_tau_yy': visco_metrics['tau_yy'][1],
-                'Seed': 123, 'n_points': xy_pinn_data.shape[0] if goal in [1, 2] else 0,
+                'Seed': SEED,
+                'n_points': xy_pinn_data.shape[0] if goal in [1, 2] else 0,
                 'Loss_Weight': current_weight_str
             }
-            update_results_csv(results_csv_path, log_data)
+            update_results_csv(RESULTS_CSV_PATH, log_data)
             histories[label] = history
             final_models[label] = model_combined
         except Exception as e:
@@ -253,12 +344,13 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
             import traceback
             traceback.print_exc()
 
+    # --- COMPARISON PLOTS ---
     print(f"  > Generating Comparisons for {config_name}...")
     results_dir = os.path.join(config_dir, 'comparisons')
     os.makedirs(results_dir, exist_ok=True)
     
     model_results = []
-    model_results_multi = []  # Per comparison multi-campo
+    model_results_multi = []
     for label, model in final_models.items():
         model.eval()
         with torch.set_grad_enabled(True):
@@ -278,10 +370,8 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
     
     if model_results:
         hparams = {'arch': layers_str, 'epochs': str(epochs), 'act': act_str, 'lr_strategy': lr_strat, 'weight': current_weight_str}
-        # X, Y, U_grid possono essere su CUDA; i plot li richiedono su CPU
         plot2D_unified_comparison(X.cpu(), Y.cpu(), U_grid.cpu(), model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
     
-    # Comparison multi-campo per tutti i campi fisici
     if model_results_multi:
         fields_exact_cpu = {
             'u': U_grid.cpu(), 'p': P_grid.cpu(),
@@ -296,5 +386,11 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
         labels_list = list(histories.keys())
         hist_list = [histories[l] for l in labels_list]
         plot_loss_comparison(hist_list, labels_list, save_path=os.path.join(results_dir, 'Comparison_Loss_All_Goals.png'))
+
+    # --- VRAM Cleanup: previene OOM nelle grid search lunghe ---
+    del histories, final_models, model_results, model_results_multi
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 print("\nWeighted Grid Search configurations completed.")

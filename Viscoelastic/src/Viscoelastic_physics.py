@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class ViscoelasticPhysics(nn.Module):
-    def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0, rho=1.0):
+    def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0, rho=1.0, pde_weights=None):
         """
         Modulo per calcolare i residui fisici (equazioni di Navier-Stokes e modello Oldroyd-B).
         
@@ -19,6 +19,11 @@ class ViscoelasticPhysics(nn.Module):
             lam: Tempo di rilassamento [s]
             rho: Densità del fluido [kg/m³]. Default=1.0 (adimensionale).
                  Se rho != 1, le equazioni del momento vengono scalate di conseguenza.
+            pde_weights: Dict con pesi per le componenti PDE.
+                Default: {'momentum': 10.0, 'constitutive': 1.0}
+                NOTA: Per Oldroyd-B i residui degli stress (tau_xx soprattutto)
+                hanno magnitudini strutturalmente diverse dai residui di momentum,
+                perché tau_xx scala come γ̇² (quadratico) mentre f_u scala come γ̇ (lineare).
         """
         super().__init__()
         self.mu_s = mu_s
@@ -26,11 +31,15 @@ class ViscoelasticPhysics(nn.Module):
         self.lam = lam
         self.rho = rho
         self.mse_loss = nn.MSELoss()
+        self.pde_weights = pde_weights or {'momentum': 10.0, 'constitutive': 1.0}
 
     def get_velocity(self, model, x):
         """
         Calcola u, v e p a partire dalle reti neurali.
         """
+        if not x.requires_grad:
+            x.requires_grad_(True)
+            
         out = model(x)
         psi = out[:, 0:1]
         p = out[:, 1:2]
@@ -49,40 +58,43 @@ class ViscoelasticPhysics(nn.Module):
     def compute_residuals(self, model, x):
         """
         Calcola i residui delle equazioni di Navier-Stokes + Oldroyd-B per un set di punti x.
-        """
-        if not x.requires_grad:
-            x.requires_grad_(True)
-            
-        out = model(x)
-        psi = out[:, 0:1]
-        p = out[:, 1:2]
-        tau_xx = out[:, 2:3]
-        tau_xy = out[:, 3:4]
-        tau_yy = out[:, 4:5]
         
-        # u, v da psi
-        grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=True)[0]
-        psi_x, psi_y = grad_psi[:, 0:1], grad_psi[:, 1:2]
-        u = psi_y
-        v = -psi_x
+        Ottimizzazioni rispetto all'implementazione naive:
+        - Riusa get_velocity() per evitare duplicazione del forward pass + grad(psi)
+        - Sfrutta v_y = -u_x (equazione di continuità) per risparmiare 1 chiamata autograd
+        - Sfrutta v_yy = -u_yx (teorema di Schwarz) per risparmiare 1 chiamata autograd
+        Totale: 10 chiamate autograd anziché 12.
+        """
+        u, v, p, tau = self.get_velocity(model, x)
+        tau_xx = tau[:, 0:1]
+        tau_xy = tau[:, 1:2]
+        tau_yy = tau[:, 2:3]
         
         # Derivate prime di u, v, p
         grad_u = torch.autograd.grad(u.sum(), x, create_graph=True)[0]
         u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
+        
         grad_v = torch.autograd.grad(v.sum(), x, create_graph=True)[0]
-        v_x, v_y = grad_v[:, 0:1], grad_v[:, 1:2]
+        v_x = grad_v[:, 0:1]
+        v_y = -u_x  # Equazione di continuità: u_x + v_y = 0
+        
         grad_p = torch.autograd.grad(p.sum(), x, create_graph=True)[0]
         p_x, p_y = grad_p[:, 0:1], grad_p[:, 1:2]
         
         # Derivate seconde di u, v
         grad_u_x = torch.autograd.grad(u_x.sum(), x, create_graph=True)[0]
         u_xx = grad_u_x[:, 0:1]
+        
         grad_u_y = torch.autograd.grad(u_y.sum(), x, create_graph=True)[0]
+        u_yx = grad_u_y[:, 0:1]
         u_yy = grad_u_y[:, 1:2]
+        
         grad_v_x = torch.autograd.grad(v_x.sum(), x, create_graph=True)[0]
         v_xx = grad_v_x[:, 0:1]
-        grad_v_y = torch.autograd.grad(v_y.sum(), x, create_graph=True)[0]
-        v_yy = grad_v_y[:, 1:2]
+        
+        # v_yy = -u_yx per il teorema di Schwarz:
+        # u_yx = ∂³ψ/∂x∂y² e v_yy = -∂³ψ/∂x∂y² → v_yy = -u_yx
+        v_yy = -u_yx
         
         # Derivate prime di tau
         grad_tau_xx = torch.autograd.grad(tau_xx.sum(), x, create_graph=True)[0]
@@ -101,8 +113,8 @@ class ViscoelasticPhysics(nn.Module):
         f_tau_xx = tau_xx + self.lam * (u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy) - 2 * self.mu_p * u_x
         f_tau_yy = tau_yy + self.lam * (u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy) - 2 * self.mu_p * v_y
         # Upper-Convected Derivative, componente xy:
-        # (nabla_u · tau)_xy = u_x*tau_xy + u_y*tau_yy
-        # (tau · nabla_u^T)_xy = tau_xx*v_x + tau_xy*v_y
+        # (∇u · τ)_xy = u_x·τ_xy + u_y·τ_yy
+        # (τ · ∇u^T)_xy = τ_xx·v_x + τ_xy·v_y
         f_tau_xy = tau_xy + self.lam * (
             u * tau_xy_x + v * tau_xy_y
             - u_x * tau_xy
@@ -116,21 +128,12 @@ class ViscoelasticPhysics(nn.Module):
     def residual(self, model, x, pde_weights=None):
         """
         Ritorna la somma pesata degli MSE dei residui.
-        
-        Args:
-            pde_weights: Dict con pesi individuali per le componenti PDE.
-                Default: {'momentum': 1.0, 'constitutive': 1.0}
-                
-                NOTA: Per Oldroyd-B i residui degli stress (tau_xx soprattutto)
-                hanno magnitudini strutturalmente diverse dai residui di momentum,
-                perché tau_xx scala come γ̇² (quadratico) mentre f_u scala come γ̇ (lineare).
-                Se il training non converge sulla parte di momentum, provare
-                pde_weights={'momentum': 5.0, 'constitutive': 1.0}.
+        Usa self.pde_weights (configurati nel costruttore) a meno che non venga
+        passato un override esplicito.
         """
-        if pde_weights is None:
-            pde_weights = {'momentum': 1.0, 'constitutive': 1.0}
-        w_m = pde_weights.get('momentum', 1.0)
-        w_c = pde_weights.get('constitutive', 1.0)
+        weights = pde_weights if pde_weights is not None else self.pde_weights
+        w_m = weights.get('momentum', 10.0)
+        w_c = weights.get('constitutive', 1.0)
         
         f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy = self.compute_residuals(model, x)
         zeros = torch.zeros_like(f_u)
@@ -141,7 +144,7 @@ class ViscoelasticPhysics(nn.Module):
         loss_txy = self.mse_loss(f_tau_xy, zeros)
         return w_m * (loss_u + loss_v) + w_c * (loss_txx + loss_tyy + loss_txy)
 
-    def boundary_loss(self, model, x_bc, target_bc):
+    def boundary_loss(self, model, x_bc, target_bc, variance_weights=None):
         """
         Calcola la MSE loss sui boundary points, ignorando i valori NaN.
         Il target_bc deve contenere: [u, v, p, tau_xx, tau_xy, tau_yy].
@@ -154,29 +157,46 @@ class ViscoelasticPhysics(nn.Module):
         pred_bc = torch.cat([u, v, p, tau], dim=1)
         
         mask = ~torch.isnan(target_bc)
-        if mask.sum() == 0:
-            return torch.tensor(0.0, device=x_bc.device, requires_grad=True)
+        if variance_weights is not None:
+            v_u = max(variance_weights.get('u', 1.0), 1e-8)
+            v_v = max(variance_weights.get('v', 1.0), 1e-8)
+            v_p = max(variance_weights.get('p', 1.0), 1e-8)
+            v_txx = max(variance_weights.get('txx', 1.0), 1e-8)
+            v_txy = max(variance_weights.get('txy', 1.0), 1e-8)
+            v_tyy = max(variance_weights.get('tyy', 1.0), 1e-8)
             
-        return self.mse_loss(pred_bc[mask], target_bc[mask])
+            scales = torch.tensor([v_u, v_v, v_p, v_txx, v_txy, v_tyy], device=x_bc.device)
+            
+            # Sicurezza contro NaN gradient gotcha in PyTorch (0 * NaN = NaN nel backward)
+            target_safe = torch.nan_to_num(target_bc, nan=0.0)
+            diff = pred_bc - target_safe
+            squared_diff = (diff ** 2) / scales
+            return squared_diff[mask].mean()
+        else:
+            # Anche qui è prudente sostituire i NaN
+            target_safe = torch.nan_to_num(target_bc, nan=0.0)
+            diff = pred_bc - target_safe
+            return (diff ** 2)[mask].mean()
 
 def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, device):
     """
     Genera le condizioni al contorno per il dominio rettangolare.
     Include: u, v, p, tau_xx, tau_xy, tau_yy.
     I target non forniti vengono impostati a NaN.
+    Tutti i tensori vengono creati direttamente sul device di destinazione.
     """
     xy_boundary_list = []
     target_boundary_list = []
     
     # 1. Bottom & Top (Wall) -> No-slip + Stress analitici
-    x_wall = torch.linspace(0, Lx, Nx+2)[1:-1].reshape(-1, 1).to(device)
-    y_wall_bottom = torch.zeros_like(x_wall).to(device)
-    y_wall_top = torch.full_like(x_wall, Ly).to(device)
+    x_wall = torch.linspace(0, Lx, Nx, device=device).reshape(-1, 1)
+    y_wall_bottom = torch.zeros_like(x_wall)
+    y_wall_top = torch.full_like(x_wall, Ly)
     
     # Estraggo gli stress analitici alle pareti (se disponibili nel dict)
-    txx_exact = stress_exact_dict.get('tau_xx', torch.full((Ny, Nx), float('nan'))).to(device)
-    txy_exact = stress_exact_dict.get('tau_xy', torch.full((Ny, Nx), float('nan'))).to(device)
-    tyy_exact = stress_exact_dict.get('tau_yy', torch.full((Ny, Nx), float('nan'))).to(device)
+    txx_exact = stress_exact_dict.get('tau_xx', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
+    txy_exact = stress_exact_dict.get('tau_xy', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
+    tyy_exact = stress_exact_dict.get('tau_yy', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
 
     # Nota: y=0 è riga 0, y=Ly è riga Ny-1
     txx_bottom = txx_exact[0, :].reshape(-1, 1)
@@ -194,7 +214,7 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     wall_top_target    = torch.cat([u_wall, v_wall, nan_p, txx_top, txy_top, tyy_top], dim=1)
     
     # 2. Inlet/Outlet -> Velocità Parabolica + Pressione + Stress
-    y_inout = torch.linspace(0, Ly, Ny).reshape(-1, 1).to(device)
+    y_inout = torch.linspace(0, Ly, Ny, device=device).reshape(-1, 1)
     u_parabolic = 4 * u_max * (y_inout * (Ly - y_inout)) / (Ly**2)
     v_zero = torch.zeros_like(y_inout)
     

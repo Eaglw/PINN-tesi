@@ -72,7 +72,7 @@ class TrainingHistory:
             
             self.losses[name].append(val)
 
-    def plot_losses(self, warmup_epoch=0, adam_epochs=None, save_path=None, experiment_name="", show_plot=True, skip_epochs=0, phase_markers=None, smoothing_alpha=0.0, active_loss_keys=None):
+    def plot_losses(self, warmup_epoch=0, adam_epochs=None, save_path=None, experiment_name="", show_plot=False, skip_epochs=0, phase_markers=None, smoothing_alpha=0.0, active_loss_keys=None):
         """
         Genera un grafico con l'andamento di tutte le loss registrate.
         
@@ -135,18 +135,18 @@ class TrainingHistory:
                     for v in r_values:
                         if np.isnan(v):
                             ema.append(np.nan)
-                        elif current is None:
+                        elif current is None or np.isnan(current):
                             current = v
                             ema.append(v)
                         else:
                             current = smoothing_alpha * current + (1 - smoothing_alpha) * v
                             ema.append(current)
-                    ax.plot(r_epochs, ema, linewidth=linewidth + 0.5, alpha=0.5, 
-                            color=line.get_color(), linestyle='--')
+                    ax.plot(r_epochs, ema, linewidth=linewidth + 0.8, alpha=0.9, 
+                            color=line.get_color(), linestyle='-')
             
             # Disegno linee verticali per i cambi di Learning Rate
             if len(self.lr_history) > 0:
-                first_lr_vline = True
+                lr_changes = []
                 for i in range(1, len(epoch_range_indices)):
                     idx_curr = epoch_range_indices[i]
                     idx_prev = epoch_range_indices[i-1]
@@ -159,9 +159,15 @@ class TrainingHistory:
                     
                     # Confronto robusto per cambi di LR (escludendo i None)
                     if lr_curr is not None and lr_prev is not None and not np.isclose(lr_curr, lr_prev, rtol=1e-8, atol=1e-12):
+                        lr_changes.append(self.epochs[idx_curr])
+                
+                # Disegniamo i cambi di LR SOLO se sono eventi discreti (es. Plateau, StepLR)
+                # Se il LR cambia ad ogni epoca (come nel Cosine Annealing), avremmo una linea nera per ogni epoca!
+                if 0 < len(lr_changes) <= 50:
+                    first_lr_vline = True
+                    for ep in lr_changes:
                         label = "LR Change" if first_lr_vline else None
-                        # Linea più visibile: nera tratteggiata con alpha maggiore
-                        ax.axvline(self.epochs[idx_curr], color="black", linestyle="--", alpha=0.3, linewidth=1, label=label)
+                        ax.axvline(ep, color="black", linestyle="--", alpha=0.3, linewidth=1, label=label)
                         first_lr_vline = False
 
             ax.set_title(f'Loss {title_suffix}')
@@ -171,6 +177,13 @@ class TrainingHistory:
             ax.grid(True, which="both", ls="--", alpha=0.5)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
+            
+            # Autoscale y-axis logic to avoid being squashed by initial spikes
+            valid_vals = [v for v in r_values if not np.isnan(v) and v > 0]
+            if valid_vals:
+                vmin, vmax = min(valid_vals), max(valid_vals)
+                if vmax / vmin > 1e6:
+                    ax.set_ylim(vmin * 0.5, vmin * 1e5) # Focus on converged region
             
             # Phase markers (Staged Training)
             if phase_markers:
@@ -211,7 +224,7 @@ class TrainingHistory:
         if show_plot: plt.show()
         plt.close()
 
-    def plot_gradients(self, save_path=None, experiment_name="", show_plot=True):
+    def plot_gradients(self, save_path=None, experiment_name="", show_plot=False):
         grad_keys = [k for k in self.losses.keys() if k.startswith('grad_')]
         if not grad_keys: return
 
@@ -234,7 +247,7 @@ class TrainingHistory:
         if show_plot: plt.show()
         plt.close()
 
-    def plot_weights(self, save_path=None, experiment_name="", show_plot=True):
+    def plot_weights(self, save_path=None, experiment_name="", show_plot=False):
         weight_keys = [k for k in self.losses.keys() if k.startswith('weight_')]
         if not weight_keys: return
 
@@ -257,7 +270,7 @@ class TrainingHistory:
         if show_plot: plt.show()
         plt.close()
 
-def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, **kwargs):
+def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, mode='standard', variance_weights=None, **kwargs):
     """
     Computes the components of the PINN loss.
     COMPONENTS IN 'loss_dict' ARE PURE RESIDUALS (UNWEIGHTED).
@@ -267,14 +280,36 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
     total_loss = 0.0
     mse_loss = nn.MSELoss()
     
+    # Normalizzazione per Goal 1 (ViscoelasticNet)
+    scale_u = 1.0
+    if mode == 'semi_inverse' and variance_weights is not None:
+        if any(torch.isnan(torch.tensor(list(variance_weights.values())))):
+            print(f"!!! [DEBUG] variance_weights contains NaNs: {variance_weights}")
+        scale_u = max(variance_weights.get('u', 1.0), 1e-8)
+        scale_v = max(variance_weights.get('v', 1.0), 1e-8)
+    
     if x_data is not None and y_data is not None and x_data.numel() > 0:
-        y_pred = model(x_data)
-        data_loss = mse_loss(y_pred, y_data)
+        if mode == 'semi_inverse' and physics_problem is not None:
+            # y_data contiene [u_obs, v_obs]
+            u_pred, v_pred, _, _ = physics_problem.get_velocity(model, x_data)
+            u_obs = y_data[:, 0:1]
+            v_obs = y_data[:, 1:2]
+            
+            loss_u = mse_loss(u_pred, u_obs) / scale_u
+            loss_v = mse_loss(v_pred, v_obs) / scale_v
+            
+            data_loss = 0.5 * (loss_u + loss_v) # Media sulle due componenti spaziali
+        else:
+            y_pred = model(x_data)
+            data_loss = mse_loss(y_pred, y_data)
+            
         loss_dict['data_loss'] = data_loss
         total_loss += lambda_data * data_loss
 
     if physics_problem is not None and x_bc is not None and y_bc is not None and x_bc.numel() > 0:
-        bc_loss_val = physics_problem.boundary_loss(model, x_bc, y_bc)
+        # Passiamo variance_weights se siamo in semi_inverse per normalizzare u, v, p, tau individualmente
+        v_weights = variance_weights if mode == 'semi_inverse' else None
+        bc_loss_val = physics_problem.boundary_loss(model, x_bc, y_bc, variance_weights=v_weights)
         loss_dict['bc_loss'] = bc_loss_val
         total_loss += lambda_bc * bc_loss_val
     elif x_bc is not None and y_bc is not None and x_bc.numel() > 0:
@@ -292,6 +327,7 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
             pde_loss = physics_loss_fn(model, x_physics, **kwargs)
         else:
             pde_loss = physics_loss_fn(model, **kwargs)
+            
         loss_dict['pde_loss'] = pde_loss
         total_loss += lambda_physics * pde_loss
         
