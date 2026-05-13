@@ -44,7 +44,7 @@ GOAL_CONFIGS = {
 
 # --- Architecture (Grid Search) ---
 LAYERS_OPTIONS = [[2, 120, 100, 80, 60, 40, 20, 1]]
-EPOCHS_OPTIONS = [1000]
+EPOCHS_OPTIONS = [500]
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']

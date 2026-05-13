@@ -351,7 +351,7 @@ def plot2D_viscoelastic_final(X, Y, fields_pred, fields_exact, epoch, save_path,
     fig, axes = plt.subplots(n_fields, 3, figsize=(18, 4 * n_fields))
     X_np, Y_np = X.detach().cpu().numpy(), Y.detach().cpu().numpy()
     
-    fig.suptitle(f'Viscoelastic PINN — Final Results (Epoch {epoch})', fontsize=18, fontweight='bold', y=0.995)
+    fig.suptitle(f'Viscoelastic VE — Final Results (Epoch {epoch})', fontsize=18, fontweight='bold', y=0.995)
     
     for i, (fname, flabel, cmap) in enumerate(zip(field_names, field_labels, cmaps_field)):
         pred = fields_pred.get(fname)

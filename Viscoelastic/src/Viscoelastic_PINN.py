@@ -121,7 +121,7 @@ class TrainingConfig:
     # --- Logging & Plotting ---
     log_gradients_every: int = 500
     plot_every: int = 500
-    experiment_name: str = "PINN Training"
+    experiment_name: str = "VE Training"
     val_label: str = "Value"
 
 
@@ -200,7 +200,7 @@ def train_ViscoelasticPINN(
     os.makedirs(final_dir, exist_ok=True)
     plot_files = []
     
-    pbar = tqdm(range(epochs), desc=f"Training PINN (Adam) ({lr_strategy})", mininterval=2.0)
+    pbar = tqdm(range(epochs), desc=f"Training VE (Adam) ({lr_strategy})", mininterval=2.0)
     loss_history = TrainingHistory()
     
     loss_weights = cfg.loss_weights
@@ -377,7 +377,7 @@ def train_ViscoelasticPINN(
                     plot2D_comparison(X, Y, exact_g, spred, epoch+1, os.path.join(plots_dir, f'{sname}_{epoch+1}.png'), physics_points=None, val_label=sname, show_points=False)
                 
                 loss_history.plot_losses(
-                    save_path=os.path.join(final_dir, 'PINN_loss_history.png'),
+                    save_path=os.path.join(final_dir, 'VE_loss_history.png'),
                     experiment_name=cfg.experiment_name,
                     smoothing_alpha=0.95,
                     active_loss_keys=_active_keys
@@ -428,7 +428,7 @@ def train_ViscoelasticPINN(
 
     max_total_lbfgs = cfg.max_lbfgs_iters
     lbfgs_iter = [0]
-    pbar_lbfgs = tqdm(total=max_total_lbfgs, desc="Training PINN (L-BFGS)", mininterval=2.0)
+    pbar_lbfgs = tqdm(total=max_total_lbfgs, desc="Training VE (L-BFGS)", mininterval=2.0)
     
     # Kwargs condivisi per compute_pinn_loss (evita duplicazione tra closure e final check)
     loss_kwargs = {
@@ -506,7 +506,7 @@ def train_ViscoelasticPINN(
     internal_pts = xy_int if lambda_data > 0 else None
     boundary_pts = xy_bc if lambda_bc > 0 else None
 
-    final_path = os.path.join(final_dir, 'PINNfinal_result.png')
+    final_path = os.path.join(final_dir, 'VEfinal_result.png')
     plot2D_final_result(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, internal_points=internal_pts, boundary_points=boundary_pts, physics_points=xy_physics, val_label=cfg.val_label)
     
     # Plot Finale Multi-Campo Viscoelastic (u, p, tau_xx, tau_xy, tau_yy)
@@ -534,7 +534,7 @@ def train_ViscoelasticPINN(
             'tau_yy': stress_exact_grids.get('tau_yy', torch.zeros_like(T_exact_grid)).cpu(),
         }
         
-        visco_final_path = os.path.join(final_dir, 'PINN_viscoelastic_fields.png')
+        visco_final_path = os.path.join(final_dir, 'VE_viscoelastic_fields.png')
         plot2D_viscoelastic_final(
             X, Y, fields_pred, fields_exact, epochs,
             save_path=visco_final_path,
@@ -546,7 +546,7 @@ def train_ViscoelasticPINN(
     # Generazione GIF
     print(f"Creazione GIF con {len(plot_files)} frames...")
     if plot_files:
-        gif_path = os.path.join(final_dir, 'PINNtraining_evolution.gif')
+        gif_path = os.path.join(final_dir, 'VEtraining_evolution.gif')
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
     # Phase markers per Staged Training
@@ -559,7 +559,7 @@ def train_ViscoelasticPINN(
     # Plot Loss History con split tra Adam e L-BFGS
     loss_history.plot_losses(
         adam_epochs=epochs,
-        save_path=os.path.join(final_dir, 'PINN_loss_history.png'), 
+        save_path=os.path.join(final_dir, 'VE_loss_history.png'), 
         experiment_name=cfg.experiment_name, 
         skip_epochs=50,
         phase_markers=_phase_markers,
@@ -567,8 +567,8 @@ def train_ViscoelasticPINN(
         active_loss_keys=_active_keys if _active_keys else None
     )
     
-    loss_history.plot_gradients(save_path=os.path.join(final_dir, 'PINN_gradients.png'), experiment_name=f"{cfg.experiment_name} Gradients")
-    loss_history.plot_weights(save_path=os.path.join(final_dir, 'PINN_weights.png'), experiment_name=f"{cfg.experiment_name} Weights")
+    loss_history.plot_gradients(save_path=os.path.join(final_dir, 'VE_gradients.png'), experiment_name=f"{cfg.experiment_name} Gradients")
+    loss_history.plot_weights(save_path=os.path.join(final_dir, 'VE_weights.png'), experiment_name=f"{cfg.experiment_name} Weights")
 
     plt.close("all")
 
