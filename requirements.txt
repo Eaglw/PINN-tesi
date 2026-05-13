@@ -5,3 +5,8 @@ Pillow
 tqdm
 pandas
 seaborn
+scipy
+sympy
+jupyter
+notebook
+ipykernel
