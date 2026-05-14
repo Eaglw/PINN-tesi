@@ -162,9 +162,10 @@ def train_ViscoelasticPINN(
     """
     Esegue il training della PINN viscoelastica.
     """
-    # --- Inizializzazione Stress a Zero ---
-    # Questo evita che il rumore iniziale di Tau disturbi la cinematica nella Fase 1
+    # --- Inizializzazione Stress e Pressione a Zero ---
+    # Questo evita che il rumore iniziale disturbi la cinematica/boundary loss nella Fase 1
     initialize_last_layer_zero(model.model_tau)
+    initialize_last_layer_zero(model.model_p)
     # --- Unpack config ---
     cfg = config
     epochs = cfg.epochs
@@ -174,13 +175,16 @@ def train_ViscoelasticPINN(
     mode = cfg.mode
     variance_weights = cfg.variance_weights
     
-    # --- SETUP STAGED TRAINING ---
+    # --- SETUP STAGED TRAINING E PESI FISICA ---
     half_epochs = epochs // 2
+    base_pde_weights = physics_problem.pde_weights.copy()
+    
     if staged_training:
-        print(f"\n  [Staged Training] Fase 1: Cinematica (psi+p) per {half_epochs} epoche. (Tau esplicitamente congelato)")
-        set_model_trainable(model, ['psi', 'p'])
-        for param in model.model_tau.parameters():
+        print(f"\n  [Staged Training] Fase 1: Cinematica e Reologia (psi+tau) per {half_epochs} epoche. (Pressione congelata, Navier-Stokes OFF)")
+        set_model_trainable(model, ['psi', 'tau'])
+        for param in model.model_p.parameters():
             param.requires_grad_(False)
+        physics_problem.pde_weights = {'momentum': 0.0, 'constitutive': base_pde_weights.get('constitutive', 1.0)}
         trainable_params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
     else:
@@ -227,8 +231,9 @@ def train_ViscoelasticPINN(
     for epoch in pbar:
         # --- STAGED TRAINING: Cambio fase a metà epoche ---
         if staged_training and epoch == half_epochs:
-            print(f"\n  [Staged Training] Fase 2: Costitutivo (tau) + Cinematica (psi) per {epochs - half_epochs} epoche")
-            set_model_trainable(model, ['tau', 'psi'])
+            print(f"\n  [Staged Training] Fase 2: Dinamica (psi+p) per {epochs - half_epochs} epoche. (Stress congelato, Navier-Stokes ON)")
+            set_model_trainable(model, ['psi', 'p'])
+            physics_problem.pde_weights = base_pde_weights
             trainable_params = [p for p in model.parameters() if p.requires_grad]
             optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
             scheduler = _get_scheduler(optimizer, lr_strategy, epochs - half_epochs)
@@ -388,6 +393,7 @@ def train_ViscoelasticPINN(
     if staged_training:
         print(f"\n  [Staged Training] Fase 3: Raffinamento L-BFGS (tutto sbloccato)")
         set_model_trainable(model, ['psi', 'p', 'tau'])
+        physics_problem.pde_weights = base_pde_weights
     
     # Ripristino Full-Batch per L-BFGS
     if lambda_data > 0 and lambda_physics > 0:
