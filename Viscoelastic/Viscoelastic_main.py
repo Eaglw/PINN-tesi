@@ -44,7 +44,7 @@ GOAL_CONFIGS = {
 
 # --- Architecture (Grid Search) ---
 LAYERS_OPTIONS = [[2, 120, 100, 80, 60, 40, 20, 1]]
-EPOCHS_OPTIONS = [500]
+EPOCHS_OPTIONS = [5000]
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']
@@ -171,7 +171,7 @@ xy_pinn_data = xy_grid_flat[idx]
 psip_pinn_data = torch.cat([psi_exact[idx], p_exact[idx], tau_xx_exact[idx], tau_xy_exact[idx], tau_yy_exact[idx]], dim=1)
 uv_pinn_data = torch.cat([u_exact[idx], v_exact[idx]], dim=1)
 
-# Pre-cast al dtype iniziale una volta sola (evita .to() ridondanti nel goal loop)
+# GPU Pre-cast al dtype iniziale
 xy_pinn_data = xy_pinn_data.to(initial_dtype)
 psip_pinn_data = psip_pinn_data.to(initial_dtype)
 uv_pinn_data = uv_pinn_data.to(initial_dtype)
@@ -234,7 +234,7 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
             
         torch.set_default_dtype(initial_dtype)
         
-        # Dynamic weighting non ha senso per SoloData (una sola componente)
+        # Dynamic weighting disattivato per SoloData
         run_is_dynamic = is_dynamic if goal != 2 else False
 
         # Pesi effettivi: applica pesi statici se non dynamic
