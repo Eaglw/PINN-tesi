@@ -130,6 +130,8 @@ def _sample_minibatch(xy, targets, batch_size, device):
     if batch_size is None or batch_size >= xy.shape[0]:
         return xy, targets
     idx = torch.randperm(xy.shape[0], device=device)[:batch_size]
+    if isinstance(targets, tuple):
+        return xy[idx], tuple(t[idx] for t in targets)
     return xy[idx], targets[idx]
 
 
@@ -178,6 +180,7 @@ def train_ViscoelasticPINN(
     # --- SETUP STAGED TRAINING E PESI FISICA ---
     half_epochs = epochs // 2
     base_pde_weights = physics_problem.pde_weights.copy()
+    current_active_bcs = None
     
     if staged_training:
         print(f"\n  [Staged Training] Fase 1: Cinematica e Reologia (psi+tau) per {half_epochs} epoche. (Pressione congelata, Navier-Stokes OFF)")
@@ -185,6 +188,7 @@ def train_ViscoelasticPINN(
         for param in model.model_p.parameters():
             param.requires_grad_(False)
         physics_problem.pde_weights = {'momentum': 0.0, 'constitutive': base_pde_weights.get('constitutive', 1.0)}
+        current_active_bcs = ['u', 'v', 'txx', 'txy', 'tyy']
         trainable_params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
     else:
@@ -193,7 +197,8 @@ def train_ViscoelasticPINN(
         optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
 
     xy_int, T_int = data_internal
-    xy_bc, T_bc = data_boundary
+    xy_bc, dir_bc, neu_bc, norm_bc = data_boundary
+    T_bc_tuple = (dir_bc, neu_bc, norm_bc)
     xy_grid, T_exact_grid, X, Y = validation_grid
     # Spostiamo tutto su CPU per il plotting con matplotlib
     X, Y = X.cpu(), Y.cpu()
@@ -234,6 +239,7 @@ def train_ViscoelasticPINN(
             print(f"\n  [Staged Training] Fase 2: Dinamica (psi+p) per {epochs - half_epochs} epoche. (Stress congelato, Navier-Stokes ON)")
             set_model_trainable(model, ['psi', 'p'])
             physics_problem.pde_weights = base_pde_weights
+            current_active_bcs = ['u', 'v', 'p']
             trainable_params = [p for p in model.parameters() if p.requires_grad]
             optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
             scheduler = _get_scheduler(optimizer, lr_strategy, epochs - half_epochs)
@@ -261,7 +267,7 @@ def train_ViscoelasticPINN(
             xy_phys_batch = None
 
         # Campionamento boundary
-        xy_bc_batch, T_bc_batch = _sample_minibatch(xy_bc, T_bc, cfg.minibatch_boundary, _device)
+        xy_bc_batch, T_bc_tuple_batch = _sample_minibatch(xy_bc, T_bc_tuple, cfg.minibatch_boundary, _device)
 
         # Calcolo loss
         loss, loss_dict = compute_pinn_loss(
@@ -269,14 +275,15 @@ def train_ViscoelasticPINN(
             x_data=xy_int_batch, 
             y_data=T_int_batch,
             x_bc=xy_bc_batch,
-            y_bc=T_bc_batch,
+            y_bc=T_bc_tuple_batch,
             physics_problem=physics_problem,
             x_physics=xy_phys_batch,
             lambda_data=lambda_data,
             lambda_bc=lambda_bc,
             lambda_physics=lambda_physics,
             mode=mode,
-            variance_weights=variance_weights
+            variance_weights=variance_weights,
+            active_bcs=current_active_bcs
         )
 
         # Controllo NaN
@@ -288,7 +295,7 @@ def train_ViscoelasticPINN(
             
         # Dynamic Weighting (Learning Rate Annealing style)
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
-            pure_bc = physics_problem.boundary_loss(model, xy_bc, T_bc)
+            pure_bc = physics_problem.boundary_loss(model, xy_bc, T_bc_tuple, active_bcs=current_active_bcs)
             grads_bc = torch.autograd.grad(pure_bc, trainable_params, retain_graph=True, allow_unused=True)
             max_norm_bc = max([g.norm(2) for g in grads_bc if g is not None]).item() if any(g is not None for g in grads_bc) else 0.0
             
@@ -394,6 +401,7 @@ def train_ViscoelasticPINN(
         print(f"\n  [Staged Training] Fase 3: Raffinamento L-BFGS (tutto sbloccato)")
         set_model_trainable(model, ['psi', 'p', 'tau'])
         physics_problem.pde_weights = base_pde_weights
+        current_active_bcs = None
     
     # Ripristino Full-Batch per L-BFGS
     if lambda_data > 0 and lambda_physics > 0:
@@ -412,7 +420,10 @@ def train_ViscoelasticPINN(
         xy_int      = xy_int.double()
         T_int       = T_int.double()
         xy_bc       = xy_bc.double()
-        T_bc        = T_bc.double()
+        dir_bc_d    = dir_bc.double()
+        neu_bc_d    = neu_bc.double()
+        norm_bc_d   = norm_bc.double()
+        T_bc_tuple  = (dir_bc_d, neu_bc_d, norm_bc_d)
         if xy_physics_full is not None:
             xy_physics_full = xy_physics_full.detach().double().requires_grad_(True)
         xy_grid     = xy_grid.double()
@@ -439,14 +450,15 @@ def train_ViscoelasticPINN(
     # Kwargs condivisi per compute_pinn_loss (evita duplicazione tra closure e final check)
     loss_kwargs = {
         'x_data': xy_int, 'y_data': T_int,
-        'x_bc': xy_bc, 'y_bc': T_bc,
+        'x_bc': xy_bc, 'y_bc': T_bc_tuple,
         'physics_problem': physics_problem,
         'x_physics': xy_physics_full,
         'lambda_data': lambda_data,
         'lambda_bc': lambda_bc,
         'lambda_physics': target_lambda_physics,
         'mode': mode,
-        'variance_weights': variance_weights
+        'variance_weights': variance_weights,
+        'active_bcs': current_active_bcs
     }
     
     for current_lr in [1.0, 0.5]:

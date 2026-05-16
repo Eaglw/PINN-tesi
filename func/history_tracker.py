@@ -309,7 +309,8 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
     if physics_problem is not None and x_bc is not None and y_bc is not None and x_bc.numel() > 0:
         # Passiamo variance_weights se siamo in semi_inverse per normalizzare u, v, p, tau individualmente
         v_weights = variance_weights if mode == 'semi_inverse' else None
-        bc_loss_val = physics_problem.boundary_loss(model, x_bc, y_bc, variance_weights=v_weights)
+        active_bcs = kwargs.get('active_bcs', None)
+        bc_loss_val = physics_problem.boundary_loss(model, x_bc, y_bc, variance_weights=v_weights, active_bcs=active_bcs)
         loss_dict['bc_loss'] = bc_loss_val
         total_loss += lambda_bc * bc_loss_val
     elif x_bc is not None and y_bc is not None and x_bc.numel() > 0:

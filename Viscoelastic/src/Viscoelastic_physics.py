@@ -144,76 +144,93 @@ class ViscoelasticPhysics(nn.Module):
         loss_txy = self.mse_loss(f_tau_xy, zeros)
         return w_m * (loss_u + loss_v) + w_c * (loss_txx + loss_tyy + loss_txy)
 
-    def boundary_loss(self, model, x_bc, target_bc, variance_weights=None):
+    def boundary_loss(self, model, x_bc, target_bc, variance_weights=None, active_bcs=None):
         """
         Calcola la MSE loss sui boundary points, ignorando i valori NaN.
-        Il target_bc deve contenere: [u, v, p, tau_xx, tau_xy, tau_yy].
+        Supporta condizioni di Dirichlet e Neumann e maschera i campi inattivi.
         """
         if not x_bc.requires_grad:
             x_bc.requires_grad_(True)
             
         u, v, p, tau = self.get_velocity(model, x_bc)
-        # Unifichiamo le predizioni in un unico tensore [u, v, p, txx, txy, tyy]
         pred_bc = torch.cat([u, v, p, tau], dim=1)
         
-        mask = ~torch.isnan(target_bc)
-        if variance_weights is not None:
-            v_u = max(variance_weights.get('u', 1.0), 1e-8)
-            v_v = max(variance_weights.get('v', 1.0), 1e-8)
-            v_p = max(variance_weights.get('p', 1.0), 1e-8)
-            v_txx = max(variance_weights.get('txx', 1.0), 1e-8)
-            v_txy = max(variance_weights.get('txy', 1.0), 1e-8)
-            v_tyy = max(variance_weights.get('tyy', 1.0), 1e-8)
-            
-            scales = torch.tensor([v_u, v_v, v_p, v_txx, v_txy, v_tyy], device=x_bc.device)
-            
-            # Sicurezza contro NaN gradient gotcha in PyTorch (0 * NaN = NaN nel backward)
-            target_safe = torch.nan_to_num(target_bc, nan=0.0)
-            diff = pred_bc - target_safe
-            squared_diff = (diff ** 2) / scales
-            return squared_diff[mask].mean()
+        dir_target, neu_target, normals = target_bc
+        keys = ['u', 'v', 'p', 'txx', 'txy', 'tyy']
+        
+        if active_bcs is not None:
+            active_mask = torch.tensor([k in active_bcs for k in keys], device=x_bc.device)
         else:
-            # Anche qui è prudente sostituire i NaN
-            target_safe = torch.nan_to_num(target_bc, nan=0.0)
-            diff = pred_bc - target_safe
-            return (diff ** 2)[mask].mean()
+            active_mask = torch.ones(6, dtype=torch.bool, device=x_bc.device)
+            
+        total_bc_loss = 0.0
+        
+        # --- Dirichlet Loss ---
+        valid_dir = ~torch.isnan(dir_target) & active_mask
+        if valid_dir.any():
+            diff_dir = pred_bc - torch.nan_to_num(dir_target, nan=0.0)
+            sq_diff_dir = diff_dir ** 2
+            
+            if variance_weights is not None:
+                v_w = [max(variance_weights.get(k, 1.0), 1e-8) for k in keys]
+                scales = torch.tensor(v_w, device=x_bc.device)
+                sq_diff_dir = sq_diff_dir / scales
+                
+            total_bc_loss += sq_diff_dir[valid_dir].mean()
+            
+        # --- Neumann Loss ---
+        valid_neu = ~torch.isnan(neu_target) & active_mask
+        if valid_neu.any():
+            nx = normals[:, 0:1]
+            ny = normals[:, 1:2]
+            preds = [u, v, p, tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]]
+            
+            if variance_weights is not None:
+                v_w = [max(variance_weights.get(k, 1.0), 1e-8) for k in keys]
+                scales = torch.tensor(v_w, device=x_bc.device)
+            
+            for i, pred in enumerate(preds):
+                if valid_neu[:, i].any():
+                    grad_pred = torch.autograd.grad(pred.sum(), x_bc, create_graph=True)[0]
+                    normal_deriv = grad_pred[:, 0:1] * nx + grad_pred[:, 1:2] * ny
+                    
+                    target_i = neu_target[:, i:i+1]
+                    mask_i = valid_neu[:, i:i+1]
+                    
+                    diff_neu = normal_deriv - torch.nan_to_num(target_i, nan=0.0)
+                    sq_diff_neu = diff_neu ** 2
+                    
+                    if variance_weights is not None:
+                        sq_diff_neu = sq_diff_neu / scales[i]
+                        
+                    total_bc_loss += sq_diff_neu[mask_i].mean()
+                    
+        return total_bc_loss
 
 def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, device):
     """
     Genera le condizioni al contorno per il dominio rettangolare.
-    Include: u, v, p, tau_xx, tau_xy, tau_yy.
-    I target non forniti vengono impostati a NaN.
-    Tutti i tensori vengono creati direttamente sul device di destinazione.
+    Ritorna 4 tensori: xy_boundary, dirichlet_target, neumann_target, normals
     """
-    xy_boundary_list = []
-    target_boundary_list = []
-    
-    # 1. Bottom & Top (Wall) -> No-slip + Stress analitici
+    # 1. Bottom & Top (Wall) -> No-slip (Dirichlet), Neumann per Pressione e Stress
     x_wall = torch.linspace(0, Lx, Nx, device=device).reshape(-1, 1)
     y_wall_bottom = torch.zeros_like(x_wall)
     y_wall_top = torch.full_like(x_wall, Ly)
     
-    # Estraggo gli stress analitici alle pareti (se disponibili nel dict)
-    txx_exact = stress_exact_dict.get('tau_xx', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
-    txy_exact = stress_exact_dict.get('tau_xy', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
-    tyy_exact = stress_exact_dict.get('tau_yy', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
-
-    # Nota: y=0 è riga 0, y=Ly è riga Ny-1
-    txx_bottom = txx_exact[0, :].reshape(-1, 1)
-    txx_top    = txx_exact[-1, :].reshape(-1, 1)
-    txy_bottom = txy_exact[0, :].reshape(-1, 1)
-    txy_top    = txy_exact[-1, :].reshape(-1, 1)
-    tyy_bottom = tyy_exact[0, :].reshape(-1, 1)
-    tyy_top    = tyy_exact[-1, :].reshape(-1, 1)
-
+    n_bottom = torch.tensor([[0.0, -1.0]], device=device).expand(Nx, 2)
+    n_top    = torch.tensor([[0.0, 1.0]], device=device).expand(Nx, 2)
+    
     u_wall = torch.zeros_like(x_wall)
     v_wall = torch.zeros_like(x_wall)
-    nan_p  = torch.full_like(u_wall, float('nan'))
+    nan_val  = torch.full_like(u_wall, float('nan'))
+    zero_val = torch.zeros_like(u_wall)
 
-    wall_bottom_target = torch.cat([u_wall, v_wall, nan_p, txx_bottom, txy_bottom, tyy_bottom], dim=1)
-    wall_top_target    = torch.cat([u_wall, v_wall, nan_p, txx_top, txy_top, tyy_top], dim=1)
+    # Dirichlet: u, v = 0. Altri NaN
+    wall_dirichlet = torch.cat([u_wall, v_wall, nan_val, nan_val, nan_val, nan_val], dim=1)
+    # Neumann: p, tau_xx, tau_xy, tau_yy = 0. u, v = NaN
+    wall_neumann = torch.cat([nan_val, nan_val, zero_val, zero_val, zero_val, zero_val], dim=1)
     
-    # 2. Inlet/Outlet -> Velocità Parabolica + Pressione + Stress
+    # 2. Inlet/Outlet
     y_inout = torch.linspace(0, Ly, Ny, device=device).reshape(-1, 1)
     u_parabolic = 4 * u_max * (y_inout * (Ly - y_inout)) / (Ly**2)
     v_zero = torch.zeros_like(y_inout)
@@ -221,24 +238,29 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     x_inlet = torch.zeros_like(y_inout)
     x_outlet = torch.full_like(y_inout, Lx)
     
-    p_inlet  = p_exact.reshape(Ny, Nx)[:, 0].reshape(-1, 1).to(device)
+    n_inlet  = torch.tensor([[-1.0, 0.0]], device=device).expand(Ny, 2)
+    n_outlet = torch.tensor([[1.0, 0.0]], device=device).expand(Ny, 2)
+    
+    # Exact values for Dirichlet
     p_outlet = p_exact.reshape(Ny, Nx)[:, -1].reshape(-1, 1).to(device)
     
-    # Stress Inlet/Outlet
+    txx_exact = stress_exact_dict.get('tau_xx', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
+    txy_exact = stress_exact_dict.get('tau_xy', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
+    tyy_exact = stress_exact_dict.get('tau_yy', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
+    
     txx_inlet  = txx_exact[:, 0].reshape(-1, 1)
     txy_inlet  = txy_exact[:, 0].reshape(-1, 1)
     tyy_inlet  = tyy_exact[:, 0].reshape(-1, 1)
-    txx_outlet = txx_exact[:, -1].reshape(-1, 1)
-    txy_outlet = txy_exact[:, -1].reshape(-1, 1)
-    tyy_outlet = tyy_exact[:, -1].reshape(-1, 1)
-
-    inlet_target = torch.cat([u_parabolic, v_zero, p_inlet, txx_inlet, txy_inlet, tyy_inlet], dim=1)
-    outlet_target = torch.cat([
-        torch.full_like(v_zero, float('nan')),  # u libera
-        torch.full_like(v_zero, float('nan')),  # v libera
-        p_outlet,
-        txx_outlet, txy_outlet, tyy_outlet
-    ], dim=1)
+    
+    # Inlet Dirichlet: u=parabolico, v=0, tau=exact. p=NaN
+    inlet_dirichlet = torch.cat([u_parabolic, v_zero, nan_val[:Ny], txx_inlet, txy_inlet, tyy_inlet], dim=1)
+    # Inlet Neumann: p=0. u,v,tau=NaN
+    inlet_neumann   = torch.cat([nan_val[:Ny], nan_val[:Ny], zero_val[:Ny], nan_val[:Ny], nan_val[:Ny], nan_val[:Ny]], dim=1)
+    
+    # Outlet Dirichlet: p=p_exact. u,v,tau=NaN
+    outlet_dirichlet = torch.cat([nan_val[:Ny], nan_val[:Ny], p_outlet, nan_val[:Ny], nan_val[:Ny], nan_val[:Ny]], dim=1)
+    # Outlet Neumann: tau=0. u,v,p=NaN
+    outlet_neumann   = torch.cat([nan_val[:Ny], nan_val[:Ny], nan_val[:Ny], zero_val[:Ny], zero_val[:Ny], zero_val[:Ny]], dim=1)
     
     xy_boundary = torch.cat([
         torch.cat([x_wall, y_wall_bottom], dim=1),
@@ -247,11 +269,8 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
         torch.cat([x_outlet, y_inout], dim=1)
     ], dim=0)
 
-    target_boundary = torch.cat([
-        wall_bottom_target,
-        wall_top_target,
-        inlet_target,
-        outlet_target
-    ], dim=0)
+    dirichlet_boundary = torch.cat([wall_dirichlet, wall_dirichlet, inlet_dirichlet, outlet_dirichlet], dim=0)
+    neumann_boundary   = torch.cat([wall_neumann, wall_neumann, inlet_neumann, outlet_neumann], dim=0)
+    normals_boundary   = torch.cat([n_bottom, n_top, n_inlet, n_outlet], dim=0)
     
-    return xy_boundary, target_boundary
+    return xy_boundary, dirichlet_boundary, neumann_boundary, normals_boundary

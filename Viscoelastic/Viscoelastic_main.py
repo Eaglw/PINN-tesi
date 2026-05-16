@@ -44,7 +44,7 @@ GOAL_CONFIGS = {
 
 # --- Architecture (Grid Search) ---
 LAYERS_OPTIONS = [[2, 120, 100, 80, 60, 40, 20, 1]] #VENet 8x128
-EPOCHS_OPTIONS = [5000]
+EPOCHS_OPTIONS = [100]
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']
@@ -162,7 +162,7 @@ print(f"Variances for normalization: u={sigma2_u:.2e}, v={sigma2_v:.2e}, p={sigm
 VAR_WEIGHTS = {'u': sigma2_u, 'v': sigma2_v, 'p': sigma2_p, 'txx': sigma2_txx, 'txy': sigma2_txy, 'tyy': sigma2_tyy}
 
 # --- BOUNDARY CONDITIONS ---
-xy_master_boundary, uvp_master_boundary = generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_grids, Nx_dom, Ny_dom, device)
+xy_master_boundary, dir_master_boundary, neu_master_boundary, norm_master_boundary = generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_grids, Nx_dom, Ny_dom, device)
 
 # --- Data Subset ---
 torch.manual_seed(42)
@@ -176,7 +176,9 @@ xy_pinn_data = xy_pinn_data.to(initial_dtype)
 psip_pinn_data = psip_pinn_data.to(initial_dtype)
 uv_pinn_data = uv_pinn_data.to(initial_dtype)
 xy_master_boundary = xy_master_boundary.to(initial_dtype)
-uvp_master_boundary = uvp_master_boundary.to(initial_dtype)
+dir_master_boundary = dir_master_boundary.to(initial_dtype)
+neu_master_boundary = neu_master_boundary.to(initial_dtype)
+norm_master_boundary = norm_master_boundary.to(initial_dtype)
 
 
 # ╔══════════════════════════════════════════════════╗
@@ -252,7 +254,7 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
             pinn_data_internal_fresh = (xy_pinn_data, psip_pinn_data)
             var_weights = None
 
-        pinn_data_boundary_fresh = (xy_master_boundary, uvp_master_boundary)
+        pinn_data_boundary_fresh = (xy_master_boundary, dir_master_boundary, neu_master_boundary, norm_master_boundary)
         
         # Costruzione modello
         layers_psi = layers_config[:-1] + [1]
