@@ -47,6 +47,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 
 
 ## Technical Methods
+- [[FCN]]: Fully Connected Network
 - [[Tapered_Architectures]]: Funnel-style networks
 - [[Dynamic_Weighting]]: Learning rate annealing for loss balance
 - [[Staged_Precision_Strategy]]: Hybrid FP32/FP64 training
@@ -63,4 +64,5 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[CSTR_Modeling]]: Non-isothermal reactor analysis
 - [[Heat2D_Analysis]]: 2D Heat Transfer (Laplace) optimization
 - [[Harmonic_Oscillator]]: Benchmark system for oscillatory dynamics
-- [[Viscoelastic_Fluids]]: Non-Newtonian stress discovery
+- [[Viscoelastic_Fluids]]: Non-Newtonian stress discovery (Physics & Benchmark)
+- [[Viscoelastic_Training]]: Viscoelastic PINN Training & Architecture (Experiment Guide)

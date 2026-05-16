@@ -46,6 +46,9 @@ The project includes a synthetic dataset generator (`generate_dataset.py`) for s
     - $\tau_{yy} = 0$
 - **Purpose**: Used to validate the PINN's ability to reconstruct the stress field from sparse velocity measurements (Inverse Problem).
 
+## Training Implementation & Debugging
+For the complete technical specification of the neural network architectures, staged training orchestration, and boundary condition deduplication (geometric slicing), refer to the dedicated experiment guide: [[Viscoelastic_Training]].
+
 ## Challenges
 - **Numerical Instability**: High Weissenberg numbers and sharp stress gradients near corners are difficult for global networks to capture.
 - **Data Sparsity**: While robust, the model requires sufficient spatio-temporal resolution (e.g., ~50,000 points) to learn complex viscosity parameters accurately.
@@ -53,3 +56,4 @@ The project includes a synthetic dataset generator (`generate_dataset.py`) for s
 ## Related
 - **Literature**: [[Thakur_et_al_ViscoelasticNet]], [[Oldroyd_B_Model]], [[Viscoelasticity_Theory]], [[Note_05_Academic_Context]]
 - **Topics**: [[Viscoelasticity]], [[Fluid_Dynamics]], [[Inverse_Problems]]
+- **Systems/Experiments**: [[Viscoelastic_Training]]
