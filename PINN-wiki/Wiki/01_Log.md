@@ -85,3 +85,8 @@
 - Chiarito il ruolo teorico e pratico della normalizzazione con la varianza ($\sigma^2$) rispetto alla ponderazione delle loss (Dynamic Weighting).
 - Spiegata l'equalizzazione dimensionale e intra-loss (frazione di varianza non spiegata $1-R^2$) per i termini di confronto diretto (`data_loss`, `bc_loss`).
 - Inserita la tabella dettagliata di scomposizione per ogni fase di addestramento (Fase 1, Fase 2, Fase 3 / L-BFGS) per il Goal 1 (Phys+Data) in `Wiki/Systems/Viscoelastic_Training.md`.
+
+## [2026-05-16] update | Spiegazione Architetturale Loss sui Contorni (Orchestrator vs Delegation)
+- Chiarito il pattern architetturale di Strategy/Delegation che lega `compute_pinn_loss` in `func/history_tracker.py` (l'orchestratore generico) e `ViscoelasticPhysics.boundary_loss` in `Viscoelastic_physics.py` (l'implementazione fisica specializzata).
+- Documentati i motivi fisici e matematici per cui il dominio viscoelastico richiede una logica dedicata al contorno (calcolo di $u,v$ da $\psi$, condizioni miste Dirichlet/Neumann, mascheramento `NaN`, filtraggio per `active_bcs` e normalizzazione della varianza).
+- Aggiunta la sezione di specifica architetturale con diagramma Mermaid e snippet di interazione del codice in `Wiki/Systems/Viscoelastic_Training.md`.

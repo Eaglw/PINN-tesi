@@ -22,8 +22,8 @@ To overcome the severe gradient competition between smooth kinematic variables a
 
 ```mermaid
 graph TD
-    A[Phase 1: Kinematics & Rheology<br>Adam FP32 - 50% Epochs<br>Active: psi, tau | Frozen: p<br>BCs: u, v, txx, txy, tyy] --> B[Phase 2: Dynamics<br>Adam FP32 - 50% Epochs<br>Active: psi, p | Frozen: tau<br>BCs: u, v, p]
-    B --> C[Phase 3: Full Coupled Refinement<br>L-BFGS FP64<br>Active: All psi, p, tau<br>BCs: All 6 fields]
+    A[Phase 1: Kinematics & Rheology<br>Adam FP32 - 50% Epochs<br>Active: psi, tau, mu_p, lam | Frozen: p, mu_s<br>BCs: u, v, txx, txy, tyy] --> B[Phase 2: Dynamics<br>Adam FP32 - 50% Epochs<br>Active: psi, p, mu_s | Frozen: tau, mu_p, lam<br>BCs: u, v, p]
+    B --> C[Phase 3: Full Coupled Refinement<br>L-BFGS FP64<br>Active: All psi, p, tau, mu_s, mu_p, lam<br>BCs: All 6 fields]
 ```
 
 ### Phase 1: Kinematics & Rheology (Adam - First 50% Epochs)
@@ -31,6 +31,7 @@ graph TD
 - **Frozen Networks**: `model_p`
 - **Active PDE Losses**: `constitutive` (Oldroyd-B ON), `momentum: 0.0` (Navier-Stokes OFF).
 - **Active Boundary Conditions**: `current_active_bcs = ['u', 'v', 'txx', 'txy', 'tyy']` (Pressure BCs excluded).
+- **Inverse Problem (Physical Parameters)**: Active training of rheological parameters $\mu_p$ (polymer viscosity) and $\lambda$ (relaxation time) alongside the stress network. $\mu_s$ (solvent viscosity) is frozen.
 - **Physical Objective**: Learn the stream function $\psi$ (velocity profile) from boundary/internal data while simultaneously discovering the corresponding polymeric stress field $\boldsymbol{\tau}$ via the Oldroyd-B constitutive laws, completely isolated from pressure fluctuations.
 
 ### Phase 2: Dynamics (Adam - Second 50% Epochs)
@@ -38,12 +39,14 @@ graph TD
 - **Frozen Networks**: `model_tau`
 - **Active PDE Losses**: `momentum` ON, `constitutive` ON (All PDEs active).
 - **Active Boundary Conditions**: `current_active_bcs = ['u', 'v', 'p']` (Stress BCs excluded).
+- **Inverse Problem (Physical Parameters)**: Active training of dynamic parameter $\mu_s$ (solvent viscosity) alongside the pressure network. Rheological parameters $\mu_p$ and $\lambda$ are frozen to prevent distortion against the frozen stress network.
 - **Physical Objective**: Freeze the discovered stress field and learn the pressure distribution $p(x,y)$ required to balance the Navier-Stokes momentum equations.
 
 ### Phase 3: Full Coupled Refinement (L-BFGS)
 - **Active Networks**: **All Networks** (`psi`, `p`, `tau` fully unfrozen).
 - **Precision Mode**: Switches to **FP64** (`torch.float64`) for scientific-grade precision (see [[Staged_Precision_Strategy]]).
 - **Active PDE & BCs**: All PDE residuals and all 6 boundary conditions (`u, v, p, txx, txy, tyy`) are active (`current_active_bcs = None`).
+- **Inverse Problem (Physical Parameters)**: All 3 physical parameters ($\mu_s, \mu_p, \lambda$) are fully unfrozen for joint high-precision refinement.
 - **Physical Objective**: Perform joint full-batch optimization using L-BFGS (`max_iters=100`) to achieve global physical consistency across all coupled equations.
 
 ## Boundary Conditions & Exact Geometric Slicing (Debugging Guide)
@@ -69,6 +72,50 @@ y_outlet = torch.linspace(0, Ly, Ny)[1:-1]
 - **Exact Perimeter Count**: The total boundary points generated match the exact discrete perimeter of an $N_x \times N_y$ grid:
   $$N_{\text{boundary}} = N_y + 2(N_x - 1) + (N_y - 2) = 2N_x + 2N_y - 4$$
   Every boundary point appears exactly once, ensuring perfectly balanced stochastic mini-batch sampling and eliminating gradient fighting.
+
+### 3. Boundary Loss Architectural Design (Orchestrator vs. Domain Delegation)
+A common architectural question when inspecting the codebase is why boundary loss computation appears in both the shared utility `func/history_tracker.py` (`compute_pinn_loss`) and the domain-specific physics module `Viscoelastic/src/Viscoelastic_physics.py` (`boundary_loss`). **This is not a duplication**, but a deliberate implementation of the **Strategy/Delegation Pattern** separating high-level training orchestration from domain-specific physical constraints.
+
+```mermaid
+graph TD
+    A[compute_pinn_loss<br>func/history_tracker.py<br>Generic Orchestrator] -->|Checks if physics_problem has boundary_loss| B{physics_problem<br>provided?}
+    B -->|YES: Delegates Domain BCs| C[ViscoelasticPhysics.boundary_loss<br>Specialized Physical Logic]
+    B -->|NO: Fallback| D[Standard MSE Loss<br>Generic Regression BC]
+    C -->|Returns Pure BC MSE| E[Multiplies by lambda_bc & logs to loss_dict]
+    D -->|Returns Pure BC MSE| E
+```
+
+#### The Orchestrator (`compute_pinn_loss`)
+Located in `func/history_tracker.py`, `compute_pinn_loss` functions as a generic, project-wide loss aggregator designed to support any PINN experiment (Viscoelastic, Harmonic Oscillator, CSTR, Heat2D). Its responsibilities are strictly limited to **orchestration and weighting**:
+- Accepting sampled batches (internal data, boundary points, collocation points).
+- Multiplying individual raw loss components by their assigned scalar weights ($\lambda_{\text{data}}, \lambda_{\text{bc}}, \lambda_{\text{pde}}$).
+- Summing terms into `total_loss` and packaging raw values into `loss_dict` for tracking and logging.
+
+#### The Domain-Specific Implementation (`ViscoelasticPhysics.boundary_loss`)
+While simple PINN problems evaluate boundary error via a standard Mean Squared Error against model outputs (`mse_loss(model(x_bc), y_bc)`), viscoelastic fluid dynamics entails highly complex, coupled boundary phenomena. `ViscoelasticPhysics.boundary_loss` encapsulates this specialized physical logic:
+1. **Stream Function Kinematics**: The neural network predicts $(\psi, p, \boldsymbol{\tau})$. Evaluating boundary velocity targets $(u,v)$ requires differentiating the stream function $\psi$ with respect to spatial coordinates ($u = \partial\psi/\partial y, v = -\partial\psi/\partial x$) via `get_velocity()`.
+2. **Mixed Boundary Conditions**: The system enforces heterogeneous constraints across boundaries—Dirichlet conditions on velocity and stress at the inlet; No-Slip (Dirichlet) and Neumann conditions at the walls; Dirichlet pressure and Neumann conditions at the outlet. The method explicitly evaluates normal gradients ($\nabla \cdot \mathbf{n}$) for Neumann constraints.
+3. **`NaN` Target Masking**: Boundary target tensors use `NaN` values to indicate inactive degrees of freedom (e.g., pressure at the inlet or velocity at the outlet). `boundary_loss` implements boolean masking (`~torch.isnan`) to restrict MSE evaluation exclusively to active physical constraints.
+4. **Staged Training Filtering (`active_bcs`)**: During Phase 1 of staged training, pressure is frozen and excluded from boundary evaluation. The method accepts an `active_bcs` list to dynamically mask out inactive field components.
+5. **Variance Normalization (`variance_weights`)**: To equalize dimensional disparities across pressure, velocity, and stress, the method divides squared errors by their respective target variances.
+
+#### Code Interaction Workflow
+The delegation mechanism executes dynamically inside `compute_pinn_loss`:
+```python
+if physics_problem is not None and x_bc is not None and y_bc is not None and x_bc.numel() > 0:
+    # 1. DELEGATION: physics_problem encapsulates domain knowledge
+    v_weights = variance_weights if mode == 'semi_inverse' else None
+    active_bcs = kwargs.get('active_bcs', None)
+    bc_loss_val = physics_problem.boundary_loss(model, x_bc, y_bc, variance_weights=v_weights, active_bcs=active_bcs)
+    loss_dict['bc_loss'] = bc_loss_val
+    total_loss += lambda_bc * bc_loss_val
+elif x_bc is not None and y_bc is not None and x_bc.numel() > 0:
+    # 2. GENERIC FALLBACK: Standard MSE for simple problems without a physics_problem
+    bc_loss_val = mse_loss(model(x_bc), y_bc)
+    loss_dict['bc_loss'] = bc_loss_val
+    total_loss += lambda_bc * bc_loss_val
+```
+This separation of concerns ensures that `compute_pinn_loss` manages *when and how much to weight*, while `ViscoelasticPhysics` dictates *how to physically compute* the boundary residuals.
 
 ## Training Configurations & Hyperparameters
 The pipeline supports automated grid search across architectures, epochs, and learning rate strategies, orchestrating three primary training goals:
