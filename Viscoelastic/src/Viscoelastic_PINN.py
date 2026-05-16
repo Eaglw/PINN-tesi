@@ -189,11 +189,21 @@ def train_ViscoelasticPINN(
             param.requires_grad_(False)
         physics_problem.pde_weights = {'momentum': 0.0, 'constitutive': base_pde_weights.get('constitutive', 1.0)}
         current_active_bcs = ['u', 'v', 'txx', 'txy', 'tyy']
+        
+        # Gestione parametri fisici: in Fase 1 addestriamo solo mu_p e lam (Reologia), mu_s fermo.
+        if getattr(physics_problem, 'inverse_mode', False):
+            physics_problem.mu_s.requires_grad_(False)
+            physics_problem.mu_p.requires_grad_(True)
+            physics_problem.lam.requires_grad_(True)
+            print("  [Inverse Phase 1] mu_p e lam sbloccati (Reologia), mu_s congelato.")
+            
         trainable_params = [p for p in model.parameters() if p.requires_grad]
+        trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
         optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
     else:
         set_model_trainable(model, ['psi', 'p', 'tau'])
         trainable_params = list(model.parameters())
+        trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
         optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
 
     xy_int, T_int = data_internal
@@ -240,7 +250,15 @@ def train_ViscoelasticPINN(
             set_model_trainable(model, ['psi', 'p'])
             physics_problem.pde_weights = base_pde_weights
             current_active_bcs = ['u', 'v', 'p']
+            
+            if getattr(physics_problem, 'inverse_mode', False):
+                physics_problem.mu_s.requires_grad_(True)
+                physics_problem.mu_p.requires_grad_(False)
+                physics_problem.lam.requires_grad_(False)
+                print("  [Inverse Phase 2] mu_s sbloccato (Dinamica), mu_p e lam congelati.")
+                
             trainable_params = [p for p in model.parameters() if p.requires_grad]
+            trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
             optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
             scheduler = _get_scheduler(optimizer, lr_strategy, epochs - half_epochs)
 
@@ -327,6 +345,14 @@ def train_ViscoelasticPINN(
         current_lr = optimizer.param_groups[0]['lr']
         history_entry = loss_dict.copy()
         history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': lambda_physics})
+        
+        # Tracking inverse parameters
+        if getattr(physics_problem, 'inverse_mode', False):
+            history_entry.update({
+                'param_etas': physics_problem.mu_s.item() if isinstance(physics_problem.mu_s, torch.Tensor) else physics_problem.mu_s,
+                'param_etap': physics_problem.mu_p.item() if isinstance(physics_problem.mu_p, torch.Tensor) else physics_problem.mu_p,
+                'param_lam': physics_problem.lam.item() if isinstance(physics_problem.lam, torch.Tensor) else physics_problem.lam
+            })
 
         if cfg.log_gradients_every > 0 and (epoch + 1) % cfg.log_gradients_every == 0:
             grad_norms = {}
@@ -402,6 +428,11 @@ def train_ViscoelasticPINN(
         set_model_trainable(model, ['psi', 'p', 'tau'])
         physics_problem.pde_weights = base_pde_weights
         current_active_bcs = None
+        if getattr(physics_problem, 'inverse_mode', False):
+            physics_problem.mu_s.requires_grad_(True)
+            physics_problem.mu_p.requires_grad_(True)
+            physics_problem.lam.requires_grad_(True)
+            print("  [Inverse L-BFGS] Tutti i parametri fisici sbloccati per il raffinamento finale.")
     
     # Ripristino Full-Batch per L-BFGS
     if lambda_data > 0 and lambda_physics > 0:
@@ -417,6 +448,7 @@ def train_ViscoelasticPINN(
         torch.set_default_dtype(torch.float64)
         torch.backends.cuda.matmul.allow_tf32 = False
         model.double()
+        physics_problem.double()
         xy_int      = xy_int.double()
         T_int       = T_int.double()
         xy_bc       = xy_bc.double()
@@ -466,8 +498,9 @@ def train_ViscoelasticPINN(
         if remaining_evals <= 0:
             break
             
+        lbfgs_params = list(model.parameters()) + [p for p in physics_problem.parameters() if p.requires_grad]
         optimizer_lbfgs = torch.optim.LBFGS(
-            model.parameters(), 
+            lbfgs_params, 
             lr=current_lr, 
             max_iter=remaining_evals, 
             max_eval=remaining_evals * 5, 
@@ -485,6 +518,12 @@ def train_ViscoelasticPINN(
                 if lbfgs_iter[0] % 10 == 0: 
                     history_entry = loss_dict.copy()
                     history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
+                    if getattr(physics_problem, 'inverse_mode', False):
+                        history_entry.update({
+                            'param_etas': physics_problem.mu_s.item() if isinstance(physics_problem.mu_s, torch.Tensor) else physics_problem.mu_s,
+                            'param_etap': physics_problem.mu_p.item() if isinstance(physics_problem.mu_p, torch.Tensor) else physics_problem.mu_p,
+                            'param_lam': physics_problem.lam.item() if isinstance(physics_problem.lam, torch.Tensor) else physics_problem.lam
+                        })
                     loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=current_lr)
                 
                 lbfgs_iter[0] += 1

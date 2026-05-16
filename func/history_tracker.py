@@ -270,6 +270,54 @@ class TrainingHistory:
         if show_plot: plt.show()
         plt.close()
 
+    def plot_physical_parameters(self, true_etas, true_etap, true_lam, save_path=None, experiment_name="", show_plot=False):
+        has_params = any(k in self.losses for k in ['param_etas', 'param_etap', 'param_lam'])
+        if not has_params:
+            return
+
+        fig, axs = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+        fig.suptitle(f'Inverse Problem: Physical Parameters Evolution\n{experiment_name}', fontsize=16)
+
+        param_configs = [
+            {'key': 'param_etas', 'true_val': true_etas, 'ax_idx': 0, 'title': r'Solvent Viscosity ($\eta_s$)', 'color': 'b'},
+            {'key': 'param_etap', 'true_val': true_etap, 'ax_idx': 1, 'title': r'Polymer Viscosity ($\eta_p$)', 'color': 'g'},
+            {'key': 'param_lam', 'true_val': true_lam, 'ax_idx': 2, 'title': r'Relaxation Time ($\lambda$)', 'color': 'r'}
+        ]
+
+        for config in param_configs:
+            ax = axs[config['ax_idx']]
+            key = config['key']
+            true_val = config['true_val']
+            color = config['color']
+            title = config['title']
+
+            if key in self.losses:
+                values = self.losses[key]
+                clean_values = [v if v is not None else np.nan for v in values]
+                valid_indices = [i for i, v in enumerate(clean_values) if not np.isnan(v)]
+                
+                if valid_indices:
+                    epochs = [self.epochs[i] for i in valid_indices]
+                    vals = [clean_values[i] for i in valid_indices]
+                    
+                    ax.plot(epochs, vals, label='Learned Value', color=color, linewidth=2)
+            
+            # Plot the true value as a dashed line
+            ax.axhline(true_val, color='k', linestyle='--', linewidth=2, label='True Value')
+            ax.set_title(title)
+            ax.grid(True, ls="--", alpha=0.5)
+            ax.legend(loc='best', frameon=True)
+
+        axs[2].set_xlabel('Epoch/Iter')
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+        if save_path:
+            dir_name = os.path.dirname(save_path)
+            if dir_name: os.makedirs(dir_name, exist_ok=True)
+            plt.savefig(save_path, bbox_inches='tight')
+        if show_plot: plt.show()
+        plt.close()
+
 def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, mode='standard', variance_weights=None, **kwargs):
     """
     Computes the components of the PINN loss.

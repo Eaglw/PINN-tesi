@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class ViscoelasticPhysics(nn.Module):
-    def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0, rho=1.0, pde_weights=None):
+    def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0, rho=1.0, pde_weights=None, inverse_mode=False, real_mu_s=None, real_mu_p=None, real_lam=None):
         """
         Modulo per calcolare i residui fisici (equazioni di Navier-Stokes e modello Oldroyd-B).
         
@@ -14,9 +14,9 @@ class ViscoelasticPhysics(nn.Module):
             Se si passasse a output diretto (u, v), va aggiunta come residuo.
         
         Args:
-            mu_s: Viscosità del solvente [Pa·s]
-            mu_p: Viscosità polimerica [Pa·s]
-            lam: Tempo di rilassamento [s]
+            mu_s: Viscosità del solvente [Pa·s] (o guess iniziale per inverse problem)
+            mu_p: Viscosità polimerica [Pa·s] (o guess iniziale per inverse problem)
+            lam: Tempo di rilassamento [s] (o guess iniziale per inverse problem)
             rho: Densità del fluido [kg/m³]. Default=1.0 (adimensionale).
                  Se rho != 1, le equazioni del momento vengono scalate di conseguenza.
             pde_weights: Dict con pesi per le componenti PDE.
@@ -24,11 +24,26 @@ class ViscoelasticPhysics(nn.Module):
                 NOTA: Per Oldroyd-B i residui degli stress (tau_xx soprattutto)
                 hanno magnitudini strutturalmente diverse dai residui di momentum,
                 perché tau_xx scala come γ̇² (quadratico) mentre f_u scala come γ̇ (lineare).
+            inverse_mode: Se True, i parametri mu_s, mu_p, lam diventano addestrabili.
+            real_*: Valori reali usati per il plotting e la verifica in modalità inversa.
         """
         super().__init__()
-        self.mu_s = mu_s
-        self.mu_p = mu_p
-        self.lam = lam
+        self.inverse_mode = inverse_mode
+        if inverse_mode:
+            self.mu_s = nn.Parameter(torch.tensor([mu_s], dtype=torch.float32))
+            self.mu_p = nn.Parameter(torch.tensor([mu_p], dtype=torch.float32))
+            self.lam = nn.Parameter(torch.tensor([lam], dtype=torch.float32))
+            self.real_mu_s = real_mu_s if real_mu_s is not None else mu_s
+            self.real_mu_p = real_mu_p if real_mu_p is not None else mu_p
+            self.real_lam = real_lam if real_lam is not None else lam
+        else:
+            self.mu_s = mu_s
+            self.mu_p = mu_p
+            self.lam = lam
+            self.real_mu_s = mu_s
+            self.real_mu_p = mu_p
+            self.real_lam = lam
+            
         self.rho = rho
         self.mse_loss = nn.MSELoss()
         self.pde_weights = pde_weights or {'momentum': 10.0, 'constitutive': 1.0}

@@ -72,6 +72,12 @@ PDE_WEIGHTS = {'momentum': 10.0, 'constitutive': 1.0}
 NUM_DATA_SUBSET = 5000
 VARIANCE_EPS = 1.0  # Epsilon per varianze: 1.0 disabilita lo scaling aggressivo
 
+# --- Inverse Problem ---
+INVERSE_PROBLEM = True
+GUESS_MU_S = 0.004  # True is 0.005
+GUESS_MU_P = 0.004  # True is 0.005
+GUESS_LAM = 0.8     # True is 1.0
+
 # --- L-BFGS ---
 MAX_LBFGS_ITERS = 100
 
@@ -217,10 +223,21 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
     is_dynamic = (weight_mode == 'dynamic')
     current_weight_str = DYNAMIC_WEIGHT_STR if is_dynamic else STATIC_WEIGHT_STR
 
-    phys_problem = ViscoelasticPhysics(mu_s=mu_s, mu_p=mu_p, lam=lam, pde_weights=PDE_WEIGHTS)
-
     for goal in GOALS_TO_RUN:
         goal_cfg = GOAL_CONFIGS[goal]
+        
+        # Instantiate Physics Problem inside the loop so parameters reset for each goal
+        inv_mode = INVERSE_PROBLEM and goal != 2
+        phys_problem = ViscoelasticPhysics(
+            mu_s=GUESS_MU_S if inv_mode else mu_s, 
+            mu_p=GUESS_MU_P if inv_mode else mu_p, 
+            lam=GUESS_LAM if inv_mode else lam, 
+            pde_weights=PDE_WEIGHTS,
+            inverse_mode=inv_mode,
+            real_mu_s=mu_s,
+            real_mu_p=mu_p,
+            real_lam=lam
+        ).to(device).to(initial_dtype)
         label = goal_cfg['label']
         mode_param = goal_cfg['mode']
         current_w = dict(goal_cfg['weights'])
@@ -341,6 +358,15 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
             update_results_csv(RESULTS_CSV_PATH, log_data)
             histories[label] = history
             final_models[label] = model_combined
+            
+            if inv_mode:
+                history.plot_physical_parameters(
+                    true_etas=mu_s,
+                    true_etap=mu_p,
+                    true_lam=lam,
+                    save_path=os.path.join(exp_dir, 'VE_parameters_evolution.png'),
+                    experiment_name=f"Viscoelastic {label}"
+                )
         except Exception as e:
             print(f"  [X] Errore nel training {label}: {e}")
             import traceback
