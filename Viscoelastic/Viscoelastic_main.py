@@ -44,7 +44,7 @@ GOAL_CONFIGS = {
 
 # --- Architecture (Grid Search) ---
 LAYERS_OPTIONS = [[2, 120, 100, 80, 60, 40, 20, 1]] #VENet 8x128
-EPOCHS_OPTIONS = [100]
+EPOCHS_OPTIONS = [10000]
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']

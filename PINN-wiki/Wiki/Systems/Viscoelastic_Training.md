@@ -117,6 +117,18 @@ elif x_bc is not None and y_bc is not None and x_bc.numel() > 0:
 ```
 This separation of concerns ensures that `compute_pinn_loss` manages *when and how much to weight*, while `ViscoelasticPhysics` dictates *how to physically compute* the boundary residuals.
 
+### 4. Performance Pitfall: Neumann Boundary Conditions in SoloData Phase
+A critical performance regression was identified when comparing earlier codebase revisions against the current implementation: the training iteration speed during the `SoloData` phase (`goal == 2`) dropped from ~40 it/s to ~14 it/s.
+
+#### The Root Cause: Autograd Graph Construction for Neumann BCs
+1. **Historical Mechanism (Pure Dirichlet MSE)**: Before the boundary condition refactoring, `boundary_loss` evaluated a purely algebraic Mean Squared Error against Dirichlet targets (`pred_bc - target_safe`). In `SoloData` (`lambda_physics = 0.0`), the training loop executed only forward passes for data and boundary losses without invoking `torch.autograd.grad`. Without spatial derivative computations, PyTorch executed the loop at maximum speed (~40 it/s).
+2. **Current Mechanism (Active Neumann Gradients)**: The refactored `generate_boundaries` and `boundary_loss` methods enforce Neumann boundary conditions (normal derivatives $\frac{\partial}{\partial n}$) for pressure $p$ (inlet/walls) and stresses $\tau_{xx}, \tau_{xy}, \tau_{yy}$ (walls/outlet).
+   In `train_ViscoelasticPINN`, staged training is disabled for `SoloData`, setting `current_active_bcs = None`. When `active_bcs` is `None`, `boundary_loss` defaults to enabling all 6 field components.
+3. **Computational Overhead**: Consequently, for every single mini-batch in `SoloData`, `boundary_loss` enters the Neumann loss block and executes **4 separate calls to `torch.autograd.grad(pred.sum(), x_bc, create_graph=True)`** (one for $p$ and three for $\boldsymbol{\tau}$). Constructing and traversing the autograd graph four times per iteration to compute spatial derivatives introduces massive computational overhead, causing the observed drop to 14 it/s.
+
+#### Remediation Strategy
+If the `SoloData` phase is intended purely as a baseline regression fit on internal data without enforcing boundary derivatives, this overhead can be eliminated by passing an explicit `active_bcs` list (e.g., restricting to Dirichlet velocity components `['u', 'v']` or disabling Neumann evaluation entirely for `goal == 2`). This bypasses the autograd calls and immediately restores the iteration speed to 40 it/s.
+
 ## Training Configurations & Hyperparameters
 The pipeline supports automated grid search across architectures, epochs, and learning rate strategies, orchestrating three primary training goals:
 

@@ -90,3 +90,8 @@
 - Chiarito il pattern architetturale di Strategy/Delegation che lega `compute_pinn_loss` in `func/history_tracker.py` (l'orchestratore generico) e `ViscoelasticPhysics.boundary_loss` in `Viscoelastic_physics.py` (l'implementazione fisica specializzata).
 - Documentati i motivi fisici e matematici per cui il dominio viscoelastico richiede una logica dedicata al contorno (calcolo di $u,v$ da $\psi$, condizioni miste Dirichlet/Neumann, mascheramento `NaN`, filtraggio per `active_bcs` e normalizzazione della varianza).
 - Aggiunta la sezione di specifica architetturale con diagramma Mermaid e snippet di interazione del codice in `Wiki/Systems/Viscoelastic_Training.md`.
+
+## [2026-05-16] update | Analisi Performance SoloData (Neumann BCs Overhead)
+- Analizzata la regressione di performance da 40 it/s a 14 it/s nella fase `SoloData` (`goal == 2`).
+- Identificata la causa nel calcolo intensivo dei gradienti spaziali (`torch.autograd.grad(..., create_graph=True)`) per le 4 condizioni al contorno di Neumann attive ($p, \tau_{xx}, \tau_{xy}, \tau_{yy}$) in `ViscoelasticPhysics.boundary_loss` quando `active_bcs` è `None`.
+- Documentato il meccanismo architetturale e la strategia di risoluzione (passaggio di un `active_bcs` esplicito per bypassare l'autograd) in [[Viscoelastic_Training]].

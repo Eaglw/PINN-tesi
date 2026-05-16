@@ -253,8 +253,8 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     
     # Inlet Dirichlet: u=parabolico, v=0, tau=exact. p=NaN
     inlet_dirichlet = torch.cat([u_inlet, v_inlet, nan_inlet, txx_inlet, txy_inlet, tyy_inlet], dim=1)
-    # Inlet Neumann: p=0. u,v,tau=NaN
-    inlet_neumann   = torch.cat([nan_inlet, nan_inlet, zero_inlet, nan_inlet, nan_inlet, nan_inlet], dim=1)
+    # Inlet Neumann: tutto NaN per evitare di forzare dp/dx = 0
+    inlet_neumann   = torch.cat([nan_inlet, nan_inlet, nan_inlet, nan_inlet, nan_inlet, nan_inlet], dim=1)
     
     # --- 2. WALL BOTTOM & TOP (x in (0, Lx], y=0 e y=Ly) -> Nx-1 punti ciascuno ---
     x_wall_full = torch.linspace(0, Lx, Nx, device=device).reshape(-1, 1)
@@ -273,7 +273,8 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     zero_wall = torch.zeros_like(u_wall)
     
     wall_dirichlet = torch.cat([u_wall, v_wall, nan_wall, nan_wall, nan_wall, nan_wall], dim=1)
-    wall_neumann   = torch.cat([nan_wall, nan_wall, zero_wall, zero_wall, zero_wall, zero_wall], dim=1)
+    # Wall Neumann: solo p=0 (p_y=0). txx, txy, tyy sono NaN perché derivate non nulle.
+    wall_neumann   = torch.cat([nan_wall, nan_wall, zero_wall, nan_wall, nan_wall, nan_wall], dim=1)
     
     # --- 3. OUTLET (x=Lx, y in (0, Ly)) -> Ny-2 punti ---
     y_outlet_full = torch.linspace(0, Ly, Ny, device=device).reshape(-1, 1)
@@ -290,7 +291,8 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     zero_outlet = torch.zeros_like(y_outlet)
     
     outlet_dirichlet = torch.cat([nan_outlet, nan_outlet, p_outlet, nan_outlet, nan_outlet, nan_outlet], dim=1)
-    outlet_neumann   = torch.cat([nan_outlet, nan_outlet, nan_outlet, zero_outlet, zero_outlet, zero_outlet], dim=1)
+    # Outlet Neumann: rimuoviamo restrizioni su stress per non over-constrainare.
+    outlet_neumann   = torch.cat([nan_outlet, nan_outlet, nan_outlet, nan_outlet, nan_outlet, nan_outlet], dim=1)
     
     # --- 4. CONCATENAZIONE FINALE ---
     xy_boundary = torch.cat([
