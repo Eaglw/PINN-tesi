@@ -211,66 +211,82 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     """
     Genera le condizioni al contorno per il dominio rettangolare.
     Ritorna 4 tensori: xy_boundary, dirichlet_target, neumann_target, normals
+    
+    IMPLEMENTAZIONE PROPOSTA 1 (Slicing Geometrico Rigoroso senza duplicati):
+    - Inlet (x=0): governa l'intero lato y in [0, Ly] (inclusi gli spigoli (0,0) e (0,Ly)) per imporre Dirichlet su velocità e stress.
+    - Wall Bottom & Top (y=0, Ly): governano x in (0, Lx] (escluso x=0, inclusi (Lx,0) e (Lx,Ly)) per imporre No-Slip fino all'uscita.
+    - Outlet (x=Lx): governa y in (0, Ly) (esclusi gli spigoli a parete y=0 e y=Ly) per imporre la pressione di uscita sul fluido interno.
+    Totale punti: 2*Nx + 2*Ny - 4 (ogni punto del perimetro appare esattamente una volta).
     """
-    # 1. Bottom & Top (Wall) -> No-slip (Dirichlet), Neumann per Pressione e Stress
-    x_wall = torch.linspace(0, Lx, Nx, device=device).reshape(-1, 1)
-    y_wall_bottom = torch.zeros_like(x_wall)
-    y_wall_top = torch.full_like(x_wall, Ly)
+    # --- 1. INLET (x=0, y in [0, Ly]) -> Ny punti ---
+    y_inlet = torch.linspace(0, Ly, Ny, device=device).reshape(-1, 1)
+    x_inlet = torch.zeros_like(y_inlet)
+    n_inlet = torch.tensor([[-1.0, 0.0]], device=device).expand(Ny, 2)
     
-    n_bottom = torch.tensor([[0.0, -1.0]], device=device).expand(Nx, 2)
-    n_top    = torch.tensor([[0.0, 1.0]], device=device).expand(Nx, 2)
-    
-    u_wall = torch.zeros_like(x_wall)
-    v_wall = torch.zeros_like(x_wall)
-    nan_val  = torch.full_like(u_wall, float('nan'))
-    zero_val = torch.zeros_like(u_wall)
-
-    # Dirichlet: u, v = 0. Altri NaN
-    wall_dirichlet = torch.cat([u_wall, v_wall, nan_val, nan_val, nan_val, nan_val], dim=1)
-    # Neumann: p, tau_xx, tau_xy, tau_yy = 0. u, v = NaN
-    wall_neumann = torch.cat([nan_val, nan_val, zero_val, zero_val, zero_val, zero_val], dim=1)
-    
-    # 2. Inlet/Outlet
-    y_inout = torch.linspace(0, Ly, Ny, device=device).reshape(-1, 1)
-    u_parabolic = 4 * u_max * (y_inout * (Ly - y_inout)) / (Ly**2)
-    v_zero = torch.zeros_like(y_inout)
-    
-    x_inlet = torch.zeros_like(y_inout)
-    x_outlet = torch.full_like(y_inout, Lx)
-    
-    n_inlet  = torch.tensor([[-1.0, 0.0]], device=device).expand(Ny, 2)
-    n_outlet = torch.tensor([[1.0, 0.0]], device=device).expand(Ny, 2)
-    
-    # Exact values for Dirichlet
-    p_outlet = p_exact.reshape(Ny, Nx)[:, -1].reshape(-1, 1).to(device)
+    u_inlet = 4 * u_max * (y_inlet * (Ly - y_inlet)) / (Ly**2)
+    v_inlet = torch.zeros_like(y_inlet)
+    nan_inlet = torch.full_like(y_inlet, float('nan'))
+    zero_inlet = torch.zeros_like(y_inlet)
     
     txx_exact = stress_exact_dict.get('tau_xx', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
     txy_exact = stress_exact_dict.get('tau_xy', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
     tyy_exact = stress_exact_dict.get('tau_yy', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
     
-    txx_inlet  = txx_exact[:, 0].reshape(-1, 1)
-    txy_inlet  = txy_exact[:, 0].reshape(-1, 1)
-    tyy_inlet  = tyy_exact[:, 0].reshape(-1, 1)
+    txx_inlet = txx_exact[:, 0].reshape(-1, 1)
+    txy_inlet = txy_exact[:, 0].reshape(-1, 1)
+    tyy_inlet = tyy_exact[:, 0].reshape(-1, 1)
     
     # Inlet Dirichlet: u=parabolico, v=0, tau=exact. p=NaN
-    inlet_dirichlet = torch.cat([u_parabolic, v_zero, nan_val[:Ny], txx_inlet, txy_inlet, tyy_inlet], dim=1)
+    inlet_dirichlet = torch.cat([u_inlet, v_inlet, nan_inlet, txx_inlet, txy_inlet, tyy_inlet], dim=1)
     # Inlet Neumann: p=0. u,v,tau=NaN
-    inlet_neumann   = torch.cat([nan_val[:Ny], nan_val[:Ny], zero_val[:Ny], nan_val[:Ny], nan_val[:Ny], nan_val[:Ny]], dim=1)
+    inlet_neumann   = torch.cat([nan_inlet, nan_inlet, zero_inlet, nan_inlet, nan_inlet, nan_inlet], dim=1)
     
-    # Outlet Dirichlet: p=p_exact. u,v,tau=NaN
-    outlet_dirichlet = torch.cat([nan_val[:Ny], nan_val[:Ny], p_outlet, nan_val[:Ny], nan_val[:Ny], nan_val[:Ny]], dim=1)
-    # Outlet Neumann: tau=0. u,v,p=NaN
-    outlet_neumann   = torch.cat([nan_val[:Ny], nan_val[:Ny], nan_val[:Ny], zero_val[:Ny], zero_val[:Ny], zero_val[:Ny]], dim=1)
+    # --- 2. WALL BOTTOM & TOP (x in (0, Lx], y=0 e y=Ly) -> Nx-1 punti ciascuno ---
+    x_wall_full = torch.linspace(0, Lx, Nx, device=device).reshape(-1, 1)
+    x_wall = x_wall_full[1:]  # Esclude x=0 (gestito dall'inlet)
+    Nx_wall = Nx - 1
     
+    y_wall_bottom = torch.zeros_like(x_wall)
+    y_wall_top = torch.full_like(x_wall, Ly)
+    
+    n_bottom = torch.tensor([[0.0, -1.0]], device=device).expand(Nx_wall, 2)
+    n_top    = torch.tensor([[0.0, 1.0]], device=device).expand(Nx_wall, 2)
+    
+    u_wall = torch.zeros_like(x_wall)
+    v_wall = torch.zeros_like(x_wall)
+    nan_wall  = torch.full_like(u_wall, float('nan'))
+    zero_wall = torch.zeros_like(u_wall)
+    
+    wall_dirichlet = torch.cat([u_wall, v_wall, nan_wall, nan_wall, nan_wall, nan_wall], dim=1)
+    wall_neumann   = torch.cat([nan_wall, nan_wall, zero_wall, zero_wall, zero_wall, zero_wall], dim=1)
+    
+    # --- 3. OUTLET (x=Lx, y in (0, Ly)) -> Ny-2 punti ---
+    y_outlet_full = torch.linspace(0, Ly, Ny, device=device).reshape(-1, 1)
+    y_outlet = y_outlet_full[1:-1]  # Esclude y=0 e y=Ly (gestiti dai wall)
+    Ny_outlet = Ny - 2
+    
+    x_outlet = torch.full_like(y_outlet, Lx)
+    n_outlet = torch.tensor([[1.0, 0.0]], device=device).expand(Ny_outlet, 2)
+    
+    p_outlet_full = p_exact.reshape(Ny, Nx)[:, -1].reshape(-1, 1).to(device)
+    p_outlet = p_outlet_full[1:-1]
+    
+    nan_outlet  = torch.full_like(y_outlet, float('nan'))
+    zero_outlet = torch.zeros_like(y_outlet)
+    
+    outlet_dirichlet = torch.cat([nan_outlet, nan_outlet, p_outlet, nan_outlet, nan_outlet, nan_outlet], dim=1)
+    outlet_neumann   = torch.cat([nan_outlet, nan_outlet, nan_outlet, zero_outlet, zero_outlet, zero_outlet], dim=1)
+    
+    # --- 4. CONCATENAZIONE FINALE ---
     xy_boundary = torch.cat([
+        torch.cat([x_inlet, y_inlet], dim=1),
         torch.cat([x_wall, y_wall_bottom], dim=1),
         torch.cat([x_wall, y_wall_top], dim=1),
-        torch.cat([x_inlet, y_inout], dim=1), 
-        torch.cat([x_outlet, y_inout], dim=1)
+        torch.cat([x_outlet, y_outlet], dim=1)
     ], dim=0)
 
-    dirichlet_boundary = torch.cat([wall_dirichlet, wall_dirichlet, inlet_dirichlet, outlet_dirichlet], dim=0)
-    neumann_boundary   = torch.cat([wall_neumann, wall_neumann, inlet_neumann, outlet_neumann], dim=0)
-    normals_boundary   = torch.cat([n_bottom, n_top, n_inlet, n_outlet], dim=0)
+    dirichlet_boundary = torch.cat([inlet_dirichlet, wall_dirichlet, wall_dirichlet, outlet_dirichlet], dim=0)
+    neumann_boundary   = torch.cat([inlet_neumann, wall_neumann, wall_neumann, outlet_neumann], dim=0)
+    normals_boundary   = torch.cat([n_inlet, n_bottom, n_top, n_outlet], dim=0)
     
     return xy_boundary, dirichlet_boundary, neumann_boundary, normals_boundary
