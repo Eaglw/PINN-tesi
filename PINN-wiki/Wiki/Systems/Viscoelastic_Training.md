@@ -78,9 +78,41 @@ The pipeline supports automated grid search across architectures, epochs, and le
 - **Goal 1 (`Phys+Data` / Semi-Inverse)**: Weights `{'bc': 1.0, 'physics': 1.0, 'data': 1.0}`. Uses internal velocity data $(u,v)$ alongside physics. See [[ViscoelasticNet]] for semi-inverse variance scaling details.
 - **Goal 2 (`SoloData`)**: Weights `{'bc': 1.0, 'physics': 0.0, 'data': 1.0}`. Staged training is disabled; trains purely as a standard regression network on dense internal data.
 
-### 2. Loss Weighting & Variance Normalization
-- **Dynamic Weighting**: Utilizes Learning Rate Annealing ([[Dynamic_Weighting]]) to dynamically balance the PDE loss weights against the BC loss gradients (`alpha=0.9`).
-- **Variance Normalization**: In Goal 1, MSE loss terms are normalized by the variance of the exact reference fields ($\sigma^2_u, \sigma^2_v$, etc., clamped to `VARIANCE_EPS = 1.0` to prevent unstable scaling).
+### 2. Loss Weighting & Variance Normalization (Two-Stage Balancing Strategy)
+To ensure stable optimization across highly disparate physical fields, the pipeline implements a rigorous two-stage loss balancing hierarchy:
+
+```mermaid
+graph TD
+    A[Raw Predictions & Targets: u, v, p, tau] --> B[Stage 1: Variance Normalization<br>Intra-Loss Equalization]
+    B --> C[Dimensionless Equalized Component Losses<br>data_loss, bc_loss]
+    C --> D[Stage 2: Dynamic Weighting<br>Inter-Loss Gradient Balancing]
+    D --> E[Total Weighted PINN Loss]
+```
+
+#### Stage 1: Variance Normalization (Intra-Loss Equalization)
+In multi-field viscoelasticity, variables exhibit massive dimensional and magnitude disparities (e.g., velocity $u \approx 1$ m/s vs polymeric stress $\tau_{xx} \approx 1000$ Pa scaling quadratically with shear rate). Unnormalized Mean Squared Error (MSE) would cause the optimizer to focus exclusively on minimizing the largest absolute numbers (stress/pressure), completely ignoring critical kinematic errors.
+
+To solve this, MSE loss terms for direct data/boundary comparisons are divided by the exact target variance ($\sigma^2_k$):
+$$\mathcal{L}_{\text{data}, k} = \frac{1}{\sigma_k^2} \frac{1}{N} \sum_{i=1}^N \left( y_{\text{pred}, k}^{(i)} - y_{\text{exact}, k}^{(i)} \right)^2$$
+- **Dimensional Equalization**: Converts absolute dimensional errors into dimensionless relative errors representing the fraction of unexplained variance ($1 - R^2$). A 10% relative error in velocity $u$ produces the exact same numerical penalty as a 10% relative error in stress $\tau_{xx}$.
+- **Protection Clamping**: Variances are clamped via `max(var, VARIANCE_EPS)` (`VARIANCE_EPS = 1.0`) to prevent division by zero or gradient explosion for zero-variance fields (e.g., $v=0$ in laminar channel flow).
+- **Scope of Application**: Variance normalization is applied **exclusively** to direct numerical target comparisons (`data_loss` and `bc_loss`). It is **NEVER** applied to PDE residuals (`pde_loss`), because terms within a differential equation (Navier-Stokes/Oldroyd-B) are already dimensionally balanced by the laws of physics.
+
+#### Stage 2: Dynamic Weighting (Inter-Loss Gradient Balancing)
+Once individual loss components are internally equalized, Learning Rate Annealing ([[Dynamic_Weighting]]) dynamically adjusts the global loss weights ($\lambda_{\text{data}}, \lambda_{\text{bc}}, \lambda_{\text{pde}}$) every 100 epochs (`alpha=0.9`). This balances the gradient interaction between competing training objectives (e.g., fitting observed data vs obeying physical PDE constraints).
+
+#### Phase-by-Phase Normalization Breakdown (Goal 1: Phys+Data)
+Depending on the active training goal, variance normalization behaves as follows:
+- **Goal 1 (`Phys+Data` / Semi-Inverse)**: Variance normalization (`VAR_WEIGHTS`) is active on internal velocity data and active boundary conditions.
+- **Goal 0 (`PurePhys`) & Goal 2 (`SoloData`)**: Explicitly configured with `var_weights = None`. Uses standard unnormalized MSE.
+
+The exact error evaluation and normalization schedule for **Goal 1** across the staged training phases is summarized below:
+
+| Training Phase | `data_loss` (Normalized?) | `bc_loss` (Normalized?) | `pde_loss` (Normalized?) |
+| :--- | :--- | :--- | :--- |
+| **Phase 1 (Adam 0-50%)** | $u, v$ (**YES**, via $\sigma^2_u, \sigma^2_v$) | $u, v, \tau_{xx}, \tau_{xy}, \tau_{yy}$ (**YES**, via $\sigma^2$) | Oldroyd-B Constitutive (**NO**) |
+| **Phase 2 (Adam 50-100%)** | $u, v$ (**YES**, via $\sigma^2_u, \sigma^2_v$) | $u, v, p$ (**YES**, via $\sigma^2$) | Navier-Stokes + Oldroyd-B (**NO**) |
+| **Phase 3 (L-BFGS Refinement)** | $u, v$ (**YES**, via $\sigma^2_u, \sigma^2_v$) | All 6 active fields (**YES**, via $\sigma^2$) | Navier-Stokes + Oldroyd-B (**NO**) |
 
 ### 3. Optimizer & Mini-batching
 - **Adam Optimizer**: `base_lr=1e-3`, `adam_eps=1e-7`.

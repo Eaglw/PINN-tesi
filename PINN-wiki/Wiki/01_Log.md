@@ -80,3 +80,8 @@
 - Individuato il link rotto `[[FCN]]` menzionato in `Viscoelastic_Training.md`.
 - Creata la pagina mancante `Wiki/Methods/FCN.md` seguendo il Method Template con definizione architetturale, implementazione nel progetto (reti disaccoppiate in ViscoelasticNet, Harmonic Oscillator, Heat2D) e riferimenti bibliografici.
 - Aggiornato l'indice `Wiki/00_Index.md` inserendo il nuovo metodo tecnico.
+
+## [2026-05-16] update | Spiegazione Varianza vs Loss Weighting in Viscoelastic
+- Chiarito il ruolo teorico e pratico della normalizzazione con la varianza ($\sigma^2$) rispetto alla ponderazione delle loss (Dynamic Weighting).
+- Spiegata l'equalizzazione dimensionale e intra-loss (frazione di varianza non spiegata $1-R^2$) per i termini di confronto diretto (`data_loss`, `bc_loss`).
+- Inserita la tabella dettagliata di scomposizione per ogni fase di addestramento (Fase 1, Fase 2, Fase 3 / L-BFGS) per il Goal 1 (Phys+Data) in `Wiki/Systems/Viscoelastic_Training.md`.
