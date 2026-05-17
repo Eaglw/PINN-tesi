@@ -319,29 +319,19 @@ def train_ViscoelasticPINN(
             
         # Dynamic Weighting (Learning Rate Annealing style)
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
-            pure_bc = physics_problem.boundary_loss(model, xy_bc, T_bc_tuple, active_bcs=current_active_bcs)
-            grads_bc = torch.autograd.grad(pure_bc, trainable_params, retain_graph=True, allow_unused=True)
-            max_norm_bc = max([g.norm(2) for g in grads_bc if g is not None]).item() if any(g is not None for g in grads_bc) else 0.0
-            
-            if lambda_bc > 0:
-                if lambda_physics > 0 and xy_phys_batch is not None:
-                    pure_phys = physics_problem.residual(model, xy_phys_batch)
-                    grads_ph = torch.autograd.grad(pure_phys, trainable_params, retain_graph=True, allow_unused=True)
+            if lambda_bc > 0 and 'bc_loss' in loss_dict and isinstance(loss_dict['bc_loss'], torch.Tensor) and loss_dict['bc_loss'].requires_grad:
+                grads_bc = torch.autograd.grad(loss_dict['bc_loss'], trainable_params, retain_graph=True, allow_unused=True)
+                max_norm_bc = max([g.norm(2) for g in grads_bc if g is not None]).item() if any(g is not None for g in grads_bc) else 0.0
+                
+                if lambda_physics > 0 and 'pde_loss' in loss_dict and isinstance(loss_dict['pde_loss'], torch.Tensor) and loss_dict['pde_loss'].requires_grad:
+                    grads_ph = torch.autograd.grad(loss_dict['pde_loss'], trainable_params, retain_graph=True, allow_unused=True)
                     m_n_ph = max([g.norm(2) for g in grads_ph if g is not None]).item() if any(g is not None for g in grads_ph) else 0.0
                     if m_n_ph > 1e-12: 
                         ratio = min(max_norm_bc / m_n_ph, 100.0)
                         target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * ratio * lambda_bc
 
-                if lambda_data > 0:
-                    if mode == 'semi_inverse' and physics_problem is not None:
-                        u_p, v_p, _, _ = physics_problem.get_velocity(model, xy_int)
-                        s_u = max(variance_weights.get('u', 1.0), 1e-8) if variance_weights else 1.0
-                        s_v = max(variance_weights.get('v', 1.0), 1e-8) if variance_weights else 1.0
-                        pure_data = 0.5 * (nn.MSELoss()(u_p, T_int[:, 0:1])/s_u + nn.MSELoss()(v_p, T_int[:, 1:2])/s_v)
-                    else:
-                        pure_data = nn.MSELoss()(model(xy_int), T_int)
-                        
-                    grads_dt = torch.autograd.grad(pure_data, trainable_params, retain_graph=True, allow_unused=True)
+                if lambda_data > 0 and 'data_loss' in loss_dict and isinstance(loss_dict['data_loss'], torch.Tensor) and loss_dict['data_loss'].requires_grad:
+                    grads_dt = torch.autograd.grad(loss_dict['data_loss'], trainable_params, retain_graph=True, allow_unused=True)
                     m_n_dt = max([g.norm(2) for g in grads_dt if g is not None]).item() if any(g is not None for g in grads_dt) else 0.0
                     if m_n_dt > 1e-12: 
                         ratio_d = min(max_norm_bc / m_n_dt, 100.0)
@@ -499,6 +489,16 @@ def train_ViscoelasticPINN(
         'active_bcs': current_active_bcs
     }
     
+    # Rileva se la GPU è una 1050 Ti (o ha <= 4.5 GB di VRAM) per adattare history_size e abilitare chunking
+    hist_size = 300
+    chunk_size = 5000  # Default: nessun chunking
+    if torch.cuda.is_available():
+        device_name = torch.cuda.get_device_name(0)
+        if "1050" in device_name or torch.cuda.get_device_properties(0).total_memory < 4.5 * 1024**3:
+            hist_size = 50
+            chunk_size = 1000
+            print(f"\n  [Memory Config] Rilevata GPU {device_name}. Riduzione history_size a 50 e abilitazione chunking (1000 pts) per L-BFGS.")
+
     for current_lr in [1.0, 0.5]:
         remaining_evals = max_total_lbfgs - lbfgs_iter[0]
         if remaining_evals <= 0:
@@ -512,7 +512,7 @@ def train_ViscoelasticPINN(
             max_eval=remaining_evals * 5, 
             tolerance_grad=1e-7, 
             tolerance_change=1e-9,
-            history_size=300,
+            history_size=hist_size,
             line_search_fn="strong_wolfe"
         )
         
@@ -524,23 +524,68 @@ def train_ViscoelasticPINN(
                         if isinstance(physics_problem.mu_s, torch.Tensor): physics_problem.mu_s.clamp_(min=1e-6)
                         if isinstance(physics_problem.mu_p, torch.Tensor): physics_problem.mu_p.clamp_(min=1e-6)
                         if isinstance(physics_problem.lam, torch.Tensor): physics_problem.lam.clamp_(min=1e-6)
-                loss, loss_dict = compute_pinn_loss(model, **loss_kwargs)
-                loss.backward()
-                if lbfgs_iter[0] % 10 == 0: 
-                    history_entry = loss_dict.copy()
-                    history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
-                    if getattr(physics_problem, 'inverse_mode', False):
-                        history_entry.update({
-                            'param_etas': physics_problem.mu_s.item() if isinstance(physics_problem.mu_s, torch.Tensor) else physics_problem.mu_s,
-                            'param_etap': physics_problem.mu_p.item() if isinstance(physics_problem.mu_p, torch.Tensor) else physics_problem.mu_p,
-                            'param_lam': physics_problem.lam.item() if isinstance(physics_problem.lam, torch.Tensor) else physics_problem.lam
-                        })
-                    loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=current_lr)
                 
-                lbfgs_iter[0] += 1
-                pbar_lbfgs.update(1)
-                pbar_lbfgs.set_postfix({'Loss': f"{loss.item():.2e}"})
-                return loss
+                n_data = xy_int.shape[0] if xy_int is not None else 0
+                n_phys = xy_physics_full.shape[0] if xy_physics_full is not None else 0
+                total_pts = max(n_data, n_phys)
+                
+                if total_pts <= chunk_size:
+                    loss, loss_dict = compute_pinn_loss(model, **loss_kwargs)
+                    loss.backward()
+                    if lbfgs_iter[0] % 10 == 0: 
+                        history_entry = loss_dict.copy()
+                        history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
+                        if getattr(physics_problem, 'inverse_mode', False):
+                            history_entry.update({
+                                'param_etas': physics_problem.mu_s.item() if isinstance(physics_problem.mu_s, torch.Tensor) else physics_problem.mu_s,
+                                'param_etap': physics_problem.mu_p.item() if isinstance(physics_problem.mu_p, torch.Tensor) else physics_problem.mu_p,
+                                'param_lam': physics_problem.lam.item() if isinstance(physics_problem.lam, torch.Tensor) else physics_problem.lam
+                            })
+                        loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=current_lr)
+                    lbfgs_iter[0] += 1
+                    pbar_lbfgs.update(1)
+                    pbar_lbfgs.set_postfix({'Loss': f"{loss.item():.2e}"})
+                    return loss
+                else:
+                    num_chunks = (total_pts + chunk_size - 1) // chunk_size
+                    total_loss_val = 0.0
+                    accumulated_loss_dict = {}
+                    
+                    for i in range(num_chunks):
+                        start_idx = i * chunk_size
+                        end_idx = start_idx + chunk_size
+                        
+                        chunk_kwargs = loss_kwargs.copy()
+                        if xy_int is not None and xy_int.shape[0] > 0:
+                            chunk_kwargs['x_data'] = xy_int[start_idx:end_idx]
+                            chunk_kwargs['y_data'] = T_int[start_idx:end_idx]
+                        if xy_physics_full is not None and xy_physics_full.shape[0] > 0:
+                            chunk_kwargs['x_physics'] = xy_physics_full[start_idx:end_idx]
+                            
+                        loss_chunk, dict_chunk = compute_pinn_loss(model, **chunk_kwargs)
+                        loss_chunk = loss_chunk / num_chunks
+                        loss_chunk.backward()
+                        
+                        total_loss_val += loss_chunk.item()
+                        for k, v in dict_chunk.items():
+                            val_num = v.item() if hasattr(v, 'item') else v
+                            accumulated_loss_dict[k] = accumulated_loss_dict.get(k, 0.0) + val_num / num_chunks
+                            
+                    if lbfgs_iter[0] % 10 == 0: 
+                        history_entry = accumulated_loss_dict.copy()
+                        history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
+                        if getattr(physics_problem, 'inverse_mode', False):
+                            history_entry.update({
+                                'param_etas': physics_problem.mu_s.item() if isinstance(physics_problem.mu_s, torch.Tensor) else physics_problem.mu_s,
+                                'param_etap': physics_problem.mu_p.item() if isinstance(physics_problem.mu_p, torch.Tensor) else physics_problem.mu_p,
+                                'param_lam': physics_problem.lam.item() if isinstance(physics_problem.lam, torch.Tensor) else physics_problem.lam
+                            })
+                        loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=current_lr)
+                        
+                    lbfgs_iter[0] += 1
+                    pbar_lbfgs.update(1)
+                    pbar_lbfgs.set_postfix({'Loss': f"{total_loss_val:.2e}"})
+                    return torch.tensor(total_loss_val, device=xy_int.device)
             return closure
             
         optimizer_lbfgs.step(make_closure(optimizer_lbfgs))

@@ -9,6 +9,7 @@ import itertools
 from datetime import datetime
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # Import funzioni esterne
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -79,7 +80,7 @@ GUESS_MU_P = 0.004  # True is 0.005
 GUESS_LAM = 0.8     # True is 1.0
 
 # --- L-BFGS ---
-MAX_LBFGS_ITERS = 100
+MAX_LBFGS_ITERS = 200
 
 # --- Logging & Plotting ---
 LOG_GRADIENTS_EVERY = 500
