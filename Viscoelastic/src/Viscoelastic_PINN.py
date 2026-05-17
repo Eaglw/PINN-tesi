@@ -496,8 +496,11 @@ def train_ViscoelasticPINN(
         device_name = torch.cuda.get_device_name(0)
         if "1050" in device_name or torch.cuda.get_device_properties(0).total_memory < 4.5 * 1024**3:
             hist_size = 50
-            chunk_size = 1000
-            print(f"\n  [Memory Config] Rilevata GPU {device_name}. Riduzione history_size a 50 e abilitazione chunking (1000 pts) per L-BFGS.")
+            chunk_size = 500
+            print(f"\n  [Memory Config] Rilevata GPU {device_name}. Riduzione history_size a 50 e abilitazione chunking (500 pts) per L-BFGS.")
+
+    last_loss_val = [0.0]
+    last_loss_dict = [{}]
 
     for current_lr in [1.0, 0.5]:
         remaining_evals = max_total_lbfgs - lbfgs_iter[0]
@@ -542,6 +545,8 @@ def train_ViscoelasticPINN(
                                 'param_lam': physics_problem.lam.item() if isinstance(physics_problem.lam, torch.Tensor) else physics_problem.lam
                             })
                         loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=current_lr)
+                    last_loss_val[0] = loss.item()
+                    last_loss_dict[0] = loss_dict.copy()
                     lbfgs_iter[0] += 1
                     pbar_lbfgs.update(1)
                     pbar_lbfgs.set_postfix({'Loss': f"{loss.item():.2e}"})
@@ -582,6 +587,8 @@ def train_ViscoelasticPINN(
                             })
                         loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=current_lr)
                         
+                    last_loss_val[0] = total_loss_val
+                    last_loss_dict[0] = accumulated_loss_dict.copy()
                     lbfgs_iter[0] += 1
                     pbar_lbfgs.update(1)
                     pbar_lbfgs.set_postfix({'Loss': f"{total_loss_val:.2e}"})
@@ -598,12 +605,13 @@ def train_ViscoelasticPINN(
     
     pbar_lbfgs.close()
     
-    # Final loss check
-    final_loss, final_loss_dict = compute_pinn_loss(model, **loss_kwargs)
+    # Final loss check (utilizza i valori già calcolati nell'ultima closure di L-BFGS per evitare OOM)
+    final_loss_val = last_loss_val[0]
+    final_loss_dict = last_loss_dict[0]
     final_entry = final_loss_dict.copy()
     final_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
     loss_history.update(epochs + lbfgs_iter[0], final_entry, lr=current_lr)
-    print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss.item():.2e}")
+    print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss_val:.2e}")
 
     # Plot Finale Interattivo
     print("Training completato. Generazione plot finale...")
