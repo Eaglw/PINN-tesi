@@ -51,10 +51,12 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Tapered_Architectures]]: Funnel-style networks
 - [[Dynamic_Weighting]]: Learning rate annealing for loss balance
 - [[Staged_Precision_Strategy]]: Hybrid FP32/FP64 training
+- [[Staged_Training_Procedure]]: Decoupled multi-phase training strategy
 - [[DeepXDE]]: Multi-backend PIML library
 - [[SDF_for_Discontinuities]]: Handling sharp transitions in BCs
 - [[Integral_Loss_Scaling]]: Volume-proportional loss balancing
 - [[ViscoelasticNet]]: PINN framework for stress discovery
+- [[Log_Conformation_Tensor]]: Variable transformation for high Weissenberg numbers
 - [[Viscoelastic_Metrics]]: Multi-field error aggregation
 - [[Loss_History_Tracking]]: Convergence and gradient visualization
 - [[GPU_Optimization]]: Eliminating CPU/GPU synchronization overhead

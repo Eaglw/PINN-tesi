@@ -104,3 +104,11 @@
 - Implementata la tecnica del Chunking (Gradient Accumulation) all'interno della closure di L-BFGS, dividendo i 5000 punti di collocazione in frammenti da 500 punti per calcolare il gradiente esatto in FP64 senza saturare la VRAM.
 - Ottimizzato il controllo finale della loss post L-BFGS rimpiazzando il ricalcolo full-batch con il riutilizzo dell'ultima loss valutata all'interno della closure.
 - Creato il metodo tecnico [[VRAM_Optimization]] e aggiornato l'indice della wiki.
+
+## [2026-05-18] lint | Controllo di coerenza globale e allineamento strutturale
+- Eseguito un controllo completo sull'allineamento gerarchico e la coerenza dei contenuti della wiki.
+- Individuate e risolte le mancanze di indicizzazione per le pagine [[Log_Conformation_Tensor]] e [[Staged_Training_Procedure]], ora correttamente aggiunte sotto i metodi tecnici in `Wiki/00_Index.md`.
+- Uniformata la struttura di `Wiki/Topics/Spectral_Bias.md` aggiungendo l'header H1 principale.
+- Ottimizzata la formattazione matematica in `Wiki/Systems/Viscoelastic_Fluids.md`, rimpiazzando i comandi testuali (`\text{tau}`, `\text{lambda}`, `\text{mu}_p`) con le corrette notazioni greche in LaTeX ($\boldsymbol{\tau}$, $\lambda$, $\mu_p$) per la massima chiarezza e coerenza con il resto del vault.
+- Corretta un'incongruenza di numerazione nelle sezioni di `Wiki/Systems/Viscoelastic_Training.md`.
+- Verificata l'integrità dei link tramite comando LIST: 100% di integrità confermata e zero broken links.

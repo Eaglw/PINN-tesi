@@ -177,7 +177,7 @@ The exact error evaluation and normalization schedule for **Goal 1** across the 
 ### 3. Inverse Problem Parameter Clamping
 To prevent the optimizer from exploring unphysical regimes during inverse parameter identification ($\mu_s, \mu_p, \lambda$), the pipeline enforces strict post-optimization tensor clamping (`param.clamp_(min=1e-6)`) immediately before loss computation in both Adam and L-BFGS phases. This guarantees that all physical parameters remain strictly positive in the autograd graph, avoiding catastrophic gradient inversion in the Navier-Stokes diffusion terms.
 
-### 3. Optimizer & Mini-batching
+### 4. Optimizer & Mini-batching
 - **Adam Optimizer**: `base_lr=1e-3`, `adam_eps=1e-7`.
 - **LR Scheduler**: `CosineAnnealingLR` (or Plateau/Step).
 - **Mini-batching**: `minibatch_internal=1024`, `minibatch_boundary=256` (sampled via `_sample_minibatch`).

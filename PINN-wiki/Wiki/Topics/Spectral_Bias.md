@@ -2,6 +2,8 @@
 title: "Spectral Bias / Frequency Principle"
 ---
 
+# Spectral Bias / Frequency Principle
+
 ## Overview
 **Spectral Bias** (or **Frequency Principle**) is a fundamental phenomenon in Deep Learning where neural networks exhibit a preference for learning low-frequency components of a target function before capturing high-frequency details. This has significant implications for Physics-Informed Neural Networks (PINNs), as many physical systems involve multiscale phenomena or high-frequency gradients that can be slow to converge.
 
