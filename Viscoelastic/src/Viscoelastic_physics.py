@@ -119,24 +119,29 @@ class ViscoelasticPhysics(nn.Module):
         grad_tau_yy = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0]
         tau_yy_x, tau_yy_y = grad_tau_yy[:, 0:1], grad_tau_yy[:, 1:2]
         
+        # Valori assoluti per garantire positività fisica (il blocco)
+        mu_s_eff = torch.abs(self.mu_s) if isinstance(self.mu_s, torch.Tensor) else abs(self.mu_s)
+        mu_p_eff = torch.abs(self.mu_p) if isinstance(self.mu_p, torch.Tensor) else abs(self.mu_p)
+        lam_eff  = torch.abs(self.lam) if isinstance(self.lam, torch.Tensor) else abs(self.lam)
+        
         # Equazioni di Quantità di Moto (Navier-Stokes)
         # ρ(u·∇u) + ∇p - μ_s∇²u - ∇·τ = 0
-        f_u = self.rho * (u * u_x + v * u_y) + p_x - self.mu_s * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
-        f_v = self.rho * (u * v_x + v * v_y) + p_y - self.mu_s * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
+        f_u = self.rho * (u * u_x + v * u_y) + p_x - mu_s_eff * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
+        f_v = self.rho * (u * v_x + v * v_y) + p_y - mu_s_eff * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
         
         # Equazioni Costitutive (Oldroyd-B)
-        f_tau_xx = tau_xx + self.lam * (u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy) - 2 * self.mu_p * u_x
-        f_tau_yy = tau_yy + self.lam * (u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy) - 2 * self.mu_p * v_y
+        f_tau_xx = tau_xx + lam_eff * (u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy) - 2 * mu_p_eff * u_x
+        f_tau_yy = tau_yy + lam_eff * (u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy) - 2 * mu_p_eff * v_y
         # Upper-Convected Derivative, componente xy:
         # (∇u · τ)_xy = u_x·τ_xy + u_y·τ_yy
         # (τ · ∇u^T)_xy = τ_xx·v_x + τ_xy·v_y
-        f_tau_xy = tau_xy + self.lam * (
+        f_tau_xy = tau_xy + lam_eff * (
             u * tau_xy_x + v * tau_xy_y
             - u_x * tau_xy
             - u_y * tau_yy
             - tau_xx * v_x
             - tau_xy * v_y
-        ) - self.mu_p * (u_y + v_x)
+        ) - mu_p_eff * (u_y + v_x)
         
         return f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy
 
@@ -251,8 +256,10 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     txy_inlet = txy_exact[:, 0].reshape(-1, 1)
     tyy_inlet = tyy_exact[:, 0].reshape(-1, 1)
     
-    # Inlet Dirichlet: u=parabolico, v=0, tau=exact. p=NaN
-    inlet_dirichlet = torch.cat([u_inlet, v_inlet, nan_inlet, txx_inlet, txy_inlet, tyy_inlet], dim=1)
+    p_inlet_full = p_exact.reshape(Ny, Nx)[:, 0].reshape(-1, 1).to(device)
+    
+    # Inlet Dirichlet: u=parabolico, v=0, p=p_exact, tau=exact.
+    inlet_dirichlet = torch.cat([u_inlet, v_inlet, p_inlet_full, txx_inlet, txy_inlet, tyy_inlet], dim=1)
     # Inlet Neumann: tutto NaN per evitare di forzare dp/dx = 0
     inlet_neumann   = torch.cat([nan_inlet, nan_inlet, nan_inlet, nan_inlet, nan_inlet, nan_inlet], dim=1)
     

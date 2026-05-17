@@ -28,6 +28,21 @@ To extend the framework to a fully inverse scenario ("inverse_dense") matching V
 2. **Global Loss Calculation**: Compute the data loss across the entire spatial domain rather than a subset.
 3. **Unknown Parameter Identification**: Define physical parameters (e.g., $We, \lambda, \beta$) as `nn.Parameter` to be learned jointly with the physical fields via backpropagation through the scaled PDE residuals.
 
+## Comparison: Original ViscoelasticNet vs. Current Repository Implementation
+
+While the repository's `ViscoelasticCombinedModel` and staged training orchestration are heavily inspired by Thakur et al.'s ViscoelasticNet, there are two fundamental conceptual differences in how pressure and kinematics are handled:
+
+### 1. Optimization Strategy: Sequential vs. Staged Co-Adaptation
+- **Original ViscoelasticNet (Thakur et al.)**: Employs a strictly **sequential (decoupled)** approach. The velocity ($\phi$) and stress ($\theta$) networks are first trained using dense velocity data and constitutive equations. Once trained, **both velocity and stress networks are completely frozen**. The pressure network ($\kappa$) is then trained in complete isolation to satisfy the Navier-Stokes momentum equation, acting purely as a Poisson solver over a fixed velocity/stress field.
+- **Current Repository (`train_ViscoelasticPINN`)**: Uses a **staged co-adaptation** approach:
+  - *Phase 1*: Freezes pressure (`model_p`) and momentum PDEs, training `psi` and `tau` (matching Thakur et al.).
+  - *Phase 2*: Freezes stress (`model_tau`), but **keeps both pressure (`model_p`) and stream function (`model_psi`) active**. This allows velocity and pressure to dynamically co-adapt to satisfy Navier-Stokes momentum conservation.
+  - *Phase 3 (L-BFGS)*: Unfreezes all networks (`psi`, `p`, `tau`) for a fully coupled global refinement in FP64 (an enhancement not present in the original paper).
+
+### 2. Pressure Boundary Conditions & Inverse Well-Posedness
+- **Original ViscoelasticNet (Thakur et al.)**: In forward incompressible flows where viscosity is known, pressure appears only as a gradient ($\nabla p$) in the Navier-Stokes equations. The pressure field is defined up to an arbitrary additive constant, which the authors fix by setting a single reference point (e.g., $p(x_0) = 0$).
+- **Current Repository (Inverse Problem)**: To successfully identify the unknown solvent viscosity ($\mu_s$) in channel flow (Poiseuille), knowing a single pressure anchor is mathematically insufficient; the network must know the **pressure drop ($\Delta P$)**. Therefore, the repository enforces Dirichlet boundary conditions at both the **Outlet** ($p=0$) and the **Inlet** ($p=p_{exact}$), alongside a Neumann condition at the walls ($p_y=0$). This closes the mathematical formulation, allowing the PINN to discover the true physical viscosities without diverging.
+
 ## References
 - [[Thakur_et_al_ViscoelasticNet]]
 - [[Oldroyd_B_Model]]

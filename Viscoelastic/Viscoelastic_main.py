@@ -70,7 +70,7 @@ PDE_WEIGHTS = {'momentum': 10.0, 'constitutive': 1.0}
 
 # --- Data ---
 NUM_DATA_SUBSET = 5000
-VARIANCE_EPS = 1.0  # Epsilon per varianze: 1.0 disabilita lo scaling aggressivo
+VARIANCE_EPS = 1e-8  # Epsilon per varianze: 1.0 disabilita lo scaling aggressivo, 1e-8 lo abilita
 
 # --- Inverse Problem ---
 INVERSE_PROBLEM = True
@@ -284,7 +284,7 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
         model_combined = ViscoelasticCombinedModel(model_psi, model_p, model_tau)
 
         # Costruzione TrainingConfig
-        use_staged = STAGED_TRAINING and goal != 2
+        use_staged = STAGED_TRAINING and goal != 2 and goal != 0
         train_config = TrainingConfig(
             epochs=epochs,
             base_lr=BASE_LR,
