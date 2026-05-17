@@ -145,7 +145,7 @@ class ViscoelasticPhysics(nn.Module):
         
         return f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy
 
-    def residual(self, model, x, pde_weights=None):
+    def residual(self, model, x, pde_weights=None, variance_weights=None):
         """
         Ritorna la somma pesata degli MSE dei residui.
         Usa self.pde_weights (configurati nel costruttore) a meno che non venga
@@ -159,9 +159,20 @@ class ViscoelasticPhysics(nn.Module):
         zeros = torch.zeros_like(f_u)
         loss_u = self.mse_loss(f_u, zeros)
         loss_v = self.mse_loss(f_v, zeros)
-        loss_txx = self.mse_loss(f_tau_xx, zeros)
-        loss_tyy = self.mse_loss(f_tau_yy, zeros)
-        loss_txy = self.mse_loss(f_tau_xy, zeros)
+        
+        if variance_weights is not None:
+            var_txx = max(variance_weights.get('txx', 1.0), 1e-8)
+            var_tyy = max(variance_weights.get('tyy', 1.0), 1e-8)
+            var_txy = max(variance_weights.get('txy', 1.0), 1e-8)
+            
+            loss_txx = self.mse_loss(f_tau_xx, zeros) / var_txx
+            loss_tyy = self.mse_loss(f_tau_yy, zeros) / var_tyy
+            loss_txy = self.mse_loss(f_tau_xy, zeros) / var_txy
+        else:
+            loss_txx = self.mse_loss(f_tau_xx, zeros)
+            loss_tyy = self.mse_loss(f_tau_yy, zeros)
+            loss_txy = self.mse_loss(f_tau_xy, zeros)
+            
         return w_m * (loss_u + loss_v) + w_c * (loss_txx + loss_tyy + loss_txy)
 
     def boundary_loss(self, model, x_bc, target_bc, variance_weights=None, active_bcs=None):

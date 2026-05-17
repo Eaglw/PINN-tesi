@@ -287,6 +287,12 @@ def train_ViscoelasticPINN(
         # Campionamento boundary
         xy_bc_batch, T_bc_tuple_batch = _sample_minibatch(xy_bc, T_bc_tuple, cfg.minibatch_boundary, _device)
 
+        if getattr(physics_problem, 'inverse_mode', False):
+            with torch.no_grad():
+                if isinstance(physics_problem.mu_s, torch.Tensor): physics_problem.mu_s.clamp_(min=1e-6)
+                if isinstance(physics_problem.mu_p, torch.Tensor): physics_problem.mu_p.clamp_(min=1e-6)
+                if isinstance(physics_problem.lam, torch.Tensor): physics_problem.lam.clamp_(min=1e-6)
+
         # Calcolo loss
         loss, loss_dict = compute_pinn_loss(
             model, 
@@ -513,6 +519,11 @@ def train_ViscoelasticPINN(
         def make_closure(opt_ref):
             def closure():
                 opt_ref.zero_grad()
+                if getattr(physics_problem, 'inverse_mode', False):
+                    with torch.no_grad():
+                        if isinstance(physics_problem.mu_s, torch.Tensor): physics_problem.mu_s.clamp_(min=1e-6)
+                        if isinstance(physics_problem.mu_p, torch.Tensor): physics_problem.mu_p.clamp_(min=1e-6)
+                        if isinstance(physics_problem.lam, torch.Tensor): physics_problem.lam.clamp_(min=1e-6)
                 loss, loss_dict = compute_pinn_loss(model, **loss_kwargs)
                 loss.backward()
                 if lbfgs_iter[0] % 10 == 0: 
@@ -626,6 +637,15 @@ def train_ViscoelasticPINN(
     
     loss_history.plot_gradients(save_path=os.path.join(final_dir, 'VE_gradients.png'), experiment_name=f"{cfg.experiment_name} Gradients")
     loss_history.plot_weights(save_path=os.path.join(final_dir, 'VE_weights.png'), experiment_name=f"{cfg.experiment_name} Weights")
+    
+    if getattr(physics_problem, 'inverse_mode', False):
+        loss_history.plot_physical_parameters(
+            true_etas=physics_problem.real_mu_s,
+            true_etap=physics_problem.real_mu_p,
+            true_lam=physics_problem.real_lam,
+            save_path=os.path.join(final_dir, 'VE_parameters_evolution.png'),
+            experiment_name=cfg.experiment_name
+        )
 
     plt.close("all")
 

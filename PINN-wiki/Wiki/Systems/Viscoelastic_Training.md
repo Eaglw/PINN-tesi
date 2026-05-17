@@ -155,24 +155,27 @@ To solve this, MSE loss terms for direct data/boundary comparisons are divided b
 $$\mathcal{L}_{\text{data}, k} = \frac{1}{\sigma_k^2} \frac{1}{N} \sum_{i=1}^N \left( y_{\text{pred}, k}^{(i)} - y_{\text{exact}, k}^{(i)} \right)^2$$
 - **Dimensional Equalization**: Converts absolute dimensional errors into dimensionless relative errors representing the fraction of unexplained variance ($1 - R^2$). A 10% relative error in velocity $u$ produces the exact same numerical penalty as a 10% relative error in stress $\tau_{xx}$.
 - **Protection Clamping (`max` logic)**: Variances are clamped via `max(var, VARIANCE_EPS)` (`VARIANCE_EPS = 1e-8`) to prevent division by zero for zero-variance fields (e.g., $v=0$ in laminar channel flow). Crucially, this `max()` operation does *not* flatten or equalize the weights; any true physical variance larger than `1e-8` (such as $\tau_{xy}$ variance of `0.0008` or $\tau_{xx}$ variance of `1.0`) is preserved exactly as is, ensuring each variable is scaled by its true individual magnitude.
-- **Static vs. Dynamic Variance**: Variance normalization must remain **static** because it is computed against the exact reference dataset targets, which are fixed constants. Normalizing by static target variance ensures a consistent, standardized loss landscape where MSE reflects true physical relative error. Dynamically recalculating variances based on the network's active predictions would create a moving target distribution, destabilizing gradient descent. (Dynamic balancing is reserved strictly for inter-loss weighting via Learning Rate Annealing).
-- **Scope of Application**: Variance normalization is applied **exclusively** to direct numerical target comparisons (`data_loss` and `bc_loss`). It is **NEVER** applied to PDE residuals (`pde_loss`), because terms within a differential equation (Navier-Stokes/Oldroyd-B) are already dimensionally balanced by the laws of physics.
+- **Static vs. Dynamic Variance**: Variance normalization must remain **static** because it is computed against the exact reference dataset targets, which are fixed constants. Normalizing by static target variance ensures a consistent, standardized loss landscape where MSE reflects true physical relative error. Dynamically recalculating variances based on the network's active predictions would create a moving target distribution, destabilizing gradient descent. (Dynamic balancing is reserved strictly for inter-loss weighting via Learning Rate Annealing)
+- **Scope of Application (BCs & Constitutive PDEs)**: Variance normalization is applied to direct numerical target comparisons (`data_loss` and `bc_loss`), AND crucially to the Oldroyd-B constitutive PDE residuals (`pde_loss`). While terms within a single differential equation are dimensionally consistent, multi-component PDEs exhibit massive inter-equation magnitude disparities (e.g., $f_{\tau_{xx}} \approx 1.0$ vs $f_{\tau_{xy}} \approx 0.0025$). Dividing each stress PDE residual by its respective target variance balances the gradient contributions, ensuring the optimizer does not ignore $f_{\tau_{xy}}$ when learning $\mu_p$.
 
 #### Stage 2: Dynamic Weighting (Inter-Loss Gradient Balancing)
 Once individual loss components are internally equalized, Learning Rate Annealing ([[Dynamic_Weighting]]) dynamically adjusts the global loss weights ($\lambda_{\text{data}}, \lambda_{\text{bc}}, \lambda_{\text{pde}}$) every 100 epochs (`alpha=0.9`). This balances the gradient interaction between competing training objectives (e.g., fitting observed data vs obeying physical PDE constraints).
 
-#### Phase-by-Phase Normalization Breakdown (Goal 1: Phys+Data)
+#### Phase-by-Phase Normalization Breakdown
 Depending on the active training goal, variance normalization behaves as follows:
-- **Goal 1 (`Phys+Data` / Semi-Inverse)**: Variance normalization (`VAR_WEIGHTS`) is active on internal velocity data and active boundary conditions.
-- **Goal 0 (`PurePhys`) & Goal 2 (`SoloData`)**: Explicitly configured with `var_weights = None`. Uses standard unnormalized MSE.
+- **Goal 0 (`PurePhys`) & Goal 1 (`Phys+Data`)**: Variance normalization (`VAR_WEIGHTS`) is fully active across boundary conditions and constitutive PDE residuals.
+- **Goal 2 (`SoloData`)**: Explicitly configured with `var_weights = None`. Uses standard unnormalized MSE as it functions purely as a baseline data regression.
 
 The exact error evaluation and normalization schedule for **Goal 1** across the staged training phases is summarized below:
 
 | Training Phase | `data_loss` (Normalized?) | `bc_loss` (Normalized?) | `pde_loss` (Normalized?) |
 | :--- | :--- | :--- | :--- |
-| **Phase 1 (Adam 0-50%)** | $u, v$ (**YES**, via $\sigma^2_u, \sigma^2_v$) | $u, v, \tau_{xx}, \tau_{xy}, \tau_{yy}$ (**YES**, via $\sigma^2$) | Oldroyd-B Constitutive (**NO**) |
-| **Phase 2 (Adam 50-100%)** | $u, v$ (**YES**, via $\sigma^2_u, \sigma^2_v$) | $u, v, p$ (**YES**, via $\sigma^2$) | Navier-Stokes + Oldroyd-B (**NO**) |
-| **Phase 3 (L-BFGS Refinement)** | $u, v$ (**YES**, via $\sigma^2_u, \sigma^2_v$) | All 6 active fields (**YES**, via $\sigma^2$) | Navier-Stokes + Oldroyd-B (**NO**) |
+| **Phase 1 (Adam 0-50%)** | $u, v$ (**YES**, via $\sigma^2_u, \sigma^2_v$) | $u, v, \tau_{xx}, \tau_{xy}, \tau_{yy}$ (**YES**, via $\sigma^2$) | Oldroyd-B Constitutive (**YES**, via $\sigma^2_{\tau}$) |
+| **Phase 2 (Adam 50-100%)** | $u, v$ (**YES**, via $\sigma^2_u, \sigma^2_v$) | $u, v, p$ (**YES**, via $\sigma^2$) | Navier-Stokes (**NO**) + Oldroyd-B (**YES**) |
+| **Phase 3 (L-BFGS Refinement)** | $u, v$ (**YES**, via $\sigma^2_u, \sigma^2_v$) | All 6 active fields (**YES**, via $\sigma^2$) | Navier-Stokes (**NO**) + Oldroyd-B (**YES**) |
+
+### 3. Inverse Problem Parameter Clamping
+To prevent the optimizer from exploring unphysical regimes during inverse parameter identification ($\mu_s, \mu_p, \lambda$), the pipeline enforces strict post-optimization tensor clamping (`param.clamp_(min=1e-6)`) immediately before loss computation in both Adam and L-BFGS phases. This guarantees that all physical parameters remain strictly positive in the autograd graph, avoiding catastrophic gradient inversion in the Navier-Stokes diffusion terms.
 
 ### 3. Optimizer & Mini-batching
 - **Adam Optimizer**: `base_lr=1e-3`, `adam_eps=1e-7`.

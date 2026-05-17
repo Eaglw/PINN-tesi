@@ -134,7 +134,7 @@ def update_results_csv(file_path, data_dict):
                    Keys must match the specified columns.
     """
     fieldnames = [
-        'Timestamp', 'Max_Relative_Error_Peak', 'Architecture', 'Activation_Func', 'Epochs', 'Run_Type',
+        'Timestamp', 'Architecture', 'Activation_Func', 'Epochs', 'Run_Type',
         'Optimizer', 'Learning_Rate', 'Loss_Total', 'Loss_Physics', 
         'Loss_Boundary', 'Loss_Data', 'L2_Relative_Error', 'Max_Relative_Error_Peak',
         'L2_u', 'Max_u', 'L2_p', 'Max_p',

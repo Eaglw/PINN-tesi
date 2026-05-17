@@ -269,7 +269,7 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
             var_weights = VAR_WEIGHTS
         else:
             pinn_data_internal_fresh = (xy_pinn_data, psip_pinn_data)
-            var_weights = None
+            var_weights = VAR_WEIGHTS if goal != 2 else None
 
         pinn_data_boundary_fresh = (xy_master_boundary, dir_master_boundary, neu_master_boundary, norm_master_boundary)
         
