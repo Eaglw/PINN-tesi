@@ -45,7 +45,7 @@ GOAL_CONFIGS = {
 
 # --- Architecture (Grid Search) ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]] #VENet 8x128
-EPOCHS_OPTIONS = [100]
+EPOCHS_OPTIONS = [15000]
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']
@@ -80,7 +80,7 @@ GUESS_MU_P = 0.004  # True is 0.005
 GUESS_LAM = 0.8     # True is 1.0
 
 # --- L-BFGS ---
-MAX_LBFGS_ITERS = 200
+MAX_LBFGS_ITERS = 500
 
 # --- Logging & Plotting ---
 LOG_GRADIENTS_EVERY = 500

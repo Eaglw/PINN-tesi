@@ -58,6 +58,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Viscoelastic_Metrics]]: Multi-field error aggregation
 - [[Loss_History_Tracking]]: Convergence and gradient visualization
 - [[GPU_Optimization]]: Eliminating CPU/GPU synchronization overhead
+- [[VRAM_Optimization]]: Memory management and OOM prevention
 
 
 ## Physical Systems
