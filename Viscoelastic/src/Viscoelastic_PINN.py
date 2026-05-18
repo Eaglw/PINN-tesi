@@ -164,10 +164,6 @@ def train_ViscoelasticPINN(
     """
     Esegue il training della PINN viscoelastica.
     """
-    # --- Inizializzazione Stress e Pressione a Zero ---
-    # Questo evita che il rumore iniziale disturbi la cinematica/boundary loss nella Fase 1
-    initialize_last_layer_zero(model.model_tau)
-    initialize_last_layer_zero(model.model_p)
     # --- Unpack config ---
     cfg = config
     epochs = cfg.epochs

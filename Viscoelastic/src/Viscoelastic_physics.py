@@ -160,18 +160,9 @@ class ViscoelasticPhysics(nn.Module):
         loss_u = self.mse_loss(f_u, zeros)
         loss_v = self.mse_loss(f_v, zeros)
         
-        if variance_weights is not None:
-            var_txx = max(variance_weights.get('txx', 1.0), 1e-8)
-            var_tyy = max(variance_weights.get('tyy', 1.0), 1e-8)
-            var_txy = max(variance_weights.get('txy', 1.0), 1e-8)
-            
-            loss_txx = self.mse_loss(f_tau_xx, zeros) / var_txx
-            loss_tyy = self.mse_loss(f_tau_yy, zeros) / var_tyy
-            loss_txy = self.mse_loss(f_tau_xy, zeros) / var_txy
-        else:
-            loss_txx = self.mse_loss(f_tau_xx, zeros)
-            loss_tyy = self.mse_loss(f_tau_yy, zeros)
-            loss_txy = self.mse_loss(f_tau_xy, zeros)
+        loss_txx = self.mse_loss(f_tau_xx, zeros)
+        loss_tyy = self.mse_loss(f_tau_yy, zeros)
+        loss_txy = self.mse_loss(f_tau_xy, zeros)
             
         return w_m * (loss_u + loss_v) + w_c * (loss_txx + loss_tyy + loss_txy)
 
@@ -203,7 +194,7 @@ class ViscoelasticPhysics(nn.Module):
             sq_diff_dir = diff_dir ** 2
             
             if variance_weights is not None:
-                v_w = [max(variance_weights.get(k, 1.0), 1e-8) for k in keys]
+                v_w = [variance_weights.get(k, 1.0) for k in keys]
                 scales = torch.tensor(v_w, device=x_bc.device)
                 sq_diff_dir = sq_diff_dir / scales
                 
@@ -217,7 +208,7 @@ class ViscoelasticPhysics(nn.Module):
             preds = [u, v, p, tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]]
             
             if variance_weights is not None:
-                v_w = [max(variance_weights.get(k, 1.0), 1e-8) for k in keys]
+                v_w = [variance_weights.get(k, 1.0) for k in keys]
                 scales = torch.tensor(v_w, device=x_bc.device)
             
             for i, pred in enumerate(preds):
@@ -267,10 +258,10 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     txy_inlet = txy_exact[:, 0].reshape(-1, 1)
     tyy_inlet = tyy_exact[:, 0].reshape(-1, 1)
     
-    p_inlet_full = p_exact.reshape(Ny, Nx)[:, 0].reshape(-1, 1).to(device)
+    p_inlet = torch.ones_like(y_inlet)
     
-    # Inlet Dirichlet: u=parabolico, v=0, p=p_exact, tau=exact.
-    inlet_dirichlet = torch.cat([u_inlet, v_inlet, p_inlet_full, txx_inlet, txy_inlet, tyy_inlet], dim=1)
+    # Inlet Dirichlet: u=parabolico, v=0, p=1, tau=exact.
+    inlet_dirichlet = torch.cat([u_inlet, v_inlet, p_inlet, txx_inlet, txy_inlet, tyy_inlet], dim=1)
     # Inlet Neumann: tutto NaN per evitare di forzare dp/dx = 0
     inlet_neumann   = torch.cat([nan_inlet, nan_inlet, nan_inlet, nan_inlet, nan_inlet, nan_inlet], dim=1)
     
@@ -302,8 +293,7 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     x_outlet = torch.full_like(y_outlet, Lx)
     n_outlet = torch.tensor([[1.0, 0.0]], device=device).expand(Ny_outlet, 2)
     
-    p_outlet_full = p_exact.reshape(Ny, Nx)[:, -1].reshape(-1, 1).to(device)
-    p_outlet = p_outlet_full[1:-1]
+    p_outlet = torch.zeros_like(y_outlet)
     
     nan_outlet  = torch.full_like(y_outlet, float('nan'))
     zero_outlet = torch.zeros_like(y_outlet)
