@@ -99,7 +99,7 @@
 ## [2026-05-18] update | Ottimizzazione VRAM per Viscoelastic PINN (OOM Prevention)
 - Analizzati e risolti i frequenti errori `CUDA out of memory` durante l'addestramento dei modelli viscoelastici su GPU con VRAM limitata (es. GTX 1050 Ti 4GB).
 - Ottimizzato il calcolo del Dynamic Weighting in `Viscoelastic_PINN.py`, eliminando i forward pass ridondanti sull'intero dataset e riutilizzando le componenti di loss già presenti in `loss_dict`.
-- Abilitata l'allocazione avanzata PyTorch `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in `Viscoelastic_main.py` per mitigare la frammentazione della memoria video.
+- Abilitata l'allocazione avanzata PyTorch `PYTORCH_ALLOC_CONF=expandable_segments:True` in `Viscoelastic_main.py` per mitigare la frammentazione della memoria video.
 - Analizzato il footprint di memoria di L-BFGS in FP64, scoprendo l'enorme impatto di `history_size=300` (~1.68 GB di VRAM allocati per ~350k parametri) e riducendolo dinamicamente a `50` per le GPU con $\le 4.5$ GB di VRAM.
 - Implementata la tecnica del Chunking (Gradient Accumulation) all'interno della closure di L-BFGS, dividendo i 5000 punti di collocazione in frammenti da 500 punti per calcolare il gradiente esatto in FP64 senza saturare la VRAM.
 - Ottimizzato il controllo finale della loss post L-BFGS rimpiazzando il ricalcolo full-batch con il riutilizzo dell'ultima loss valutata all'interno della closure.
@@ -112,3 +112,14 @@
 - Ottimizzata la formattazione matematica in `Wiki/Systems/Viscoelastic_Fluids.md`, rimpiazzando i comandi testuali (`\text{tau}`, `\text{lambda}`, `\text{mu}_p`) con le corrette notazioni greche in LaTeX ($\boldsymbol{\tau}$, $\lambda$, $\mu_p$) per la massima chiarezza e coerenza con il resto del vault.
 - Corretta un'incongruenza di numerazione nelle sezioni di `Wiki/Systems/Viscoelastic_Training.md`.
 - Verificata l'integrità dei link tramite comando LIST: 100% di integrità confermata e zero broken links.
+
+## [2026-05-18] update | Risoluzione Bug di Scaling Varianza e Ottimizzazione Training Parametri
+- Analizzata la mancata convergenza delle reti neurali nei Goal 0 (PurePhys) e 1 (Phys+Data).
+- Individuato un grave bug di scaling nella `boundary_loss`: a causa di `VARIANCE_EPS = 1e-8`, i campi con varianza analitica nulla nel flusso di Poiseuille ($v$ e $\tau_{yy}$) venivano divisi per `1e-8`, generando una loss sproporzionata (moltiplicata per 100 milioni) che schiacciava i gradienti di $u, p, \tau_{xx}$.
+- Impostato `VARIANCE_EPS = 1.0` in `Viscoelastic_main.py` per disabilitare lo scaling aggressivo ed equalizzare i pesi al contorno.
+- Modificata la strategia di addestramento inverso in `Viscoelastic_PINN.py`: i parametri fisici vengono ora mantenuti completamente congelati durante tutta la fase Adam (FP32) per evitare *gradient drift*, delegando l'identificazione di precisione esclusivamente alla fase L-BFGS (FP64) su campi neurali ormai stabili.
+
+## [2026-05-18] update | Allineamento Architetturale Staged Training (Goal 1)
+- Analizzata la divergenza di $\tau_{xy}$ e la mancata convergenza dei parametri nel Goal 1 (Phys+Data).
+- Individuato un conflitto fisico intrinseco allo Staged Training in presenza di dati di velocità: con i parametri congelati, $\psi$ si ancora ai dati esatti ($\mu=0.005$) mentre $\tau$ viene forzato dalle equazioni costitutive a imparare lo stress sui parametri di guess ($\mu=0.004$). Congelando $\tau$ in Fase 2, l'errore del 20% viene cristallizzato, impedendo a L-BFGS di trovare la convergenza globale.
+- Ripristinato lo sblocco mirato dei parametri per il Goal 1 in `Viscoelastic_PINN.py`: in Fase 1 si sbloccano $\mu_p$ e $\lambda$ (Reologia), in Fase 2 si sblocca $\mu_s$ (Dinamica). Grazie alla precedente correzione di `VARIANCE_EPS = 1.0`, Adam è ora stabile e in grado di far convergere dolcemente i parametri guidato dalla stabilità della rete $\psi$.

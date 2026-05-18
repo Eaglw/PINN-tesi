@@ -15,7 +15,7 @@ In the original implementation of Wang et al.'s Learning Rate Annealing algorith
 
 ### 2. PyTorch CUDA Allocator Configuration
 Long-running grid search experiments often suffer from VRAM fragmentation, where sufficient total memory is available but split into non-contiguous blocks.
-- **Optimization**: The environment variable `os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"` is injected at the initialization of `Viscoelastic_main.py`. This instructs the PyTorch CUDA allocator to manage memory via expandable virtual memory segments, significantly reducing fragmentation overhead.
+- **Optimization**: The environment variable `os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"` is injected at the initialization of `Viscoelastic_main.py`. This instructs the PyTorch CUDA allocator to manage memory via expandable virtual memory segments, significantly reducing fragmentation overhead.
 
 ### 3. L-BFGS Optimizer Tuning (`history_size`)
 The L-BFGS optimizer is critical for scientific-grade precision refinement in FP64. However, it maintains an internal history buffer of past parameter steps ($s_k$) and gradient differences ($y_k$).

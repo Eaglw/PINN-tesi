@@ -9,7 +9,7 @@ import itertools
 from datetime import datetime
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 # Import funzioni esterne
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -45,10 +45,13 @@ GOAL_CONFIGS = {
 
 # --- Architecture (Grid Search) ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]] #VENet 8x128
-EPOCHS_OPTIONS = [15000]
+EPOCHS_OPTIONS = [7000]
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']
+
+# --- L-BFGS ---
+MAX_LBFGS_ITERS = 1000
 
 # --- Optimizer ---
 BASE_LR = 1e-3
@@ -71,16 +74,13 @@ PDE_WEIGHTS = {'momentum': 10.0, 'constitutive': 1.0}
 
 # --- Data ---
 NUM_DATA_SUBSET = 5000
-VARIANCE_EPS = 1e-8  # Epsilon per varianze: 1.0 disabilita lo scaling aggressivo, 1e-8 lo abilita
+VARIANCE_EPS = 1.0  # Epsilon per varianze: 1.0 disabilita lo scaling aggressivo, 1e-8 lo abilita
 
 # --- Inverse Problem ---
 INVERSE_PROBLEM = True
 GUESS_MU_S = 0.004  # True is 0.005
 GUESS_MU_P = 0.004  # True is 0.005
 GUESS_LAM = 0.8     # True is 1.0
-
-# --- L-BFGS ---
-MAX_LBFGS_ITERS = 500
 
 # --- Logging & Plotting ---
 LOG_GRADIENTS_EVERY = 500
@@ -319,6 +319,12 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
                 final_dir=exp_dir,
                 stress_exact_grids=stress_exact_grids,
             )
+            
+            if goal in [0, 2]:
+                cur_mu_s = phys_problem.mu_s.item() if isinstance(phys_problem.mu_s, torch.Tensor) else phys_problem.mu_s
+                cur_mu_p = phys_problem.mu_p.item() if isinstance(phys_problem.mu_p, torch.Tensor) else phys_problem.mu_p
+                cur_lam = phys_problem.lam.item() if isinstance(phys_problem.lam, torch.Tensor) else phys_problem.lam
+                print(f"  [Parametri Fisici Finali - {label}] mu_s: {cur_mu_s:.5f}, mu_p: {cur_mu_p:.5f}, lam: {cur_lam:.5f}")
             
             # Metriche multi-campo
             fields_exact_for_metrics = {
