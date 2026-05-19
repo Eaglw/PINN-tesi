@@ -103,12 +103,15 @@ class TrainingConfig:
     lr_strategy: str = 'cosine'
     # --- Staged Training ---
     staged_training: bool = True
+    warmup_ratio: float = 0.1
     # --- Precision ---
     precision_mode: str = 'staged'
     # --- L-BFGS ---
     max_lbfgs_iters: int = 100
     # --- Gradient ---
     grad_clip_norm: float = 5.0
+    param_clip_norm: float = 1.0  # Clipping separato (più aggressivo) per i parametri fisici scalari
+    param_lr_factor: float = 0.1  # LR per parametri fisici = base_lr * param_lr_factor
     # --- Mini-Batching ---
     minibatch_internal: int = 1024
     minibatch_boundary: int = 256
@@ -167,11 +170,16 @@ def train_ViscoelasticPINN(
     # --- Unpack config ---
     cfg = config
     epochs = cfg.epochs
+    warmup_ratio = getattr(cfg, 'warmup_ratio', 0.1)
     base_lr = cfg.base_lr
     lr_strategy = cfg.lr_strategy
     staged_training = cfg.staged_training
     mode = cfg.mode
     variance_weights = cfg.variance_weights
+    
+    phase1_warmup_end = int(epochs * warmup_ratio)
+    phase2_warmup_end = (epochs // 2) + int(epochs * warmup_ratio)
+
     
     # --- SETUP STAGED TRAINING E PESI FISICA ---
     half_epochs = epochs // 2
@@ -189,15 +197,22 @@ def train_ViscoelasticPINN(
         # Gestione parametri fisici: in Fase 1 addestriamo solo mu_p e lam (Reologia), mu_s fermo.
         if getattr(physics_problem, 'inverse_mode', False):
             physics_problem.mu_s.requires_grad_(False)
-            physics_problem.mu_p.requires_grad_(True)
-            physics_problem.lam.requires_grad_(True)
-            print("  [Inverse Phase 1] mu_p e lam sbloccati (Reologia), mu_s congelato.")
+            physics_problem.mu_p.requires_grad_(False) # Congelati per warmup
+            physics_problem.lam.requires_grad_(False)  # Congelati per warmup
+            print(f"  [Inverse Phase 1] Parametri fisici congelati per il warmup ({phase1_warmup_end} epoche).")
             
         trainable_params = [p for p in model.parameters() if p.requires_grad]
         trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
         optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
     else:
         set_model_trainable(model, ['psi', 'p', 'tau'])
+        
+        if getattr(physics_problem, 'inverse_mode', False):
+            physics_problem.mu_s.requires_grad_(False)
+            physics_problem.mu_p.requires_grad_(False)
+            physics_problem.lam.requires_grad_(False)
+            print(f"  [Inverse] Parametri fisici congelati per il warmup ({phase1_warmup_end} epoche).")
+            
         trainable_params = list(model.parameters())
         trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
         optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
@@ -240,6 +255,28 @@ def train_ViscoelasticPINN(
 
     alpha_dynamic = 0.9
     for epoch in pbar:
+        # --- WARMUP SBLOCCO PARAMETRI FASE 1 (o Non-Staged) ---
+        if epoch == phase1_warmup_end and getattr(physics_problem, 'inverse_mode', False):
+            if staged_training:
+                physics_problem.mu_p.requires_grad_(True)
+                physics_problem.lam.requires_grad_(True)
+                print(f"\n  [Warmup Terminato] mu_p e lam sbloccati all'epoca {epoch}.")
+            else:
+                physics_problem.mu_s.requires_grad_(True)
+                physics_problem.mu_p.requires_grad_(True)
+                physics_problem.lam.requires_grad_(True)
+                print(f"\n  [Warmup Terminato] Tutti i parametri fisici sbloccati all'epoca {epoch}.")
+            # Ricostruisci optimizer e scheduler per tracciare i nuovi parametri
+            phys_params = [p for p in physics_problem.parameters() if p.requires_grad]
+            trainable_params = [p for p in model.parameters() if p.requires_grad] + phys_params
+            param_lr = base_lr * cfg.param_lr_factor
+            optimizer = torch.optim.Adam([
+                {'params': [p for p in model.parameters() if p.requires_grad]},
+                {'params': phys_params, 'lr': param_lr}
+            ], lr=base_lr, eps=cfg.adam_eps)
+            remaining_steps = (half_epochs - epoch) if staged_training else (epochs - epoch)
+            scheduler = _get_scheduler(optimizer, lr_strategy, remaining_steps)
+
         # --- STAGED TRAINING: Cambio fase a metà epoche ---
         if staged_training and epoch == half_epochs:
             print(f"\n  [Staged Training] Fase 2: Dinamica (psi+p) per {epochs - half_epochs} epoche. (Stress congelato, Navier-Stokes ON)")
@@ -248,15 +285,30 @@ def train_ViscoelasticPINN(
             current_active_bcs = ['u', 'v', 'p']
             
             if getattr(physics_problem, 'inverse_mode', False):
-                physics_problem.mu_s.requires_grad_(True)
+                physics_problem.mu_s.requires_grad_(False) # Congelato per warmup
                 physics_problem.mu_p.requires_grad_(False)
                 physics_problem.lam.requires_grad_(False)
-                print("  [Inverse Phase 2] mu_s sbloccato (Dinamica), mu_p e lam congelati.")
+                print(f"  [Inverse Phase 2] mu_s congelato per il warmup ({int(epochs * warmup_ratio)} epoche).")
                 
             trainable_params = [p for p in model.parameters() if p.requires_grad]
             trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
             optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
             scheduler = _get_scheduler(optimizer, lr_strategy, epochs - half_epochs)
+
+        # --- WARMUP SBLOCCO PARAMETRI FASE 2 ---
+        if staged_training and epoch == phase2_warmup_end and getattr(physics_problem, 'inverse_mode', False):
+            physics_problem.mu_s.requires_grad_(True)
+            print(f"\n  [Warmup Terminato] mu_s sbloccato all'epoca {epoch}.")
+            # Ricostruisci optimizer e scheduler per tracciare mu_s
+            phys_params = [p for p in physics_problem.parameters() if p.requires_grad]
+            trainable_params = [p for p in model.parameters() if p.requires_grad] + phys_params
+            param_lr = base_lr * cfg.param_lr_factor
+            optimizer = torch.optim.Adam([
+                {'params': [p for p in model.parameters() if p.requires_grad]},
+                {'params': phys_params, 'lr': param_lr}
+            ], lr=base_lr, eps=cfg.adam_eps)
+            remaining_steps = epochs - epoch
+            scheduler = _get_scheduler(optimizer, lr_strategy, remaining_steps)
 
         model.train()
         optimizer.zero_grad(set_to_none=True)
@@ -314,20 +366,23 @@ def train_ViscoelasticPINN(
             sys.exit(1)
             
         # Dynamic Weighting (Learning Rate Annealing style)
+        # Usa la lista aggiornata di trainable_params (include i parametri fisici dopo warmup)
+        _current_trainable = [p for p in model.parameters() if p.requires_grad] + \
+                             [p for p in physics_problem.parameters() if p.requires_grad]
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
             if lambda_bc > 0 and 'bc_loss' in loss_dict and isinstance(loss_dict['bc_loss'], torch.Tensor) and loss_dict['bc_loss'].requires_grad:
-                grads_bc = torch.autograd.grad(loss_dict['bc_loss'], trainable_params, retain_graph=True, allow_unused=True)
+                grads_bc = torch.autograd.grad(loss_dict['bc_loss'], _current_trainable, retain_graph=True, allow_unused=True)
                 max_norm_bc = max([g.norm(2) for g in grads_bc if g is not None]).item() if any(g is not None for g in grads_bc) else 0.0
                 
                 if lambda_physics > 0 and 'pde_loss' in loss_dict and isinstance(loss_dict['pde_loss'], torch.Tensor) and loss_dict['pde_loss'].requires_grad:
-                    grads_ph = torch.autograd.grad(loss_dict['pde_loss'], trainable_params, retain_graph=True, allow_unused=True)
+                    grads_ph = torch.autograd.grad(loss_dict['pde_loss'], _current_trainable, retain_graph=True, allow_unused=True)
                     m_n_ph = max([g.norm(2) for g in grads_ph if g is not None]).item() if any(g is not None for g in grads_ph) else 0.0
                     if m_n_ph > 1e-12: 
                         ratio = min(max_norm_bc / m_n_ph, 100.0)
                         target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * ratio * lambda_bc
 
                 if lambda_data > 0 and 'data_loss' in loss_dict and isinstance(loss_dict['data_loss'], torch.Tensor) and loss_dict['data_loss'].requires_grad:
-                    grads_dt = torch.autograd.grad(loss_dict['data_loss'], trainable_params, retain_graph=True, allow_unused=True)
+                    grads_dt = torch.autograd.grad(loss_dict['data_loss'], _current_trainable, retain_graph=True, allow_unused=True)
                     m_n_dt = max([g.norm(2) for g in grads_dt if g is not None]).item() if any(g is not None for g in grads_dt) else 0.0
                     if m_n_dt > 1e-12: 
                         ratio_d = min(max_norm_bc / m_n_dt, 100.0)
@@ -351,15 +406,19 @@ def train_ViscoelasticPINN(
             for name, l_val in loss_dict.items():
                 if name == 'total_loss': continue
                 w = lambda_data if name == 'data_loss' else (lambda_bc if name == 'bc_loss' else (lambda_physics if name == 'pde_loss' else 1.0))
-                grads = torch.autograd.grad(l_val * w, trainable_params, retain_graph=True, allow_unused=True)
+                grads = torch.autograd.grad(l_val * w, _current_trainable, retain_graph=True, allow_unused=True)
                 grad_norms[f'grad_{name}'] = sum(g.data.norm(2).item()**2 for g in grads if g is not None)**0.5
             history_entry.update(grad_norms)
 
         loss_history.update(epoch, history_entry, lr=current_lr)
         loss.backward()
         
-        # Gradient Clipping
+        # Gradient Clipping: rete e parametri fisici separatamente
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
+        if getattr(physics_problem, 'inverse_mode', False):
+            phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
+            if phys_params_clip:
+                torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
         
         optimizer.step()
         
@@ -665,6 +724,10 @@ def train_ViscoelasticPINN(
     if plot_files:
         gif_path = os.path.join(final_dir, 'VEtraining_evolution.gif')
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
+    
+    # Rimuove l'intera cartella contenente i grafici intermedi
+    import shutil
+    shutil.rmtree(plots_dir, ignore_errors=True)
     
     # Phase markers per Staged Training
     _phase_markers = None
