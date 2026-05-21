@@ -123,3 +123,23 @@
 - Analizzata la divergenza di $\tau_{xy}$ e la mancata convergenza dei parametri nel Goal 1 (Phys+Data).
 - Individuato un conflitto fisico intrinseco allo Staged Training in presenza di dati di velocità: con i parametri congelati, $\psi$ si ancora ai dati esatti ($\mu=0.005$) mentre $\tau$ viene forzato dalle equazioni costitutive a imparare lo stress sui parametri di guess ($\mu=0.004$). Congelando $\tau$ in Fase 2, l'errore del 20% viene cristallizzato, impedendo a L-BFGS di trovare la convergenza globale.
 - Ripristinato lo sblocco mirato dei parametri per il Goal 1 in `Viscoelastic_PINN.py`: in Fase 1 si sbloccano $\mu_p$ e $\lambda$ (Reologia), in Fase 2 si sblocca $\mu_s$ (Dinamica). Grazie alla precedente correzione di `VARIANCE_EPS = 1.0`, Adam è ora stabile e in grado di far convergere dolcemente i parametri guidato dalla stabilità della rete $\psi$.
+
+## [2026-05-19] update | GPU Training Speed Optimizations
+- Implemented `use_compile` and `use_amp` toggles in `Viscoelastic_PINN.py` to accelerate training on high-end GPUs.
+- Centralized hardware detection (1050 Ti vs modern GPUs) to conditionally enable `torch.compile` and tune L-BFGS memory parameters seamlessly.
+- Optimized `torch.isnan` checks to run every 100 epochs instead of every epoch, eliminating severe CPU-GPU implicit synchronization overheads.
+- Updated [[GPU_Optimization]] with JIT compilation and AMP considerations for PINNs.
+
+## [2026-05-19] update | Integrazione CUDA Graphs e Stato Ottimizzazioni
+- Completata con successo l'integrazione di **CUDA Graphs** per l'eliminazione dell'overhead CPU-GPU sul loop Adam.
+- Corretto l'errore `cudaErrorStreamCaptureImplicit` sincronizzando il *warmup* e la *cattura* dello stream sotto lo stesso stream secondario in `CUDAGraphManager.capture`.
+- Vettorizzata la `boundary_loss` rimuovendo l'allocazione dinamica di tensori come `active_mask` in `Viscoelastic_physics.py` durante la cattura del grafo.
+- Risolto il `RuntimeError` del backward pass multiplo introducendo un **passo di fallback standard** per le epoche in cui sono calcolati i gradienti per la pesatura dinamica (`dynamic_weighting`) o per i log.
+- Centralizzato il rilevamento dell'hardware tramite la costante `IS_1050TI`: i CUDA Graphs vengono disabilitati per la GTX 1050 Ti per scongiurare OOM in VRAM, e la stessa variabile viene riutilizzata sia per i grafi sia per il tuning di L-BFGS.
+- Documentato lo stato di tutte le ottimizzazioni (attive vs scartate come `torch.compile` su Python 3.14+ e AMP per ragioni di precisione) nella pagina [[GPU_Optimization]].
+
+## [2026-05-21] update_wiki | Aggiunta Sobolev Regularization
+- Creata la pagina di metodo [[Sobolev_Regularization]] per documentare l'uso della supervisione dei gradienti (Sobolev training) come rimedio per il degradamento della velocità nel Goal 2 (`SoloData`) su addestramenti lunghi.
+- Aggiornato l'indice generale [[00_Index]] inserendo il nuovo metodo tra i metodi tecnici.
+
+

@@ -54,6 +54,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Staged_Training_Procedure]]: Decoupled multi-phase training strategy
 - [[DeepXDE]]: Multi-backend PIML library
 - [[SDF_for_Discontinuities]]: Handling sharp transitions in BCs
+- [[Sobolev_Regularization]]: Derivative supervision for stream function kinematics
 - [[Integral_Loss_Scaling]]: Volume-proportional loss balancing
 - [[ViscoelasticNet]]: PINN framework for stress discovery
 - [[Log_Conformation_Tensor]]: Variable transformation for high Weissenberg numbers
