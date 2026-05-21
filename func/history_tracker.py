@@ -332,8 +332,6 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
     scale_u = 1.0
     scale_v = 1.0
     if mode == 'semi_inverse' and variance_weights is not None:
-        if any(torch.isnan(torch.tensor(list(variance_weights.values())))):
-            print(f"!!! [DEBUG] variance_weights contains NaNs: {variance_weights}")
         scale_u = variance_weights.get('u', 1.0)
         scale_v = variance_weights.get('v', 1.0)
     
@@ -344,8 +342,8 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
             u_obs = y_data[:, 0:1]
             v_obs = y_data[:, 1:2]
             
-            loss_u = mse_loss(u_pred, u_obs)
-            loss_v = mse_loss(v_pred, v_obs)
+            loss_u = mse_loss(u_pred, u_obs) / scale_u
+            loss_v = mse_loss(v_pred, v_obs) / scale_v
             
             data_loss = 0.5 * (loss_u + loss_v) # Media sulle due componenti spaziali
         else:

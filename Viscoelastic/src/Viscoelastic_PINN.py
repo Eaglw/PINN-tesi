@@ -12,6 +12,18 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison, plot2D_final_result, plot2D_viscoelastic_final
 from func.history_tracker import TrainingHistory, compute_pinn_loss
 
+def check_is_1050ti():
+    if not torch.cuda.is_available():
+        return False
+    try:
+        device_name = torch.cuda.get_device_name(0)
+        total_mem = torch.cuda.get_device_properties(0).total_memory
+        return "1050" in device_name or total_mem < 4.5 * 1024**3
+    except:
+        return False
+
+IS_1050TI = check_is_1050ti()
+
 # ---  DEFINIZIONE DELLA RETE NEURALE E WRAPPER ---
 class FCN(nn.Module):
     """Rete Neurale a Connessioni Complete (Fully Connected Network)"""
@@ -108,6 +120,8 @@ class TrainingConfig:
     precision_mode: str = 'staged'
     # --- L-BFGS ---
     max_lbfgs_iters: int = 100
+    # --- CUDA Graphs ---
+    use_cuda_graphs: bool = field(default_factory=lambda: not IS_1050TI)
     # --- Gradient ---
     grad_clip_norm: float = 5.0
     param_clip_norm: float = 1.0  # Clipping separato (più aggressivo) per i parametri fisici scalari
@@ -136,6 +150,36 @@ def _sample_minibatch(xy, targets, batch_size, device):
     if isinstance(targets, tuple):
         return xy[idx], tuple(t[idx] for t in targets)
     return xy[idx], targets[idx]
+
+
+class CUDAGraphManager:
+    """Gestisce la cattura e il replay dei CUDA Graphs per ottimizzare il training."""
+    def __init__(self):
+        self.g = None
+        self.is_captured = False
+        self.static_inputs = {}
+        self.static_outputs = {}
+
+    def capture(self, func, *args, **kwargs):
+        self.g = torch.cuda.CUDAGraph()
+        # Warmup
+        s = torch.cuda.Stream()
+        s.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(s):
+            for _ in range(3):
+                func(*args, **kwargs)
+            
+            # Capture
+            with torch.cuda.graph(self.g):
+                self.static_outputs = func(*args, **kwargs)
+        torch.cuda.current_stream().wait_stream(s)
+        self.is_captured = True
+
+    def replay(self):
+        if not self.is_captured:
+            raise RuntimeError("CUDAGraph not captured yet!")
+        self.g.replay()
+        return self.static_outputs
 
 
 def _get_scheduler(optimizer, strategy, total_steps):
@@ -169,6 +213,15 @@ def train_ViscoelasticPINN(
     """
     # --- Unpack config ---
     cfg = config
+    
+    # Controllo di sicurezza statico per i pesi di varianza
+    if cfg.variance_weights is not None:
+        for k, v in cfg.variance_weights.items():
+            val_float = v.item() if hasattr(v, 'item') else v
+            if np.isnan(val_float):
+                print(f"!!! [WARNING] variance_weights contains NaNs: {cfg.variance_weights}")
+                break
+
     epochs = cfg.epochs
     warmup_ratio = getattr(cfg, 'warmup_ratio', 0.1)
     base_lr = cfg.base_lr
@@ -203,7 +256,7 @@ def train_ViscoelasticPINN(
             
         trainable_params = [p for p in model.parameters() if p.requires_grad]
         trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
-        optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
+        optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=cfg.use_cuda_graphs)
     else:
         set_model_trainable(model, ['psi', 'p', 'tau'])
         
@@ -215,7 +268,7 @@ def train_ViscoelasticPINN(
             
         trainable_params = list(model.parameters())
         trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
-        optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
+        optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=cfg.use_cuda_graphs)
 
     xy_int, T_int = data_internal
     xy_bc, dir_bc, neu_bc, norm_bc = data_boundary
@@ -273,9 +326,10 @@ def train_ViscoelasticPINN(
             optimizer = torch.optim.Adam([
                 {'params': [p for p in model.parameters() if p.requires_grad]},
                 {'params': phys_params, 'lr': param_lr}
-            ], lr=base_lr, eps=cfg.adam_eps)
+            ], lr=base_lr, eps=cfg.adam_eps, capturable=cfg.use_cuda_graphs)
             remaining_steps = (half_epochs - epoch) if staged_training else (epochs - epoch)
             scheduler = _get_scheduler(optimizer, lr_strategy, remaining_steps)
+            if cfg.use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
 
         # --- STAGED TRAINING: Cambio fase a metà epoche ---
         if staged_training and epoch == half_epochs:
@@ -292,8 +346,9 @@ def train_ViscoelasticPINN(
                 
             trainable_params = [p for p in model.parameters() if p.requires_grad]
             trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
-            optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps)
+            optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=cfg.use_cuda_graphs)
             scheduler = _get_scheduler(optimizer, lr_strategy, epochs - half_epochs)
+            if cfg.use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
 
         # --- WARMUP SBLOCCO PARAMETRI FASE 2 ---
         if staged_training and epoch == phase2_warmup_end and getattr(physics_problem, 'inverse_mode', False):
@@ -306,67 +361,136 @@ def train_ViscoelasticPINN(
             optimizer = torch.optim.Adam([
                 {'params': [p for p in model.parameters() if p.requires_grad]},
                 {'params': phys_params, 'lr': param_lr}
-            ], lr=base_lr, eps=cfg.adam_eps)
+            ], lr=base_lr, eps=cfg.adam_eps, capturable=cfg.use_cuda_graphs)
             remaining_steps = epochs - epoch
             scheduler = _get_scheduler(optimizer, lr_strategy, remaining_steps)
+            if cfg.use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
 
         model.train()
         optimizer.zero_grad(set_to_none=True)
         lambda_physics = target_lambda_physics
 
-        # Campionamento dati interni
-        if lambda_data > 0:
-            xy_int_batch, T_int_batch = _sample_minibatch(xy_int, T_int, cfg.minibatch_internal, _device)
-        else:
-            xy_int_batch, T_int_batch = xy_int, T_int
-
-        # Campionamento punti fisica
-        if lambda_physics > 0:
-            if lambda_data > 0:
-                # Goal 1: Fisica sugli stessi punti dei dati
-                xy_phys_batch = xy_int_batch.clone().to(dtype=_dtype, device=_device).requires_grad_(True)
-            else:
-                # Goal 0: Fisica su collocation points separati
-                xy_phys_batch, _ = _sample_minibatch(collocation_points, collocation_points, cfg.minibatch_internal, _device)
-                xy_phys_batch = xy_phys_batch.clone().to(dtype=_dtype, device=_device).requires_grad_(True)
-        else:
-            xy_phys_batch = None
-
-        # Campionamento boundary
-        xy_bc_batch, T_bc_tuple_batch = _sample_minibatch(xy_bc, T_bc_tuple, cfg.minibatch_boundary, _device)
-
-        if getattr(physics_problem, 'inverse_mode', False):
-            with torch.no_grad():
-                if isinstance(physics_problem.mu_s, torch.Tensor): physics_problem.mu_s.clamp_(min=1e-6)
-                if isinstance(physics_problem.mu_p, torch.Tensor): physics_problem.mu_p.clamp_(min=1e-6)
-                if isinstance(physics_problem.lam, torch.Tensor): physics_problem.lam.clamp_(min=1e-6)
-
-        # Calcolo loss
-        loss, loss_dict = compute_pinn_loss(
-            model, 
-            x_data=xy_int_batch, 
-            y_data=T_int_batch,
-            x_bc=xy_bc_batch,
-            y_bc=T_bc_tuple_batch,
-            physics_problem=physics_problem,
-            x_physics=xy_phys_batch,
-            lambda_data=lambda_data,
-            lambda_bc=lambda_bc,
-            lambda_physics=lambda_physics,
-            mode=mode,
-            variance_weights=variance_weights,
-            active_bcs=current_active_bcs
-        )
-
-        # Controllo NaN
-        if torch.isnan(loss):
-            print(f"\n!!! [NaN] Rilevato NaN all'epoca {epoch} !!!")
-            for k, v in loss_dict.items():
-                print(f"  - {k}: {v.item() if hasattr(v, 'item') else v}")
-            sys.exit(1)
+        # --- CUDA Graphs Logic ---
+        if cfg.use_cuda_graphs and 'graph_manager' not in locals():
+            graph_manager = CUDAGraphManager()
+            # Allocazione tensori statici per pesi (che cambiano dinamicamente)
+            s_lambda_data = torch.tensor(lambda_data, dtype=_dtype, device=_device)
+            s_lambda_bc = torch.tensor(lambda_bc, dtype=_dtype, device=_device)
+            s_lambda_physics = torch.tensor(lambda_physics, dtype=_dtype, device=_device)
             
+            # Allocazione tensori statici per dati (batch size fisso)
+            _s_xy_int, _s_T_int = _sample_minibatch(xy_int, T_int, cfg.minibatch_internal, _device)
+            s_xy_int = _s_xy_int.clone().detach().requires_grad_(True)
+            s_T_int = _s_T_int.clone()
+            
+            _s_xy_bc, _s_T_bc = _sample_minibatch(xy_bc, T_bc_tuple, cfg.minibatch_boundary, _device)
+            s_xy_bc = _s_xy_bc.clone().detach().requires_grad_(True)
+            s_T_bc = tuple(t.clone() for t in _s_T_bc)
+            
+            if lambda_physics > 0:
+                s_xy_phys = s_xy_int.clone().detach().requires_grad_(True)
+            else:
+                s_xy_phys = None
+                
+            # Funzione step interna da catturare
+            def graph_step_fn():
+                optimizer.zero_grad(set_to_none=True)
+                loss, loss_dict = compute_pinn_loss(
+                    model, x_data=s_xy_int, y_data=s_T_int,
+                    x_bc=s_xy_bc, y_bc=s_T_bc, physics_problem=physics_problem,
+                    x_physics=s_xy_phys, lambda_data=s_lambda_data, lambda_bc=s_lambda_bc,
+                    lambda_physics=s_lambda_physics, mode=mode, variance_weights=variance_weights,
+                    active_bcs=current_active_bcs
+                )
+                loss.backward(inputs=trainable_params)
+                
+                # Gradient Clipping: rete e parametri fisici separatamente
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
+                if getattr(physics_problem, 'inverse_mode', False):
+                    phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
+                    if phys_params_clip:
+                        torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
+                        
+                optimizer.step()
+                return loss, loss_dict
+
+        # Esecuzione (con o senza CUDA Graphs)
+        # Fallback to standard execution if we need to compute gradients outside the step (dynamic weighting or logging)
+        requires_external_grads = (cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0) or \
+                                  (cfg.log_gradients_every > 0 and (epoch + 1) % cfg.log_gradients_every == 0)
+                                  
+        if cfg.use_cuda_graphs and not requires_external_grads:
+            # 1. Copia i nuovi dati nei tensori statici
+            with torch.no_grad():
+                if lambda_data > 0:
+                    xy_int_batch, T_int_batch = _sample_minibatch(xy_int, T_int, cfg.minibatch_internal, _device)
+                    s_xy_int.copy_(xy_int_batch)
+                    s_T_int.copy_(T_int_batch)
+                xy_bc_batch, T_bc_tuple_batch = _sample_minibatch(xy_bc, T_bc_tuple, cfg.minibatch_boundary, _device)
+                s_xy_bc.copy_(xy_bc_batch)
+                for i in range(len(s_T_bc)): s_T_bc[i].copy_(T_bc_tuple_batch[i])
+                
+                if lambda_physics > 0:
+                    s_xy_phys.copy_(s_xy_int)
+                    
+                s_lambda_data.copy_(torch.tensor(lambda_data, dtype=_dtype, device=_device))
+                s_lambda_bc.copy_(torch.tensor(lambda_bc, dtype=_dtype, device=_device))
+                s_lambda_physics.copy_(torch.tensor(target_lambda_physics, dtype=_dtype, device=_device))
+            
+            # 2. Cattura o Replay
+            if getattr(physics_problem, 'inverse_mode', False):
+                with torch.no_grad():
+                    if isinstance(physics_problem.mu_s, torch.Tensor): physics_problem.mu_s.clamp_(min=1e-6)
+                    if isinstance(physics_problem.mu_p, torch.Tensor): physics_problem.mu_p.clamp_(min=1e-6)
+                    if isinstance(physics_problem.lam, torch.Tensor): physics_problem.lam.clamp_(min=1e-6)
+                    
+            if not graph_manager.is_captured:
+                graph_manager.capture(graph_step_fn)
+            
+            loss, loss_dict = graph_manager.replay()
+        else:
+            # Fallback a training standard
+            if lambda_data > 0:
+                xy_int_batch, T_int_batch = _sample_minibatch(xy_int, T_int, cfg.minibatch_internal, _device)
+            else:
+                xy_int_batch, T_int_batch = xy_int, T_int
+    
+            if lambda_physics > 0:
+                if lambda_data > 0:
+                    xy_phys_batch = xy_int_batch.clone().to(dtype=_dtype, device=_device).requires_grad_(True)
+                else:
+                    xy_phys_batch, _ = _sample_minibatch(collocation_points, collocation_points, cfg.minibatch_internal, _device)
+                    xy_phys_batch = xy_phys_batch.clone().to(dtype=_dtype, device=_device).requires_grad_(True)
+            else:
+                xy_phys_batch = None
+    
+            xy_bc_batch, T_bc_tuple_batch = _sample_minibatch(xy_bc, T_bc_tuple, cfg.minibatch_boundary, _device)
+    
+            if getattr(physics_problem, 'inverse_mode', False):
+                with torch.no_grad():
+                    if isinstance(physics_problem.mu_s, torch.Tensor): physics_problem.mu_s.clamp_(min=1e-6)
+                    if isinstance(physics_problem.mu_p, torch.Tensor): physics_problem.mu_p.clamp_(min=1e-6)
+                    if isinstance(physics_problem.lam, torch.Tensor): physics_problem.lam.clamp_(min=1e-6)
+    
+            optimizer.zero_grad(set_to_none=True)
+            loss, loss_dict = compute_pinn_loss(
+                model, x_data=xy_int_batch, y_data=T_int_batch,
+                x_bc=xy_bc_batch, y_bc=T_bc_tuple_batch,
+                physics_problem=physics_problem, x_physics=xy_phys_batch,
+                lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=lambda_physics,
+                mode=mode, variance_weights=variance_weights, active_bcs=current_active_bcs
+            )
+        
+        # Reintroduco i check post-step che erano alla fine del ciclo prima del refactoring
+        # Controllo NaN (sincronizzazione CPU-GPU molto costosa, fatta ogni 100 epoche)
+        if (epoch + 1) % 100 == 0:
+            if torch.isnan(loss):
+                print(f"\n!!! [NaN] Rilevato NaN all'epoca {epoch} !!!")
+                for k, v in loss_dict.items():
+                    print(f"  - {k}: {v.item() if hasattr(v, 'item') else v}")
+                sys.exit(1)
+                
         # Dynamic Weighting (Learning Rate Annealing style)
-        # Usa la lista aggiornata di trainable_params (include i parametri fisici dopo warmup)
         _current_trainable = [p for p in model.parameters() if p.requires_grad] + \
                              [p for p in physics_problem.parameters() if p.requires_grad]
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
@@ -387,7 +511,7 @@ def train_ViscoelasticPINN(
                     if m_n_dt > 1e-12: 
                         ratio_d = min(max_norm_bc / m_n_dt, 100.0)
                         lambda_data = alpha_dynamic * lambda_data + (1-alpha_dynamic) * ratio_d * lambda_bc
-        
+                        
         # Logging
         current_lr = optimizer.param_groups[0]['lr']
         history_entry = loss_dict.copy()
@@ -411,16 +535,19 @@ def train_ViscoelasticPINN(
             history_entry.update(grad_norms)
 
         loss_history.update(epoch, history_entry, lr=current_lr)
-        loss.backward()
         
-        # Gradient Clipping: rete e parametri fisici separatamente
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
-        if getattr(physics_problem, 'inverse_mode', False):
-            phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
-            if phys_params_clip:
-                torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
-        
-        optimizer.step()
+        # Esecuzione del backward e step dell'ottimizzatore se non abbiamo usato il replay del grafo
+        if not cfg.use_cuda_graphs or requires_external_grads:
+            loss.backward(inputs=_current_trainable)
+            
+            # Gradient Clipping: rete e parametri fisici separatamente
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
+            if getattr(physics_problem, 'inverse_mode', False):
+                phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
+                if phys_params_clip:
+                    torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
+            
+            optimizer.step()
         
         if lr_strategy in ['step_decay', 'cosine']: scheduler.step()
         elif lr_strategy == 'plateau':
@@ -544,15 +671,14 @@ def train_ViscoelasticPINN(
         'active_bcs': current_active_bcs
     }
     
-    # Rileva se la GPU è una 1050 Ti (o ha <= 4.5 GB di VRAM) per adattare history_size e abilitare chunking
+    # Rileva se la GPU è una 1050 Ti per adattare history_size e abilitare chunking
     hist_size = 300
     chunk_size = 5000  # Default: nessun chunking
-    if torch.cuda.is_available():
-        device_name = torch.cuda.get_device_name(0)
-        if "1050" in device_name or torch.cuda.get_device_properties(0).total_memory < 4.5 * 1024**3:
-            hist_size = 50
-            chunk_size = 500
-            print(f"\n  [Memory Config] Rilevata GPU {device_name}. Riduzione history_size a 50 e abilitazione chunking (500 pts) per L-BFGS.")
+    if IS_1050TI:
+        hist_size = 50
+        chunk_size = 500
+        if torch.cuda.is_available():
+            print(f"\n  [Memory Config] Rilevata GPU 1050 Ti o VRAM limitata ({torch.cuda.get_device_name(0)}). Riduzione history_size a 50 e abilitazione chunking (500 pts) per L-BFGS.")
 
     last_loss_val = [0.0]
     last_loss_dict = [{}]

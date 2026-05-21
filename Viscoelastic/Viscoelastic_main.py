@@ -45,13 +45,13 @@ GOAL_CONFIGS = {
 
 # --- Architecture (Grid Search) ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]] #VENet 8x128
-EPOCHS_OPTIONS = [7000]
+EPOCHS_OPTIONS = [20000]
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']
 
 # --- L-BFGS ---
-MAX_LBFGS_ITERS = 1000
+MAX_LBFGS_ITERS = 2000
 
 # --- Optimizer ---
 BASE_LR = 1e-3
@@ -61,8 +61,8 @@ ADAM_EPS = 1e-7
 STAGED_TRAINING = True
 
 # --- Mini-Batching ---
-MINIBATCH_INTERNAL = 1024
-MINIBATCH_BOUNDARY = 256
+MINIBATCH_INTERNAL = 2048
+MINIBATCH_BOUNDARY = 512
 
 # --- Loss Weighting ---
 STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}

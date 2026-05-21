@@ -181,51 +181,66 @@ class ViscoelasticPhysics(nn.Module):
         keys = ['u', 'v', 'p', 'txx', 'txy', 'tyy']
         
         if active_bcs is not None:
-            active_mask = torch.tensor([k in active_bcs for k in keys], device=x_bc.device)
+            active_mask = [k in active_bcs for k in keys]
         else:
-            active_mask = torch.ones(6, dtype=torch.bool, device=x_bc.device)
+            active_mask = [True] * 6
             
         total_bc_loss = 0.0
         
         # --- Dirichlet Loss ---
-        valid_dir = ~torch.isnan(dir_target) & active_mask
-        if valid_dir.any():
-            diff_dir = pred_bc - torch.nan_to_num(dir_target, nan=0.0)
-            sq_diff_dir = diff_dir ** 2
+        valid_dir_float_list = []
+        for i, is_active in enumerate(active_mask):
+            if is_active:
+                valid_dir_float_list.append((~torch.isnan(dir_target[:, i:i+1])).float())
+            else:
+                valid_dir_float_list.append(torch.zeros_like(dir_target[:, i:i+1]))
+        valid_dir_float = torch.cat(valid_dir_float_list, dim=1)
+        diff_dir = pred_bc - torch.nan_to_num(dir_target, nan=0.0)
+        sq_diff_dir = diff_dir ** 2
+        
+        if variance_weights is not None:
+            sq_diff_dir_list = []
+            for i, k in enumerate(keys):
+                scale = variance_weights.get(k, 1.0)
+                sq_diff_dir_list.append(sq_diff_dir[:, i:i+1] / scale)
+            sq_diff_dir = torch.cat(sq_diff_dir_list, dim=1)
             
-            if variance_weights is not None:
-                v_w = [variance_weights.get(k, 1.0) for k in keys]
-                scales = torch.tensor(v_w, device=x_bc.device)
-                sq_diff_dir = sq_diff_dir / scales
-                
-            total_bc_loss += sq_diff_dir[valid_dir].mean()
+        sum_dir = (sq_diff_dir * valid_dir_float).sum()
+        count_dir = valid_dir_float.sum()
+        total_bc_loss += sum_dir / count_dir.clamp_min(1.0)
             
         # --- Neumann Loss ---
-        valid_neu = ~torch.isnan(neu_target) & active_mask
-        if valid_neu.any():
-            nx = normals[:, 0:1]
-            ny = normals[:, 1:2]
-            preds = [u, v, p, tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]]
+        valid_neu_float_list = []
+        for i, is_active in enumerate(active_mask):
+            if is_active:
+                valid_neu_float_list.append((~torch.isnan(neu_target[:, i:i+1])).float())
+            else:
+                valid_neu_float_list.append(torch.zeros_like(neu_target[:, i:i+1]))
+        valid_neu_float = torch.cat(valid_neu_float_list, dim=1)
+        nx = normals[:, 0:1]
+        ny = normals[:, 1:2]
+        preds = [u, v, p, tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]]
+        
+        for i, pred in enumerate(preds):
+            if not active_mask[i]:
+                continue
+            grad_pred = torch.autograd.grad(pred.sum(), x_bc, create_graph=True)[0]
+            normal_deriv = grad_pred[:, 0:1] * nx + grad_pred[:, 1:2] * ny
+            
+            target_i = neu_target[:, i:i+1]
+            mask_i = valid_neu_float[:, i:i+1]
+            
+            diff_neu = normal_deriv - torch.nan_to_num(target_i, nan=0.0)
             
             if variance_weights is not None:
-                v_w = [variance_weights.get(k, 1.0) for k in keys]
-                scales = torch.tensor(v_w, device=x_bc.device)
+                scale = variance_weights.get(keys[i], 1.0)
+                sq_diff_neu = (diff_neu ** 2) / scale
+            else:
+                sq_diff_neu = diff_neu ** 2
             
-            for i, pred in enumerate(preds):
-                if valid_neu[:, i].any():
-                    grad_pred = torch.autograd.grad(pred.sum(), x_bc, create_graph=True)[0]
-                    normal_deriv = grad_pred[:, 0:1] * nx + grad_pred[:, 1:2] * ny
-                    
-                    target_i = neu_target[:, i:i+1]
-                    mask_i = valid_neu[:, i:i+1]
-                    
-                    diff_neu = normal_deriv - torch.nan_to_num(target_i, nan=0.0)
-                    sq_diff_neu = diff_neu ** 2
-                    
-                    if variance_weights is not None:
-                        sq_diff_neu = sq_diff_neu / scales[i]
-                        
-                    total_bc_loss += sq_diff_neu[mask_i].mean()
+            sum_neu = (sq_diff_neu * mask_i).sum()
+            count_neu = mask_i.sum()
+            total_bc_loss += sum_neu / count_neu.clamp_min(1.0)
                     
         return total_bc_loss
 
