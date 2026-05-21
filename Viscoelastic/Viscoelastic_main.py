@@ -35,7 +35,7 @@ SEED = 123
 
 # --- Training Goals ---
 # 0=PurePhys, 1=Phys+Data, 2=SoloData
-GOALS_TO_RUN = [0, 1, 2]
+GOALS_TO_RUN = [2, 1, 0]
 
 GOAL_CONFIGS = {
     0: {'label': 'PurePhys',  'weights': {'bc': 1.0, 'physics': 1.0, 'data': 0.0}, 'mode': 'standard'},
@@ -74,7 +74,7 @@ PDE_WEIGHTS = {'momentum': 10.0, 'constitutive': 1.0}
 
 # --- Data ---
 NUM_DATA_SUBSET = 5000
-VARIANCE_EPS = 1.0  # Epsilon per varianze: 1.0 disabilita lo scaling aggressivo, 1e-8 lo abilita
+VARIANCE_EPS = 1e-4  # Epsilon per varianze: 1.0 disabilita lo scaling aggressivo, 1e-8 lo abilita
 
 # --- Inverse Problem ---
 INVERSE_PROBLEM = True
@@ -320,11 +320,10 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
                 stress_exact_grids=stress_exact_grids,
             )
             
-            if goal in [0, 2]:
-                cur_mu_s = phys_problem.mu_s.item() if isinstance(phys_problem.mu_s, torch.Tensor) else phys_problem.mu_s
-                cur_mu_p = phys_problem.mu_p.item() if isinstance(phys_problem.mu_p, torch.Tensor) else phys_problem.mu_p
-                cur_lam = phys_problem.lam.item() if isinstance(phys_problem.lam, torch.Tensor) else phys_problem.lam
-                print(f"  [Parametri Fisici Finali - {label}] mu_s: {cur_mu_s:.5f}, mu_p: {cur_mu_p:.5f}, lam: {cur_lam:.5f}")
+            cur_mu_s = phys_problem.mu_s.item() if isinstance(phys_problem.mu_s, torch.Tensor) else phys_problem.mu_s
+            cur_mu_p = phys_problem.mu_p.item() if isinstance(phys_problem.mu_p, torch.Tensor) else phys_problem.mu_p
+            cur_lam = phys_problem.lam.item() if isinstance(phys_problem.lam, torch.Tensor) else phys_problem.lam
+            print(f"  [Parametri Fisici Finali - {label}] mu_s: {cur_mu_s:.5f}, mu_p: {cur_mu_p:.5f}, lam: {cur_lam:.5f}")
             
             # Metriche multi-campo
             fields_exact_for_metrics = {

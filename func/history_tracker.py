@@ -335,8 +335,16 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
         scale_u = variance_weights.get('u', 1.0)
         scale_v = variance_weights.get('v', 1.0)
     
+    # Determina se lambda_data è zero (evitando sync se è un tensore)
+    lambda_data_is_zero = kwargs.get('lambda_data_is_zero', None)
+    if lambda_data_is_zero is None:
+        if isinstance(lambda_data, torch.Tensor):
+            lambda_data_is_zero = False
+        else:
+            lambda_data_is_zero = (lambda_data == 0.0)
+
     if x_data is not None and y_data is not None and x_data.numel() > 0:
-        if lambda_data == 0.0:
+        if lambda_data_is_zero:
             with torch.no_grad():
                 if mode == 'semi_inverse' and physics_problem is not None:
                     u_pred, v_pred, _, _ = physics_problem.get_velocity(model, x_data)

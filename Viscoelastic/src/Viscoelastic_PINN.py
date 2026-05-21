@@ -400,7 +400,7 @@ def train_ViscoelasticPINN(
                     x_bc=s_xy_bc, y_bc=s_T_bc, physics_problem=physics_problem,
                     x_physics=s_xy_phys, lambda_data=s_lambda_data, lambda_bc=s_lambda_bc,
                     lambda_physics=s_lambda_physics, mode=mode, variance_weights=variance_weights,
-                    active_bcs=current_active_bcs
+                    active_bcs=current_active_bcs, lambda_data_is_zero=(lambda_data == 0.0)
                 )
                 loss.backward(inputs=trainable_params)
                 
