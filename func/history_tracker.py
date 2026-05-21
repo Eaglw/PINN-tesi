@@ -336,19 +336,32 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
         scale_v = variance_weights.get('v', 1.0)
     
     if x_data is not None and y_data is not None and x_data.numel() > 0:
-        if mode == 'semi_inverse' and physics_problem is not None:
-            # y_data contiene [u_obs, v_obs]
-            u_pred, v_pred, _, _ = physics_problem.get_velocity(model, x_data)
-            u_obs = y_data[:, 0:1]
-            v_obs = y_data[:, 1:2]
-            
-            loss_u = mse_loss(u_pred, u_obs) / scale_u
-            loss_v = mse_loss(v_pred, v_obs) / scale_v
-            
-            data_loss = 0.5 * (loss_u + loss_v) # Media sulle due componenti spaziali
+        if lambda_data == 0.0:
+            with torch.no_grad():
+                if mode == 'semi_inverse' and physics_problem is not None:
+                    u_pred, v_pred, _, _ = physics_problem.get_velocity(model, x_data)
+                    u_obs = y_data[:, 0:1]
+                    v_obs = y_data[:, 1:2]
+                    loss_u = mse_loss(u_pred, u_obs) / scale_u
+                    loss_v = mse_loss(v_pred, v_obs) / scale_v
+                    data_loss = 0.5 * (loss_u + loss_v)
+                else:
+                    y_pred = model(x_data)
+                    data_loss = mse_loss(y_pred, y_data)
         else:
-            y_pred = model(x_data)
-            data_loss = mse_loss(y_pred, y_data)
+            if mode == 'semi_inverse' and physics_problem is not None:
+                # y_data contiene [u_obs, v_obs]
+                u_pred, v_pred, _, _ = physics_problem.get_velocity(model, x_data)
+                u_obs = y_data[:, 0:1]
+                v_obs = y_data[:, 1:2]
+                
+                loss_u = mse_loss(u_pred, u_obs) / scale_u
+                loss_v = mse_loss(v_pred, v_obs) / scale_v
+                
+                data_loss = 0.5 * (loss_u + loss_v) # Media sulle due componenti spaziali
+            else:
+                y_pred = model(x_data)
+                data_loss = mse_loss(y_pred, y_data)
             
         loss_dict['data_loss'] = data_loss
         total_loss += lambda_data * data_loss

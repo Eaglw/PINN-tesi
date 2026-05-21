@@ -493,20 +493,31 @@ def train_ViscoelasticPINN(
         # Dynamic Weighting (Learning Rate Annealing style)
         _current_trainable = [p for p in model.parameters() if p.requires_grad] + \
                              [p for p in physics_problem.parameters() if p.requires_grad]
+                             
+        # Costruisce _last_layer_trainable per dynamic weighting e logging (riduce drasticamente il VRAM footprint)
+        _last_layer_trainable = []
+        for net in [model.model_psi, model.model_p, model.model_tau]:
+            if hasattr(net, 'fcs') and len(net.fcs) > 0:
+                for p in net.fcs[-1].parameters():
+                    if p.requires_grad:
+                        _last_layer_trainable.append(p)
+        if not _last_layer_trainable:
+            _last_layer_trainable = _current_trainable
+
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
             if lambda_bc > 0 and 'bc_loss' in loss_dict and isinstance(loss_dict['bc_loss'], torch.Tensor) and loss_dict['bc_loss'].requires_grad:
-                grads_bc = torch.autograd.grad(loss_dict['bc_loss'], _current_trainable, retain_graph=True, allow_unused=True)
+                grads_bc = torch.autograd.grad(loss_dict['bc_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
                 max_norm_bc = max([g.norm(2) for g in grads_bc if g is not None]).item() if any(g is not None for g in grads_bc) else 0.0
                 
                 if lambda_physics > 0 and 'pde_loss' in loss_dict and isinstance(loss_dict['pde_loss'], torch.Tensor) and loss_dict['pde_loss'].requires_grad:
-                    grads_ph = torch.autograd.grad(loss_dict['pde_loss'], _current_trainable, retain_graph=True, allow_unused=True)
+                    grads_ph = torch.autograd.grad(loss_dict['pde_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
                     m_n_ph = max([g.norm(2) for g in grads_ph if g is not None]).item() if any(g is not None for g in grads_ph) else 0.0
                     if m_n_ph > 1e-12: 
                         ratio = min(max_norm_bc / m_n_ph, 100.0)
                         target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * ratio * lambda_bc
 
                 if lambda_data > 0 and 'data_loss' in loss_dict and isinstance(loss_dict['data_loss'], torch.Tensor) and loss_dict['data_loss'].requires_grad:
-                    grads_dt = torch.autograd.grad(loss_dict['data_loss'], _current_trainable, retain_graph=True, allow_unused=True)
+                    grads_dt = torch.autograd.grad(loss_dict['data_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
                     m_n_dt = max([g.norm(2) for g in grads_dt if g is not None]).item() if any(g is not None for g in grads_dt) else 0.0
                     if m_n_dt > 1e-12: 
                         ratio_d = min(max_norm_bc / m_n_dt, 100.0)
@@ -530,8 +541,11 @@ def train_ViscoelasticPINN(
             for name, l_val in loss_dict.items():
                 if name == 'total_loss': continue
                 w = lambda_data if name == 'data_loss' else (lambda_bc if name == 'bc_loss' else (lambda_physics if name == 'pde_loss' else 1.0))
-                grads = torch.autograd.grad(l_val * w, _current_trainable, retain_graph=True, allow_unused=True)
-                grad_norms[f'grad_{name}'] = sum(g.data.norm(2).item()**2 for g in grads if g is not None)**0.5
+                if isinstance(l_val, torch.Tensor) and l_val.requires_grad and w > 0:
+                    grads = torch.autograd.grad(l_val * w, _last_layer_trainable, retain_graph=True, allow_unused=True)
+                    grad_norms[f'grad_{name}'] = sum(g.data.norm(2).item()**2 for g in grads if g is not None)**0.5
+                else:
+                    grad_norms[f'grad_{name}'] = 0.0
             history_entry.update(grad_norms)
 
         loss_history.update(epoch, history_entry, lr=current_lr)

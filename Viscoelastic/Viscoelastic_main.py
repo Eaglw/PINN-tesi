@@ -45,7 +45,7 @@ GOAL_CONFIGS = {
 
 # --- Architecture (Grid Search) ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]] #VENet 8x128
-EPOCHS_OPTIONS = [20000]
+EPOCHS_OPTIONS = [18000]
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']
@@ -61,8 +61,8 @@ ADAM_EPS = 1e-7
 STAGED_TRAINING = True
 
 # --- Mini-Batching ---
-MINIBATCH_INTERNAL = 2048
-MINIBATCH_BOUNDARY = 512
+MINIBATCH_INTERNAL = 1024
+MINIBATCH_BOUNDARY = 256
 
 # --- Loss Weighting ---
 STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}
@@ -378,6 +378,16 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
             print(f"  [X] Errore nel training {label}: {e}")
             import traceback
             traceback.print_exc()
+            # Pulizia della memoria GPU in caso di errore per non influenzare i goal successivi
+            if 'model_combined' in locals(): del model_combined
+            if 'model_psi' in locals(): del model_psi
+            if 'model_p' in locals(): del model_p
+            if 'model_tau' in locals(): del model_tau
+            if 'phys_problem' in locals(): del phys_problem
+            if 'optimizer' in locals(): del optimizer
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     # --- COMPARISON PLOTS ---
     print(f"  > Generating Comparisons for {config_name}...")
