@@ -216,11 +216,24 @@ class ViscoelasticPhysics(nn.Module):
         total_bc_loss += sum_dir / count_dir.clamp_min(1.0) #dividiamo per i punti totali, clamp mi salva da eventuali 0 se non ho dirichlet
 
         # --- 4. LOSS DI NEUMANN ---
-        valid_neu = (~torch.isnan(neu_target)) & active_mask #stessa matrice booleana
+        # Cache per sapere quali colonne hanno condizioni al contorno di Neumann (non-NaN)
+        # in modo da evitare la sincronizzazione GPU-CPU durante la cattura dei CUDA Graphs.
+        if not hasattr(self, '_neu_active_mask_cache'):
+            self._neu_active_mask_cache = {}
         
+        neu_cache_key = id(neu_target)
+        if neu_cache_key not in self._neu_active_mask_cache:
+            self._neu_active_mask_cache[neu_cache_key] = [
+                bool((~torch.isnan(neu_target[:, j])).any().item())
+                for j in range(6)
+            ]
+        
+        has_neu_data = self._neu_active_mask_cache[neu_cache_key]
+
         for i in range(6):
-            
-            if not valid_neu[:, i].any(): #skippa calcoli inutili 
+            if not has_neu_data[i]:
+                continue
+            if active_bcs is not None and keys[i] not in active_bcs:
                 continue
                 
             pred_i = pred_bc[:, i:i+1]
@@ -232,7 +245,8 @@ class ViscoelasticPhysics(nn.Module):
             
             sq_diff_neu = (diff_neu ** 2) / var_w[0, i] #quadrato pesato
             
-            mask_i = valid_neu[:, i:i+1].float()
+            valid_neu_i = (~torch.isnan(neu_target[:, i:i+1])) & active_mask[:, i:i+1]
+            mask_i = valid_neu_i.float()
             total_bc_loss += (sq_diff_neu * mask_i).sum() / mask_i.sum().clamp_min(1.0) #operazioni per sommare solo i valori corretti
 
         return total_bc_loss
@@ -242,7 +256,7 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     Genera le condizioni al contorno per il dominio rettangolare.
     Ritorna 4 tensori: xy_boundary, dirichlet_target, neumann_target, normals
     
-    Slicing Geometrico Rigoroso (senza duplicati):
+    Slicing Geometrico senza duplicati:
     - Inlet (x=0): intero lato y [0, Ly].
     - Walls (y=0, Ly): intero lato x (0, Lx] (esclude x=0).
     - Outlet (x=Lx): lato y (0, Ly) (esclude y=0 e y=Ly).

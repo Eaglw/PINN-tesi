@@ -121,7 +121,7 @@ class TrainingConfig:
     # --- L-BFGS ---
     max_lbfgs_iters: int = 100
     # --- CUDA Graphs ---
-    use_cuda_graphs: bool = field(default_factory=lambda: not IS_1050TI)
+    use_cuda_graphs: bool = field(default_factory=lambda: torch.cuda.is_available() and not IS_1050TI)
     # --- Gradient ---
     grad_clip_norm: float = 5.0
     param_clip_norm: float = 1.0  # Clipping separato (più aggressivo) per i parametri fisici scalari
@@ -214,6 +214,10 @@ def train_ViscoelasticPINN(
     # --- Unpack config ---
     cfg = config
     
+    # Disabilita CUDA Graphs se non siamo su GPU CUDA o CUDA non è disponibile
+    _device_type = next(model.parameters()).device.type
+    use_cuda_graphs = cfg.use_cuda_graphs and torch.cuda.is_available() and _device_type == 'cuda'
+    
     # Controllo di sicurezza statico per i pesi di varianza
     if cfg.variance_weights is not None:
         for k, v in cfg.variance_weights.items():
@@ -256,7 +260,7 @@ def train_ViscoelasticPINN(
             
         trainable_params = [p for p in model.parameters() if p.requires_grad]
         trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
-        optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=cfg.use_cuda_graphs)
+        optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=use_cuda_graphs)
     else:
         set_model_trainable(model, ['psi', 'p', 'tau'])
         
@@ -268,7 +272,7 @@ def train_ViscoelasticPINN(
             
         trainable_params = list(model.parameters())
         trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
-        optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=cfg.use_cuda_graphs)
+        optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=use_cuda_graphs)
 
     xy_int, T_int = data_internal
     xy_bc, dir_bc, neu_bc, norm_bc = data_boundary
@@ -326,10 +330,10 @@ def train_ViscoelasticPINN(
             optimizer = torch.optim.Adam([
                 {'params': [p for p in model.parameters() if p.requires_grad]},
                 {'params': phys_params, 'lr': param_lr}
-            ], lr=base_lr, eps=cfg.adam_eps, capturable=cfg.use_cuda_graphs)
+            ], lr=base_lr, eps=cfg.adam_eps, capturable=use_cuda_graphs)
             remaining_steps = (half_epochs - epoch) if staged_training else (epochs - epoch)
             scheduler = _get_scheduler(optimizer, lr_strategy, remaining_steps)
-            if cfg.use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
+            if use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
 
         # --- STAGED TRAINING: Cambio fase a metà epoche ---
         if staged_training and epoch == half_epochs:
@@ -346,9 +350,9 @@ def train_ViscoelasticPINN(
                 
             trainable_params = [p for p in model.parameters() if p.requires_grad]
             trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
-            optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=cfg.use_cuda_graphs)
+            optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=use_cuda_graphs)
             scheduler = _get_scheduler(optimizer, lr_strategy, epochs - half_epochs)
-            if cfg.use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
+            if use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
 
         # --- WARMUP SBLOCCO PARAMETRI FASE 2 ---
         if staged_training and epoch == phase2_warmup_end and getattr(physics_problem, 'inverse_mode', False):
@@ -361,17 +365,17 @@ def train_ViscoelasticPINN(
             optimizer = torch.optim.Adam([
                 {'params': [p for p in model.parameters() if p.requires_grad]},
                 {'params': phys_params, 'lr': param_lr}
-            ], lr=base_lr, eps=cfg.adam_eps, capturable=cfg.use_cuda_graphs)
+            ], lr=base_lr, eps=cfg.adam_eps, capturable=use_cuda_graphs)
             remaining_steps = epochs - epoch
             scheduler = _get_scheduler(optimizer, lr_strategy, remaining_steps)
-            if cfg.use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
+            if use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
 
         model.train()
         optimizer.zero_grad(set_to_none=True)
         lambda_physics = target_lambda_physics
 
         # --- CUDA Graphs Logic ---
-        if cfg.use_cuda_graphs and 'graph_manager' not in locals():
+        if use_cuda_graphs and 'graph_manager' not in locals():
             graph_manager = CUDAGraphManager()
             # Allocazione tensori statici per pesi (che cambiano dinamicamente)
             s_lambda_data = torch.tensor(lambda_data, dtype=_dtype, device=_device)
@@ -419,7 +423,7 @@ def train_ViscoelasticPINN(
         requires_external_grads = (cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0) or \
                                   (cfg.log_gradients_every > 0 and (epoch + 1) % cfg.log_gradients_every == 0)
                                   
-        if cfg.use_cuda_graphs and not requires_external_grads:
+        if use_cuda_graphs and not requires_external_grads:
             # 1. Copia i nuovi dati nei tensori statici
             with torch.no_grad():
                 if lambda_data > 0:
@@ -551,7 +555,7 @@ def train_ViscoelasticPINN(
         loss_history.update(epoch, history_entry, lr=current_lr)
         
         # Esecuzione del backward e step dell'ottimizzatore se non abbiamo usato il replay del grafo
-        if not cfg.use_cuda_graphs or requires_external_grads:
+        if not use_cuda_graphs or requires_external_grads:
             loss.backward(inputs=_current_trainable)
             
             # Gradient Clipping: rete e parametri fisici separatamente
