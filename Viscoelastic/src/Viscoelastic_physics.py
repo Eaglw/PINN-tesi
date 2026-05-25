@@ -337,7 +337,7 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     
     # Neumann: Flusso in uscita libero
     tau_outlet=get_zero(y_outlet) #imposto a zero la componente normale dello stress, che passo a tauxx e tau xy. 
-    outlet_neumann = pack_state(nan_outlet, nan_outlet, nan_outlet, tau_outlet, tau_outlet_outlet, tau_outlet)#impostato a zero
+    outlet_neumann = pack_state(nan_outlet, nan_outlet, nan_outlet, tau_outlet, tau_outlet, tau_outlet)#impostato a zero
     #credo non sia necessario su tauyy ma la mettiamo comunque
 
 
