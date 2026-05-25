@@ -37,12 +37,12 @@ class ViscoelasticPhysics(nn.Module):
             self.real_mu_p = real_mu_p if real_mu_p is not None else mu_p
             self.real_lam = real_lam if real_lam is not None else lam
         else:
-            self.mu_s = mu_s
-            self.mu_p = mu_p
-            self.lam = lam
-            self.real_mu_s = mu_s
-            self.real_mu_p = mu_p
-            self.real_lam = lam
+            self.register_buffer('mu_s', torch.tensor([mu_s], dtype=torch.float32))
+            self.register_buffer('mu_p', torch.tensor([mu_p], dtype=torch.float32))
+            self.register_buffer('lam', torch.tensor([lam], dtype=torch.float32))
+            self.real_mu_s = real_mu_s if real_mu_s is not None else mu_s
+            self.real_mu_p = real_mu_p if real_mu_p is not None else mu_p
+            self.real_lam = real_lam if real_lam is not None else lam
             
         self.rho = rho
         self.mse_loss = nn.MSELoss()
@@ -119,10 +119,10 @@ class ViscoelasticPhysics(nn.Module):
         grad_tau_yy = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0]
         tau_yy_x, tau_yy_y = grad_tau_yy[:, 0:1], grad_tau_yy[:, 1:2]
         
-        # Valori assoluti per garantire positività fisica (il blocco)
-        mu_s_eff = torch.abs(self.mu_s) if isinstance(self.mu_s, torch.Tensor) else abs(self.mu_s)
-        mu_p_eff = torch.abs(self.mu_p) if isinstance(self.mu_p, torch.Tensor) else abs(self.mu_p)
-        lam_eff  = torch.abs(self.lam) if isinstance(self.lam, torch.Tensor) else abs(self.lam)
+        # Valori assoluti per garantire positività fisica
+        mu_s_eff = torch.abs(self.mu_s)
+        mu_p_eff = torch.abs(self.mu_p)
+        lam_eff  = torch.abs(self.lam)
         
         # Equazioni di Quantità di Moto (Navier-Stokes)
         # ρ(u·∇u) + ∇p - μ_s∇²u - ∇·τ = 0
@@ -147,101 +147,94 @@ class ViscoelasticPhysics(nn.Module):
 
     def residual(self, model, x, pde_weights=None, variance_weights=None):
         """
-        Ritorna la somma pesata degli MSE dei residui.
-        Usa self.pde_weights (configurati nel costruttore) a meno che non venga
-        passato un override esplicito.
+        Calcola la somma pesata delle Loss sui residui delle PDE.
         """
-        weights = pde_weights if pde_weights is not None else self.pde_weights
+        weights = pde_weights if pde_weights is not None else self.pde_weights #Pesa di default se non passati diversamente
         w_m = weights.get('momentum', 10.0)
         w_c = weights.get('constitutive', 1.0)
+
+        vw = variance_weights if variance_weights is not None else {} #Pesi delle singole componenti ad 1 se non passati diversamente
+        v_u = vw.get('u', 1.0)
+        v_v = vw.get('v', 1.0)
+        v_txx = vw.get('txx', 1.0)
+        v_tyy = vw.get('tyy', 1.0)
+        v_txy = vw.get('txy', 1.0)
         
-        f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy = self.compute_residuals(model, x)
-        zeros = torch.zeros_like(f_u)
-        loss_u = self.mse_loss(f_u, zeros)
-        loss_v = self.mse_loss(f_v, zeros)
+        f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy = self.compute_residuals(model, x) #calcolo residui da sopra
+                
+        # Loss Momentum (Navier-Stokes) possiamo usare mean invece che nn.MSEloss perchè vogliamo la loss=0
+        loss_u = (f_u ** 2 / max(v_u, 1e-8)).mean()
+        loss_v = (f_v ** 2 / max(v_v, 1e-8)).mean()
+        loss_m = loss_u + loss_v
         
-        loss_txx = self.mse_loss(f_tau_xx, zeros)
-        loss_tyy = self.mse_loss(f_tau_yy, zeros)
-        loss_txy = self.mse_loss(f_tau_xy, zeros)
-            
-        return w_m * (loss_u + loss_v) + w_c * (loss_txx + loss_tyy + loss_txy)
+        # Loss Costitutiva (Oldroyd-B)
+        loss_txx = (f_tau_xx ** 2 / max(v_txx, 1e-8)).mean()
+        loss_tyy = (f_tau_yy ** 2 / max(v_tyy, 1e-8)).mean()
+        loss_txy = (f_tau_xy ** 2 / max(v_txy, 1e-8)).mean()
+        loss_c = loss_txx + loss_tyy + loss_txy
+
+        return w_m * loss_m + w_c * loss_c
 
     def boundary_loss(self, model, x_bc, target_bc, variance_weights=None, active_bcs=None):
         """
-        Calcola la MSE loss sui boundary points, ignorando i valori NaN.
-        Supporta condizioni di Dirichlet e Neumann e maschera i campi inattivi.
+        Calcola la funzione di costo (Loss) basata sull'Errore Quadratico Medio (MSE) 
+        sui punti di contorno (boundary points).
         """
         if not x_bc.requires_grad:
-            x_bc.requires_grad_(True)
-            
-        u, v, p, tau = self.get_velocity(model, x_bc)
-        pred_bc = torch.cat([u, v, p, tau], dim=1)
+            x_bc.requires_grad_(True) #check di sicurezza per calcolo gradienti
         
-        dir_target, neu_target, normals = target_bc
-        keys = ['u', 'v', 'p', 'txx', 'txy', 'tyy']
+        u, v, p, tau = self.get_velocity(model, x_bc) #previsioni del modello
         
-        if active_bcs is not None:
-            active_mask = [k in active_bcs for k in keys]
-        else:
-            active_mask = [True] * 6
-            
-        total_bc_loss = 0.0
+        pred_bc = torch.cat([u, v, p, tau], dim=1) #Tensore Npunti x 6 [u, v, p, tau_xx, tau_xy, tau_yy]
+        device = pred_bc.device
         
-        # --- Dirichlet Loss ---
-        valid_dir_float_list = []
-        for i, is_active in enumerate(active_mask):
-            if is_active:
-                valid_dir_float_list.append((~torch.isnan(dir_target[:, i:i+1])).float())
-            else:
-                valid_dir_float_list.append(torch.zeros_like(dir_target[:, i:i+1]))
-        valid_dir_float = torch.cat(valid_dir_float_list, dim=1)
-        diff_dir = pred_bc - torch.nan_to_num(dir_target, nan=0.0)
-        sq_diff_dir = diff_dir ** 2
+        dir_target, neu_target, normals = target_bc #split target
+        nx, ny = normals[:, 0:1], normals[:, 1:2] #vettori normali
+        keys = ['u', 'v', 'p', 'txx', 'txy', 'tyy'] # ordine variabili
         
-        if variance_weights is not None:
-            sq_diff_dir_list = []
+        var_w = torch.ones((1, 6), device=device)
+        active_mask = torch.ones((1, 6), dtype=torch.bool, device=device) #ottimizzazione per broadcasting per solo le bc attive o non nulle
+        
+        if variance_weights is not None: #normalizzazione dei contributi sulla varianza
             for i, k in enumerate(keys):
-                scale = variance_weights.get(k, 1.0)
-                sq_diff_dir_list.append(sq_diff_dir[:, i:i+1] / scale)
-            sq_diff_dir = torch.cat(sq_diff_dir_list, dim=1)
-            
-        sum_dir = (sq_diff_dir * valid_dir_float).sum()
-        count_dir = valid_dir_float.sum()
-        total_bc_loss += sum_dir / count_dir.clamp_min(1.0)
-            
-        # --- Neumann Loss ---
-        valid_neu_float_list = []
-        for i, is_active in enumerate(active_mask):
-            if is_active:
-                valid_neu_float_list.append((~torch.isnan(neu_target[:, i:i+1])).float())
-            else:
-                valid_neu_float_list.append(torch.zeros_like(neu_target[:, i:i+1]))
-        valid_neu_float = torch.cat(valid_neu_float_list, dim=1)
-        nx = normals[:, 0:1]
-        ny = normals[:, 1:2]
-        preds = [u, v, p, tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]]
+                var_w[0, i] = variance_weights.get(k, 1.0) 
+                
+        if active_bcs is not None: #impostiamo quali bc sono attive
+            for i, k in enumerate(keys):
+                active_mask[0, i] = (k in active_bcs) 
+
+        total_bc_loss = 0.0
+
+        # --- 3. LOSS DI DIRICHLET ---
+        valid_dir = (~torch.isnan(dir_target)) & active_mask #matrice booleana con 1 solo se dirichlet è non NaN + variabile attiva
         
-        for i, pred in enumerate(preds):
-            if not active_mask[i]:
+        diff_dir = pred_bc - torch.nan_to_num(dir_target, nan=0.0) #differenza con fix per NaN
+        sq_diff_dir = (diff_dir ** 2) / var_w #quadrato pesato
+
+        sum_dir = (sq_diff_dir * valid_dir.float()).sum() #valid_dir.float() trasforma True in 1.0 e False in 0.0 per eliminare i campi non voluti
+        count_dir = valid_dir.float().sum()
+        total_bc_loss += sum_dir / count_dir.clamp_min(1.0) #dividiamo per i punti totali, clamp mi salva da eventuali 0 se non ho dirichlet
+
+        # --- 4. LOSS DI NEUMANN ---
+        valid_neu = (~torch.isnan(neu_target)) & active_mask #stessa matrice booleana
+        
+        for i in range(6):
+            
+            if not valid_neu[:, i].any(): #skippa calcoli inutili 
                 continue
-            grad_pred = torch.autograd.grad(pred.sum(), x_bc, create_graph=True)[0]
-            normal_deriv = grad_pred[:, 0:1] * nx + grad_pred[:, 1:2] * ny
+                
+            pred_i = pred_bc[:, i:i+1]
+            grad_pred = torch.autograd.grad(pred_i.sum(), x_bc, create_graph=True)[0] #grad i-esima variabile
             
-            target_i = neu_target[:, i:i+1]
-            mask_i = valid_neu_float[:, i:i+1]
+            normal_deriv = grad_pred[:, 0:1] * nx + grad_pred[:, 1:2] * ny # calcolo della derivata
             
-            diff_neu = normal_deriv - torch.nan_to_num(target_i, nan=0.0)
+            diff_neu = normal_deriv - torch.nan_to_num(neu_target[:, i:i+1], nan=0.0) # differenza + sistituiamo i NaN
             
-            if variance_weights is not None:
-                scale = variance_weights.get(keys[i], 1.0)
-                sq_diff_neu = (diff_neu ** 2) / scale
-            else:
-                sq_diff_neu = diff_neu ** 2
+            sq_diff_neu = (diff_neu ** 2) / var_w[0, i] #quadrato pesato
             
-            sum_neu = (sq_diff_neu * mask_i).sum()
-            count_neu = mask_i.sum()
-            total_bc_loss += sum_neu / count_neu.clamp_min(1.0)
-                    
+            mask_i = valid_neu[:, i:i+1].float()
+            total_bc_loss += (sq_diff_neu * mask_i).sum() / mask_i.sum().clamp_min(1.0) #operazioni per sommare solo i valori corretti
+
         return total_bc_loss
 
 def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, device):
