@@ -6,7 +6,7 @@ ViscoelasticNet is a deep learning framework designed to solve both forward and 
 ## Technical Implementation
 Key features of the current repository implementation:
 - **Stream Function Formulation**: Velocity is derived from a stream function network ($u = \psi_y, v = -\psi_x$), ensuring divergence-free flow ($\nabla \cdot \mathbf{u} = 0$) by construction.
-- **Multi-Network Architecture**: Uses `ViscoelasticCombinedModel` to unify separate networks for:
+- **Multi-Network Architecture**: Uses `ViscoelasticCombinedModel` to unify separate networks. This architectural separation leverages the physical [[Pressure_Stress_Decoupling]] between pressure and extra-stress:
     - **Stream Function ($\psi$)**: Scalar output.
     - **Pressure ($p$)**: Scalar output.
     - **Stress ($\tau$)**: 3-output network for $\tau_{xx}, \tau_{xy}, \tau_{yy}$.
@@ -49,3 +49,4 @@ While the repository's `ViscoelasticCombinedModel` and staged training orchestra
 - [[Viscoelasticity]]
 - [[Dynamic_Weighting]]
 - [[Staged_Precision_Strategy]]
+- [[Pressure_Stress_Decoupling]]

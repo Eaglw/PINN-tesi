@@ -40,6 +40,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Nondimensionalization]]: Scaling for numerical stability
 - [[Fluid_Dynamics]]: Navier-Stokes and complex flow modeling
 - [[Viscoelasticity]]: Theory and modeling of time-dependent materials
+- [[Pressure_Stress_Decoupling]]: Physical and mathematical decoupling of pressure and extra-stress
 - [[Spectral_Bias]]: Frequency-dependent learning behavior of DNNs
 - [[Creep]]: Time-dependent deformation under constant stress
 - [[Stress_Relaxation]]: Stress reduction under constant strain

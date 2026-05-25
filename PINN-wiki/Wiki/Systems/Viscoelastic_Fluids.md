@@ -27,7 +27,7 @@ $$ f_{\tau_{yy}} = \tau_{yy} + \lambda ( u \partial_x \tau_{yy} + v \partial_y \
 > **Bug Fix (May 2026)**: A critical bug was identified and resolved in the `tau_xy` residual implementation. Previously, the terms involving $\text{tau}_{xx}$ and $\text{tau}_{yy}$ were swapped (using $\text{tau}_{xx} \partial_y u$ instead of $\text{tau}_{yy} \partial_y u$), causing non-physical residuals for stationary Poiseuille flow where $\text{tau}_{yy}=0$ but $\text{tau}_{xx} \neq 0$.
 
 ## PINN Approach (ViscoelasticNet)
-As proposed in [[Thakur_et_al_ViscoelasticNet]], a multi-network architecture is used to decouple the discovery of velocity, stress, and pressure fields.
+As proposed in [[Thakur_et_al_ViscoelasticNet]], a multi-network architecture is used to decouple the discovery of velocity, stress, and pressure fields, exploiting [[Pressure_Stress_Decoupling]].
 - **Model Discovery**: Treating extensibility ($\epsilon$) and mobility ($\alpha$) as trainable parameters allows the PINN to select the most appropriate constitutive model for a given dataset.
 - **Backward Euler PINN**: Using temporal discretization within the loss residue to handle transient non-linear dynamics.
 
@@ -55,5 +55,5 @@ For the complete technical specification of the neural network architectures, st
 
 ## Related
 - **Literature**: [[Thakur_et_al_ViscoelasticNet]], [[Oldroyd_B_Model]], [[Viscoelasticity_Theory]], [[Note_05_Academic_Context]]
-- **Topics**: [[Viscoelasticity]], [[Fluid_Dynamics]], [[Inverse_Problems]]
+- **Topics**: [[Viscoelasticity]], [[Fluid_Dynamics]], [[Inverse_Problems]], [[Pressure_Stress_Decoupling]]
 - **Systems/Experiments**: [[Viscoelastic_Training]]
