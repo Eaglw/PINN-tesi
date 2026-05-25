@@ -5,6 +5,7 @@
 tesi/
 plots/
 models/
+.vscode
 
 #file mie
 *.gif
