@@ -142,4 +142,11 @@
 - Creata la pagina di metodo [[Sobolev_Regularization]] per documentare l'uso della supervisione dei gradienti (Sobolev training) come rimedio per il degradamento della velocità nel Goal 2 (`SoloData`) su addestramenti lunghi.
 - Aggiornato l'indice generale [[00_Index]] inserendo il nuovo metodo tra i metodi tecnici.
 
+## [2026-05-25] update_wiki | Inserimento disaccoppiamento Pressione-Stress (ViscoelasticNet)
+- Creata la pagina Topic [[Pressure_Stress_Decoupling]] per documentare l'aspetto fisico e matematico della scomposizione del tensore degli sforzi di Cauchy ($\boldsymbol{\sigma} = -p\mathbf{I} + \mathbf{T}$) e del disaccoppiamento tra la pressione idrostatica (moltiplicatore di Lagrange per l'incomprimibilità) e l'extra-stress polimerico $\boldsymbol{\tau}$ nelle equazioni costitutive.
+- Documentato come questo disaccoppiamento venga tradotto in ViscoelasticNet a livello di architettura neurale (output e loss costitutiva separati) e come avvenga il loro accoppiamento tramite la conservazione della quantità di moto.
+- Aggiornate le pagine [[00_Index]], [[Viscoelasticity]], [[Viscoelastic_Fluids]] e [[ViscoelasticNet]] per integrare e linkare il nuovo argomento.
 
+## [2026-05-25] update_wiki | Inserimento dettagli su splittaggio Dirichlet/Neumann BC e staged masking
+- Aggiornata la pagina [[Viscoelastic_Training]] documentando la separazione matematica e computazionale tra le condizioni al contorno di Dirichlet e Neumann.
+- Descritto il meccanismo di mascheramento basato su `NaN` e il funzionamento del filtraggio dinamico con `active_bcs` durante le fasi dello Staged Training per ottimizzare l'esecuzione del codice ed evitare calcoli autograd superflui.

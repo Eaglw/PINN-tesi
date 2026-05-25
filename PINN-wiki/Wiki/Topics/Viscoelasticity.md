@@ -17,7 +17,7 @@ In the context of PINNs, viscoelasticity is modeled by incorporating constitutiv
     - **Giesekus**: Includes a mobility parameter $\alpha$ to capture shear-thinning and realistic inflection points.
     - **PTT (Phan-Thien Tanner)**: Uses a trace-dependent function to avoid infinite stress in elongational flows.
 
-The challenge in PINN implementations (e.g., [[ViscoelasticNet]]) is the coupling of momentum conservation with these constitutive equations, often requiring multi-network architectures to handle velocity, pressure, and stress components separately.
+The challenge in PINN implementations (e.g., [[ViscoelasticNet]]) is the coupling of momentum conservation with these constitutive equations, often requiring multi-network architectures to handle velocity, pressure, and stress components separately, leveraging [[Pressure_Stress_Decoupling]].
 
 ## References
 - [[Viscoelasticity_Theory]]
@@ -26,3 +26,4 @@ The challenge in PINN implementations (e.g., [[ViscoelasticNet]]) is the couplin
 - [[Giesekus_Viscosity_Model]]
 - [[Viscoelastic_Modeling_Lecture]]
 - [[Note_05_Academic_Context]]
+- [[Pressure_Stress_Decoupling]]

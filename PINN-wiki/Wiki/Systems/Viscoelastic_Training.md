@@ -129,6 +129,18 @@ A critical performance regression was identified when comparing earlier codebase
 #### Remediation Strategy
 If the `SoloData` phase is intended purely as a baseline regression fit on internal data without enforcing boundary derivatives, this overhead can be eliminated by passing an explicit `active_bcs` list (e.g., restricting to Dirichlet velocity components `['u', 'v']` or disabling Neumann evaluation entirely for `goal == 2`). This bypasses the autograd calls and immediately restores the iteration speed to 40 it/s.
 
+### 5. Separation and Masking of Dirichlet and Neumann BCs in Staged Training
+To handle complex boundary conditions efficiently, the framework separates Dirichlet constraints (values) from Neumann constraints (normal derivatives) into two matching arrays (`dirichlet_boundary` and `neumann_boundary`) of shape `(N_bc, 6)` corresponding to the state components `[u, v, p, txx, txy, tyy]`.
+
+#### Mathematical and Computational Rationale:
+* **Computational Cost**: Dirichlet conditions are algebraic constraints evaluated directly at model outputs with low overhead. Neumann conditions involve spatial derivatives and require PyTorch Autograd graph construction and directional projections ($\nabla \Phi_i \cdot \mathbf{n}$), which are significantly more expensive.
+* **Unified Masking**: Using `NaN` to represent inactive boundary conditions allows a single vectorized implementation. The code builds boolean masks via `~torch.isnan` to isolate only active conditions on each specific boundary segment.
+
+#### Staged Training Masking Mechanics:
+During training, the active BC components are dynamically filtered via the `active_bcs` list passed to `compute_pinn_loss`:
+* **Phase 1 (Kinematics & Rheology)**: `current_active_bcs = ['u', 'v', 'txx', 'txy', 'tyy']`. Because pressure (`p`) is not active, all Dirichlet pressure targets are masked out. Crucially, the pressure Neumann boundary condition ($\frac{\partial p}{\partial n} = 0$) at the walls is completely skipped, bypassing expensive autograd evaluations of pressure derivatives.
+* **Phase 2 (Dynamics)**: `current_active_bcs = ['u', 'v', 'p']`. The stress targets are ignored, while pressure Dirichlet constraints ($p=1$ at inlet, $p=0$ at outlet) and pressure Neumann wall constraints ($\frac{\partial p}{\partial n} = 0$) are activated, triggering autograd computation only for the pressure field.
+
 ## Training Configurations & Hyperparameters
 The pipeline supports automated grid search across architectures, epochs, and learning rate strategies, orchestrating three primary training goals:
 
