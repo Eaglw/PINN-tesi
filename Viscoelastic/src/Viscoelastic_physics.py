@@ -330,13 +330,15 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     n_outlet = torch.tensor([[1.0, 0.0]], device=device).expand(Ny_outlet, 2)
     
     # Dirichlet: Scarico a pressione zero
-    p_outlet   = get_zero(y_outlet)
+    #p_outlet   = get_zero(y_outlet) rimuovo la pressione impostata a zero
     nan_outlet = get_nan(y_outlet)
     
-    outlet_dirichlet = pack_state(nan_outlet, nan_outlet, p_outlet, nan_outlet, nan_outlet, nan_outlet)
+    outlet_dirichlet = pack_state(nan_outlet, nan_outlet, nan_outlet, nan_outlet, nan_outlet, nan_outlet)
     
     # Neumann: Flusso in uscita libero
-    outlet_neumann = pack_state(nan_outlet, nan_outlet, nan_outlet, nan_outlet, nan_outlet, nan_outlet)
+    tau_outlet=get_zero(y_outlet) #imposto a zero la componente normale dello stress, che passo a tauxx e tau xy. 
+    outlet_neumann = pack_state(nan_outlet, nan_outlet, nan_outlet, tau_outlet, tau_outlet_outlet, tau_outlet)#impostato a zero
+    #credo non sia necessario su tauyy ma la mettiamo comunque
 
 
     # ==========================================================
