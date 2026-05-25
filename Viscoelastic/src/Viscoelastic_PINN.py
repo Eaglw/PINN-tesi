@@ -209,18 +209,13 @@ def train_ViscoelasticPINN(
     optimizer = torch.optim.Adam(trainable_params, lr=cfg.base_lr, eps=cfg.adam_eps)
     scheduler = _get_scheduler(optimizer, cfg.lr_strategy, half_epochs if staged_training else epochs)
 
-    # --- Accelerazione: torch.compile (preferito) o AMP (fallback) ---
+    # --- Accelerazione: torch.compile (preferito) ---
     _model_base = model  # Riferimento al modello non compilato (necessario per L-BFGS)
     use_compiler = cfg.use_compile and _device.type == 'cuda'
-    use_amp = _device.type == 'cuda' and not use_compiler
 
     if use_compiler:
         print("\n  [Compiler] Compilazione JIT con torch.compile (prima epoca lenta)...")
         model = torch.compile(model, mode="reduce-overhead")
-    elif use_amp:
-        print("\n  [AMP] Automatic Mixed Precision attivata (fallback per GPU Pascal).")
-
-    scaler = torch.amp.GradScaler('cuda') if use_amp else None
 
     # Identificazione ultimo layer per Dynamic Weighting (salva memoria)
     _last_layer_trainable = []
@@ -273,15 +268,14 @@ def train_ViscoelasticPINN(
         # CLAMP EFFICIENTE (Zero overhead Python)
         clamp_physical_parameters_(params_to_clamp)
 
-        # Forward + Loss (con AMP se attivo)
-        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=use_amp):
-            loss, loss_dict = compute_pinn_loss(
-                model, x_data=xy_int_batch, y_data=T_int_batch,
-                x_bc=xy_bc_batch, y_bc=T_bc_tuple_batch,
-                physics_problem=physics_problem, x_physics=xy_phys_batch,
-                lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
-                mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=current_active_bcs
-            )
+        # Forward + Loss
+        loss, loss_dict = compute_pinn_loss(
+            model, x_data=xy_int_batch, y_data=T_int_batch,
+            x_bc=xy_bc_batch, y_bc=T_bc_tuple_batch,
+            physics_problem=physics_problem, x_physics=xy_phys_batch,
+            lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
+            mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=current_active_bcs
+        )
 
         # Dynamic Weighting logic (eseguito PRIMA di loss.backward per non liberare il grafo)
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
@@ -303,32 +297,16 @@ def train_ViscoelasticPINN(
                         ratio_d = min(max_norm_bc / m_n_dt, 100.0)
                         lambda_data = alpha_dynamic * lambda_data + (1-alpha_dynamic) * ratio_d * lambda_bc
 
-        # Backward + Optimizer step (con GradScaler se AMP è attivo)
-        if scaler is not None:
-            initial_scale = scaler.get_scale()
-            scaler.scale(loss).backward(inputs=trainable_params)
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
-            phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
-            if phys_params_clip:
-                torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
-            scaler.step(optimizer)
-            scaler.update()
-            
-            # Lo scheduler viene avanzato solo se lo step dell'ottimizzatore non è stato saltato da AMP
-            if scaler.get_scale() >= initial_scale:
-                if cfg.lr_strategy in ['step_decay', 'cosine']: 
-                    scheduler.step()
-        else:
-            loss.backward(inputs=trainable_params)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
-            phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
-            if phys_params_clip:
-                torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
-            optimizer.step()
-            
-            if cfg.lr_strategy in ['step_decay', 'cosine']: 
-                scheduler.step()
+        # Backward + Optimizer step
+        loss.backward(inputs=trainable_params)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
+        phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
+        if phys_params_clip:
+            torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
+        optimizer.step()
+        
+        if cfg.lr_strategy in ['step_decay', 'cosine']: 
+            scheduler.step()
 
         # Logging
         current_lr = optimizer.param_groups[0]['lr']
