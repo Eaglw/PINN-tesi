@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import sys
+import shutil
 from dataclasses import dataclass, field
 from tqdm import tqdm
 
@@ -11,20 +12,9 @@ from tqdm import tqdm
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison, plot2D_final_result, plot2D_viscoelastic_final
 from func.history_tracker import TrainingHistory, compute_pinn_loss
+from func.hardware_utils import IS_1050TI, SUPPORTS_COMPILE
 
-def check_is_1050ti():
-    if not torch.cuda.is_available():
-        return False
-    try:
-        device_name = torch.cuda.get_device_name(0)
-        total_mem = torch.cuda.get_device_properties(0).total_memory
-        return "1050" in device_name or total_mem < 4.5 * 1024**3
-    except:
-        return False
-
-IS_1050TI = check_is_1050ti()
-
-# ---  DEFINIZIONE DELLA RETE NEURALE E WRAPPER ---
+# --- DEFINIZIONE DELLA RETE NEURALE E WRAPPER ---
 class FCN(nn.Module):
     """Rete Neurale a Connessioni Complete (Fully Connected Network)"""
     def __init__(self, layers, activation_fn=nn.Tanh):
@@ -34,7 +24,7 @@ class FCN(nn.Module):
         for i in range(len(layers) - 1):
             self.fcs.append(nn.Linear(layers[i], layers[i+1]))
     def forward(self, x):
-        for layer in self.fcs[:-1]:   # tutti tranne l'ultimo
+        for layer in self.fcs[:-1]:
             x = self.activation(layer(x))
         return self.fcs[-1](x) 
     def loss_fn(self, pred, target):
@@ -51,10 +41,6 @@ def format_layers_name(layers):
     return "_".join(map(str, layers))
 
 class ViscoelasticCombinedModel(nn.Module):
-    """
-    Wrapper to unify separate networks for Training (e.g. model_psi, model_p, model_tau).
-    Mimics a single model with multiple outputs [psi, p, tau_xx, tau_xy, tau_yy].
-    """
     def __init__(self, model_psi, model_p, model_tau):
         super().__init__()
         self.model_psi = model_psi
@@ -67,10 +53,6 @@ class ViscoelasticCombinedModel(nn.Module):
         return torch.cat([psi, p, tau], dim=1)
 
 class VelocityInferenceWrapper(nn.Module):
-    """
-    Wrapper to extract Velocity (u) from a Combined Model or Single Model.
-    Used for metrics and validation plots.
-    """
     def __init__(self, model, phys_problem):
         super().__init__()
         self.model = model
@@ -86,15 +68,9 @@ class VelocityInferenceWrapper(nn.Module):
         return self
 
 def set_model_trainable(model_combined, active_components=['psi', 'p', 'tau']):
-    """
-    Congela o sblocca le sottoreti del modello combinato.
-    active_components: lista di stringhe ('psi', 'p', 'tau')
-    """
-    # Prima congeliamo tutto
     for p in model_combined.parameters():
         p.requires_grad = False
     
-    # Sblocchiamo solo i componenti richiesti
     if 'psi' in active_components:
         for p in model_combined.model_psi.parameters(): p.requires_grad = True
     if 'p' in active_components:
@@ -104,46 +80,33 @@ def set_model_trainable(model_combined, active_components=['psi', 'p', 'tau']):
         
     print(f"  [Trainable status] Psi: {'psi' in active_components}, P: {'p' in active_components}, Tau: {'tau' in active_components}")
 
-
 @dataclass
 class TrainingConfig:
-    """Configurazione centralizzata per il training della PINN viscoelastica."""
-    # --- Optimizer ---
     epochs: int = 1000
     base_lr: float = 1e-3
     adam_eps: float = 1e-7
     lr_strategy: str = 'cosine'
-    # --- Staged Training ---
     staged_training: bool = True
     warmup_ratio: float = 0.1
-    # --- Precision ---
     precision_mode: str = 'staged'
-    # --- L-BFGS ---
     max_lbfgs_iters: int = 100
-    # --- CUDA Graphs ---
-    use_cuda_graphs: bool = field(default_factory=lambda: torch.cuda.is_available() and not IS_1050TI)
-    # --- Gradient ---
+    use_compile: bool = field(default_factory=lambda: SUPPORTS_COMPILE)
     grad_clip_norm: float = 5.0
-    param_clip_norm: float = 1.0  # Clipping separato (più aggressivo) per i parametri fisici scalari
-    param_lr_factor: float = 0.1  # LR per parametri fisici = base_lr * param_lr_factor
-    # --- Mini-Batching ---
+    param_clip_norm: float = 1.0
+    param_lr_factor: float = 0.1
     minibatch_internal: int = 1024
     minibatch_boundary: int = 256
-    # --- Loss Weighting ---
     dynamic_weighting: bool = True
     update_weights_every: int = 100
     loss_weights: dict = field(default_factory=lambda: {'data': 1.0, 'bc': 1.0, 'physics': 1.0})
-    mode: str = 'standard'  # 'standard' | 'semi_inverse'
+    mode: str = 'standard'
     variance_weights: dict = None
-    # --- Logging & Plotting ---
     log_gradients_every: int = 500
     plot_every: int = 500
     experiment_name: str = "VE Training"
     val_label: str = "Value"
 
-
 def _sample_minibatch(xy, targets, batch_size, device):
-    """Campiona un mini-batch casuale da un dataset."""
     if batch_size is None or batch_size >= xy.shape[0]:
         return xy, targets
     idx = torch.randperm(xy.shape[0], device=device)[:batch_size]
@@ -151,39 +114,7 @@ def _sample_minibatch(xy, targets, batch_size, device):
         return xy[idx], tuple(t[idx] for t in targets)
     return xy[idx], targets[idx]
 
-
-class CUDAGraphManager:
-    """Gestisce la cattura e il replay dei CUDA Graphs per ottimizzare il training."""
-    def __init__(self):
-        self.g = None
-        self.is_captured = False
-        self.static_inputs = {}
-        self.static_outputs = {}
-
-    def capture(self, func, *args, **kwargs):
-        self.g = torch.cuda.CUDAGraph()
-        # Warmup
-        s = torch.cuda.Stream()
-        s.wait_stream(torch.cuda.current_stream())
-        with torch.cuda.stream(s):
-            for _ in range(3):
-                func(*args, **kwargs)
-            
-            # Capture
-            with torch.cuda.graph(self.g):
-                self.static_outputs = func(*args, **kwargs)
-        torch.cuda.current_stream().wait_stream(s)
-        self.is_captured = True
-
-    def replay(self):
-        if not self.is_captured:
-            raise RuntimeError("CUDAGraph not captured yet!")
-        self.g.replay()
-        return self.static_outputs
-
-
 def _get_scheduler(optimizer, strategy, total_steps):
-    """Crea lo scheduler LR in base alla strategia scelta."""
     if strategy == 'step_decay':
         return torch.optim.lr_scheduler.StepLR(optimizer, step_size=int(total_steps * 0.25), gamma=0.5)
     elif strategy == 'plateau':
@@ -192,16 +123,33 @@ def _get_scheduler(optimizer, strategy, total_steps):
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=1e-6)
     return None
 
-
 def initialize_last_layer_zero(model):
-    """
-    Inizializza l'ultimo layer della rete a zero (pesi e bias).
-    Utile per far partire la rete con output nullo (es. stress).
-    """
     last_layer = list(model.fcs)[-1]
     nn.init.zeros_(last_layer.weight)
     nn.init.zeros_(last_layer.bias)
     print(f"  [Init] Ultimo layer di {model.__class__.__name__} inizializzato a zero.")
+
+def setup_inverse_parameters(physics_problem):
+    """
+    Scansiona i parametri fisici prima del training. 
+    Restituisce una lista di tensori che richiedono il clamp a ogni step,
+    eliminando la necessità di fare if/isinstance nei loop.
+    """
+    params_to_clamp = []
+    if getattr(physics_problem, 'inverse_mode', False):
+        for p_name in ['mu_s', 'mu_p', 'lam']:
+            p_val = getattr(physics_problem, p_name)
+            if isinstance(p_val, torch.Tensor) and p_val.requires_grad:
+                params_to_clamp.append(p_val)
+    return params_to_clamp
+
+def clamp_physical_parameters_(params_list, min_val=1e-6):
+    """Applica il clamp in-place alla lista pre-compilata di parametri."""
+    if not params_list:
+        return
+    with torch.no_grad():
+        for p in params_list:
+            p.clamp_(min=min_val)
 
 def train_ViscoelasticPINN(
     model, config, data_internal, data_boundary,
@@ -209,311 +157,139 @@ def train_ViscoelasticPINN(
     plots_dir, final_dir, stress_exact_grids=None
 ):
     """
-    Esegue il training della PINN viscoelastica.
+    Training ottimizzato per PINN Viscoelastiche.
     """
-    # --- Unpack config ---
     cfg = config
-    
-    # Disabilita CUDA Graphs se non siamo su GPU CUDA o CUDA non è disponibile
-    _device_type = next(model.parameters()).device.type
-    use_cuda_graphs = cfg.use_cuda_graphs and torch.cuda.is_available() and _device_type == 'cuda'
-    
-    # Controllo di sicurezza statico per i pesi di varianza
-    if cfg.variance_weights is not None:
-        for k, v in cfg.variance_weights.items():
-            val_float = v.item() if hasattr(v, 'item') else v
-            if np.isnan(val_float):
-                print(f"!!! [WARNING] variance_weights contains NaNs: {cfg.variance_weights}")
-                break
+    _dtype = next(model.parameters()).dtype
+    _device = next(model.parameters()).device
 
     epochs = cfg.epochs
-    warmup_ratio = getattr(cfg, 'warmup_ratio', 0.1)
-    base_lr = cfg.base_lr
-    lr_strategy = cfg.lr_strategy
-    staged_training = cfg.staged_training
-    mode = cfg.mode
-    variance_weights = cfg.variance_weights
-    
-    phase1_warmup_end = int(epochs * warmup_ratio)
-    phase2_warmup_end = (epochs // 2) + int(epochs * warmup_ratio)
-
-    
-    # --- SETUP STAGED TRAINING E PESI FISICA ---
     half_epochs = epochs // 2
-    base_pde_weights = physics_problem.pde_weights.copy()
-    current_active_bcs = None
+    staged_training = cfg.staged_training
     
-    if staged_training:
-        print(f"\n  [Staged Training] Fase 1: Cinematica e Reologia (psi+tau) per {half_epochs} epoche. (Pressione congelata, Navier-Stokes OFF)")
-        set_model_trainable(model, ['psi', 'tau'])
-        for param in model.model_p.parameters():
-            param.requires_grad_(False)
-        physics_problem.pde_weights = {'momentum': 0.0, 'constitutive': base_pde_weights.get('constitutive', 1.0)}
-        current_active_bcs = ['u', 'v', 'txx', 'txy', 'tyy']
-        
-        # Gestione parametri fisici: in Fase 1 addestriamo solo mu_p e lam (Reologia), mu_s fermo.
-        if getattr(physics_problem, 'inverse_mode', False):
-            physics_problem.mu_s.requires_grad_(False)
-            physics_problem.mu_p.requires_grad_(False) # Congelati per warmup
-            physics_problem.lam.requires_grad_(False)  # Congelati per warmup
-            print(f"  [Inverse Phase 1] Parametri fisici congelati per il warmup ({phase1_warmup_end} epoche).")
-            
-        trainable_params = [p for p in model.parameters() if p.requires_grad]
-        trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
-        optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=use_cuda_graphs)
-    else:
-        set_model_trainable(model, ['psi', 'p', 'tau'])
-        
-        if getattr(physics_problem, 'inverse_mode', False):
-            physics_problem.mu_s.requires_grad_(False)
-            physics_problem.mu_p.requires_grad_(False)
-            physics_problem.lam.requires_grad_(False)
-            print(f"  [Inverse] Parametri fisici congelati per il warmup ({phase1_warmup_end} epoche).")
-            
-        trainable_params = list(model.parameters())
-        trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
-        optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=use_cuda_graphs)
-
+    # --- Estrazione Liste Parametri (NO IF NEI LOOP) ---
+    params_to_clamp = setup_inverse_parameters(physics_problem)
+    
+    # Pre-computazione dei pesi
+    lambda_data = cfg.loss_weights.get('data', 1.0)
+    lambda_bc = cfg.loss_weights.get('bc', 1.0)
+    target_lambda_physics = cfg.loss_weights.get('physics', 1.0)
+    base_pde_weights = physics_problem.pde_weights.copy()
+    
+    # Unpack dei dati
     xy_int, T_int = data_internal
     xy_bc, dir_bc, neu_bc, norm_bc = data_boundary
     T_bc_tuple = (dir_bc, neu_bc, norm_bc)
     xy_grid, T_exact_grid, X, Y = validation_grid
-    # Spostiamo tutto su CPU per il plotting con matplotlib
+    
     X, Y = X.cpu(), Y.cpu()
     T_exact_grid = T_exact_grid.cpu()
     Ny_dom, Nx_dom = X.shape
-
+    
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(final_dir, exist_ok=True)
     plot_files = []
-    
-    pbar = tqdm(range(epochs), desc=f"Training VE (Adam) ({lr_strategy})", mininterval=2.0)
     loss_history = TrainingHistory()
     
-    loss_weights = cfg.loss_weights
-    lambda_data = loss_weights.get('data', 1.0)
-    lambda_bc = loss_weights.get('bc', 1.0)
-    target_lambda_physics = loss_weights.get('physics', 1.0)
+    # --- FASE ADAM ---
+    pbar = tqdm(range(epochs), desc=f"Training VE (Adam) ({cfg.lr_strategy})", mininterval=2.0)
     
-    # Determina quali loss sono attive per il plotting
-    _active_keys = set()
-    if loss_weights.get('data', 0) > 0: _active_keys.add('data')
-    if loss_weights.get('bc', 0) > 0: _active_keys.add('bc')
-    if loss_weights.get('physics', 0) > 0: _active_keys.add('physics')
-    
-    phase1_steps = half_epochs if staged_training else epochs
-    scheduler = _get_scheduler(optimizer, lr_strategy, phase1_steps)
+    # Inizializzazione Staged/Non-Staged
+    if staged_training:
+        print(f"\n  [Staged Training] Fase 1: Cinematica e Reologia (psi+tau).")
+        set_model_trainable(model, ['psi', 'tau'])
+        physics_problem.pde_weights = {'momentum': 0.0, 'constitutive': base_pde_weights.get('constitutive', 1.0)}
+        current_active_bcs = ['u', 'v', 'txx', 'txy', 'tyy']
+    else:
+        set_model_trainable(model, ['psi', 'p', 'tau'])
+        current_active_bcs = None
 
-    # Cache dtype/device — non cambiano durante la fase Adam
-    _dtype = next(model.parameters()).dtype
-    _device = next(model.parameters()).device
-    xy_physics = collocation_points.clone().to(dtype=_dtype, device=_device)
-    if not xy_physics.requires_grad: xy_physics.requires_grad_(True)
+    trainable_params = [p for p in model.parameters() if p.requires_grad] + \
+                       [p for p in physics_problem.parameters() if p.requires_grad]
+    optimizer = torch.optim.Adam(trainable_params, lr=cfg.base_lr, eps=cfg.adam_eps)
+    scheduler = _get_scheduler(optimizer, cfg.lr_strategy, half_epochs if staged_training else epochs)
+
+    # --- Accelerazione: torch.compile (preferito) o AMP (fallback) ---
+    _model_base = model  # Riferimento al modello non compilato (necessario per L-BFGS)
+    use_compiler = cfg.use_compile and _device.type == 'cuda'
+    use_amp = _device.type == 'cuda' and not use_compiler
+
+    if use_compiler:
+        print("\n  [Compiler] Compilazione JIT con torch.compile (prima epoca lenta)...")
+        model = torch.compile(model, mode="reduce-overhead")
+    elif use_amp:
+        print("\n  [AMP] Automatic Mixed Precision attivata (fallback per GPU Pascal).")
+
+    scaler = torch.amp.GradScaler('cuda') if use_amp else None
+
+    # Identificazione ultimo layer per Dynamic Weighting (salva memoria)
+    _last_layer_trainable = []
+    for net in [model.model_psi, model.model_p, model.model_tau]:
+        if hasattr(net, 'fcs') and len(net.fcs) > 0:
+            _last_layer_trainable.extend([p for p in net.fcs[-1].parameters() if p.requires_grad])
+    if not _last_layer_trainable:
+        _last_layer_trainable = trainable_params
 
     alpha_dynamic = 0.9
-    for epoch in pbar:
-        # --- WARMUP SBLOCCO PARAMETRI FASE 1 (o Non-Staged) ---
-        if epoch == phase1_warmup_end and getattr(physics_problem, 'inverse_mode', False):
-            if staged_training:
-                physics_problem.mu_p.requires_grad_(True)
-                physics_problem.lam.requires_grad_(True)
-                print(f"\n  [Warmup Terminato] mu_p e lam sbloccati all'epoca {epoch}.")
-            else:
-                physics_problem.mu_s.requires_grad_(True)
-                physics_problem.mu_p.requires_grad_(True)
-                physics_problem.lam.requires_grad_(True)
-                print(f"\n  [Warmup Terminato] Tutti i parametri fisici sbloccati all'epoca {epoch}.")
-            # Ricostruisci optimizer e scheduler per tracciare i nuovi parametri
-            phys_params = [p for p in physics_problem.parameters() if p.requires_grad]
-            trainable_params = [p for p in model.parameters() if p.requires_grad] + phys_params
-            param_lr = base_lr * cfg.param_lr_factor
-            optimizer = torch.optim.Adam([
-                {'params': [p for p in model.parameters() if p.requires_grad]},
-                {'params': phys_params, 'lr': param_lr}
-            ], lr=base_lr, eps=cfg.adam_eps, capturable=use_cuda_graphs)
-            remaining_steps = (half_epochs - epoch) if staged_training else (epochs - epoch)
-            scheduler = _get_scheduler(optimizer, lr_strategy, remaining_steps)
-            if use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
 
-        # --- STAGED TRAINING: Cambio fase a metà epoche ---
+    for epoch in pbar:
+        # Gestione Staged Training: Switch Fase 2
         if staged_training and epoch == half_epochs:
-            print(f"\n  [Staged Training] Fase 2: Dinamica (psi+p) per {epochs - half_epochs} epoche. (Stress congelato, Navier-Stokes ON)")
+            print(f"\n  [Staged Training] Fase 2: Dinamica (psi+p). Navier-Stokes ON.")
             set_model_trainable(model, ['psi', 'p'])
             physics_problem.pde_weights = base_pde_weights
             current_active_bcs = ['u', 'v', 'p']
             
-            if getattr(physics_problem, 'inverse_mode', False):
-                physics_problem.mu_s.requires_grad_(False) # Congelato per warmup
-                physics_problem.mu_p.requires_grad_(False)
-                physics_problem.lam.requires_grad_(False)
-                print(f"  [Inverse Phase 2] mu_s congelato per il warmup ({int(epochs * warmup_ratio)} epoche).")
-                
-            trainable_params = [p for p in model.parameters() if p.requires_grad]
-            trainable_params += [p for p in physics_problem.parameters() if p.requires_grad]
-            optimizer = torch.optim.Adam(trainable_params, lr=base_lr, eps=cfg.adam_eps, capturable=use_cuda_graphs)
-            scheduler = _get_scheduler(optimizer, lr_strategy, epochs - half_epochs)
-            if use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
-
-        # --- WARMUP SBLOCCO PARAMETRI FASE 2 ---
-        if staged_training and epoch == phase2_warmup_end and getattr(physics_problem, 'inverse_mode', False):
-            physics_problem.mu_s.requires_grad_(True)
-            print(f"\n  [Warmup Terminato] mu_s sbloccato all'epoca {epoch}.")
-            # Ricostruisci optimizer e scheduler per tracciare mu_s
-            phys_params = [p for p in physics_problem.parameters() if p.requires_grad]
-            trainable_params = [p for p in model.parameters() if p.requires_grad] + phys_params
-            param_lr = base_lr * cfg.param_lr_factor
-            optimizer = torch.optim.Adam([
-                {'params': [p for p in model.parameters() if p.requires_grad]},
-                {'params': phys_params, 'lr': param_lr}
-            ], lr=base_lr, eps=cfg.adam_eps, capturable=use_cuda_graphs)
-            remaining_steps = epochs - epoch
-            scheduler = _get_scheduler(optimizer, lr_strategy, remaining_steps)
-            if use_cuda_graphs and 'graph_manager' in locals(): graph_manager.is_captured = False # Forza re-capture
+            # Ricostruzione optimizer pulita
+            trainable_params = [p for p in model.parameters() if p.requires_grad] + \
+                               [p for p in physics_problem.parameters() if p.requires_grad]
+            optimizer = torch.optim.Adam(trainable_params, lr=cfg.base_lr, eps=cfg.adam_eps)
+            scheduler = _get_scheduler(optimizer, cfg.lr_strategy, epochs - half_epochs)
+            params_to_clamp = setup_inverse_parameters(physics_problem) # Aggiorna i clamp
+            
+            # Ricostruzione _last_layer_trainable pulita (per evitare errori di gradienti disattivati)
+            _last_layer_trainable = []
+            for net in [model.model_psi, model.model_p, model.model_tau]:
+                if hasattr(net, 'fcs') and len(net.fcs) > 0:
+                    _last_layer_trainable.extend([p for p in net.fcs[-1].parameters() if p.requires_grad])
+            if not _last_layer_trainable:
+                _last_layer_trainable = trainable_params
 
         model.train()
         optimizer.zero_grad(set_to_none=True)
-        lambda_physics = target_lambda_physics
-
-        # --- CUDA Graphs Logic ---
-        if use_cuda_graphs and 'graph_manager' not in locals():
-            graph_manager = CUDAGraphManager()
-            # Allocazione tensori statici per pesi (che cambiano dinamicamente)
-            s_lambda_data = torch.tensor(lambda_data, dtype=_dtype, device=_device)
-            s_lambda_bc = torch.tensor(lambda_bc, dtype=_dtype, device=_device)
-            s_lambda_physics = torch.tensor(lambda_physics, dtype=_dtype, device=_device)
-            
-            # Allocazione tensori statici per dati (batch size fisso)
-            _s_xy_int, _s_T_int = _sample_minibatch(xy_int, T_int, cfg.minibatch_internal, _device)
-            s_xy_int = _s_xy_int.clone().detach().requires_grad_(True)
-            s_T_int = _s_T_int.clone()
-            
-            _s_xy_bc, _s_T_bc = _sample_minibatch(xy_bc, T_bc_tuple, cfg.minibatch_boundary, _device)
-            s_xy_bc = _s_xy_bc.clone().detach().requires_grad_(True)
-            s_T_bc = tuple(t.clone() for t in _s_T_bc)
-            
-            if lambda_physics > 0:
-                s_xy_phys = s_xy_int.clone().detach().requires_grad_(True)
-            else:
-                s_xy_phys = None
-                
-            # Funzione step interna da catturare
-            def graph_step_fn():
-                optimizer.zero_grad(set_to_none=True)
-                loss, loss_dict = compute_pinn_loss(
-                    model, x_data=s_xy_int, y_data=s_T_int,
-                    x_bc=s_xy_bc, y_bc=s_T_bc, physics_problem=physics_problem,
-                    x_physics=s_xy_phys, lambda_data=s_lambda_data, lambda_bc=s_lambda_bc,
-                    lambda_physics=s_lambda_physics, mode=mode, variance_weights=variance_weights,
-                    active_bcs=current_active_bcs, lambda_data_is_zero=(lambda_data == 0.0)
-                )
-                loss.backward(inputs=trainable_params)
-                
-                # Gradient Clipping: rete e parametri fisici separatamente
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
-                if getattr(physics_problem, 'inverse_mode', False):
-                    phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
-                    if phys_params_clip:
-                        torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
-                        
-                optimizer.step()
-                return loss, loss_dict
-
-        # Esecuzione (con o senza CUDA Graphs)
-        # Fallback to standard execution if we need to compute gradients outside the step (dynamic weighting or logging)
-        requires_external_grads = (cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0) or \
-                                  (cfg.log_gradients_every > 0 and (epoch + 1) % cfg.log_gradients_every == 0)
-                                  
-        if use_cuda_graphs and not requires_external_grads:
-            # 1. Copia i nuovi dati nei tensori statici
-            with torch.no_grad():
-                if lambda_data > 0:
-                    xy_int_batch, T_int_batch = _sample_minibatch(xy_int, T_int, cfg.minibatch_internal, _device)
-                    s_xy_int.copy_(xy_int_batch)
-                    s_T_int.copy_(T_int_batch)
-                xy_bc_batch, T_bc_tuple_batch = _sample_minibatch(xy_bc, T_bc_tuple, cfg.minibatch_boundary, _device)
-                s_xy_bc.copy_(xy_bc_batch)
-                for i in range(len(s_T_bc)): s_T_bc[i].copy_(T_bc_tuple_batch[i])
-                
-                if lambda_physics > 0:
-                    s_xy_phys.copy_(s_xy_int)
-                    
-                s_lambda_data.copy_(torch.tensor(lambda_data, dtype=_dtype, device=_device))
-                s_lambda_bc.copy_(torch.tensor(lambda_bc, dtype=_dtype, device=_device))
-                s_lambda_physics.copy_(torch.tensor(target_lambda_physics, dtype=_dtype, device=_device))
-            
-            # 2. Cattura o Replay
-            if getattr(physics_problem, 'inverse_mode', False):
-                with torch.no_grad():
-                    if isinstance(physics_problem.mu_s, torch.Tensor): physics_problem.mu_s.clamp_(min=1e-6)
-                    if isinstance(physics_problem.mu_p, torch.Tensor): physics_problem.mu_p.clamp_(min=1e-6)
-                    if isinstance(physics_problem.lam, torch.Tensor): physics_problem.lam.clamp_(min=1e-6)
-                    
-            if not graph_manager.is_captured:
-                graph_manager.capture(graph_step_fn)
-            
-            loss, loss_dict = graph_manager.replay()
-        else:
-            # Fallback a training standard
+        
+        # Campionamento Mini-Batch
+        xy_int_batch, T_int_batch = _sample_minibatch(xy_int, T_int, cfg.minibatch_internal, _device)
+        xy_bc_batch, T_bc_tuple_batch = _sample_minibatch(xy_bc, T_bc_tuple, cfg.minibatch_boundary, _device)
+        
+        if target_lambda_physics > 0:
             if lambda_data > 0:
-                xy_int_batch, T_int_batch = _sample_minibatch(xy_int, T_int, cfg.minibatch_internal, _device)
+                xy_phys_batch = xy_int_batch.clone().requires_grad_(True)
             else:
-                xy_int_batch, T_int_batch = xy_int, T_int
-    
-            if lambda_physics > 0:
-                if lambda_data > 0:
-                    xy_phys_batch = xy_int_batch.clone().to(dtype=_dtype, device=_device).requires_grad_(True)
-                else:
-                    xy_phys_batch, _ = _sample_minibatch(collocation_points, collocation_points, cfg.minibatch_internal, _device)
-                    xy_phys_batch = xy_phys_batch.clone().to(dtype=_dtype, device=_device).requires_grad_(True)
-            else:
-                xy_phys_batch = None
-    
-            xy_bc_batch, T_bc_tuple_batch = _sample_minibatch(xy_bc, T_bc_tuple, cfg.minibatch_boundary, _device)
-    
-            if getattr(physics_problem, 'inverse_mode', False):
-                with torch.no_grad():
-                    if isinstance(physics_problem.mu_s, torch.Tensor): physics_problem.mu_s.clamp_(min=1e-6)
-                    if isinstance(physics_problem.mu_p, torch.Tensor): physics_problem.mu_p.clamp_(min=1e-6)
-                    if isinstance(physics_problem.lam, torch.Tensor): physics_problem.lam.clamp_(min=1e-6)
-    
-            optimizer.zero_grad(set_to_none=True)
+                xy_phys_batch = _sample_minibatch(collocation_points, collocation_points, cfg.minibatch_internal, _device)[0].clone().requires_grad_(True)
+        else:
+            xy_phys_batch = None
+
+        # CLAMP EFFICIENTE (Zero overhead Python)
+        clamp_physical_parameters_(params_to_clamp)
+
+        # Forward + Loss (con AMP se attivo)
+        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=use_amp):
             loss, loss_dict = compute_pinn_loss(
                 model, x_data=xy_int_batch, y_data=T_int_batch,
                 x_bc=xy_bc_batch, y_bc=T_bc_tuple_batch,
                 physics_problem=physics_problem, x_physics=xy_phys_batch,
-                lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=lambda_physics,
-                mode=mode, variance_weights=variance_weights, active_bcs=current_active_bcs
+                lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
+                mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=current_active_bcs
             )
-        
-        # Reintroduco i check post-step che erano alla fine del ciclo prima del refactoring
-        # Controllo NaN (sincronizzazione CPU-GPU molto costosa, fatta ogni 100 epoche)
-        if (epoch + 1) % 100 == 0:
-            if torch.isnan(loss):
-                print(f"\n!!! [NaN] Rilevato NaN all'epoca {epoch} !!!")
-                for k, v in loss_dict.items():
-                    print(f"  - {k}: {v.item() if hasattr(v, 'item') else v}")
-                sys.exit(1)
-                
-        # Dynamic Weighting (Learning Rate Annealing style)
-        _current_trainable = [p for p in model.parameters() if p.requires_grad] + \
-                             [p for p in physics_problem.parameters() if p.requires_grad]
-                             
-        # Costruisce _last_layer_trainable per dynamic weighting e logging (riduce drasticamente il VRAM footprint)
-        _last_layer_trainable = []
-        for net in [model.model_psi, model.model_p, model.model_tau]:
-            if hasattr(net, 'fcs') and len(net.fcs) > 0:
-                for p in net.fcs[-1].parameters():
-                    if p.requires_grad:
-                        _last_layer_trainable.append(p)
-        if not _last_layer_trainable:
-            _last_layer_trainable = _current_trainable
 
+        # Dynamic Weighting logic (eseguito PRIMA di loss.backward per non liberare il grafo)
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
             if lambda_bc > 0 and 'bc_loss' in loss_dict and isinstance(loss_dict['bc_loss'], torch.Tensor) and loss_dict['bc_loss'].requires_grad:
                 grads_bc = torch.autograd.grad(loss_dict['bc_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
                 max_norm_bc = max([g.norm(2) for g in grads_bc if g is not None]).item() if any(g is not None for g in grads_bc) else 0.0
                 
-                if lambda_physics > 0 and 'pde_loss' in loss_dict and isinstance(loss_dict['pde_loss'], torch.Tensor) and loss_dict['pde_loss'].requires_grad:
+                if target_lambda_physics > 0 and 'pde_loss' in loss_dict and isinstance(loss_dict['pde_loss'], torch.Tensor) and loss_dict['pde_loss'].requires_grad:
                     grads_ph = torch.autograd.grad(loss_dict['pde_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
                     m_n_ph = max([g.norm(2) for g in grads_ph if g is not None]).item() if any(g is not None for g in grads_ph) else 0.0
                     if m_n_ph > 1e-12: 
@@ -526,294 +302,159 @@ def train_ViscoelasticPINN(
                     if m_n_dt > 1e-12: 
                         ratio_d = min(max_norm_bc / m_n_dt, 100.0)
                         lambda_data = alpha_dynamic * lambda_data + (1-alpha_dynamic) * ratio_d * lambda_bc
-                        
+
+        # Backward + Optimizer step (con GradScaler se AMP è attivo)
+        if scaler is not None:
+            initial_scale = scaler.get_scale()
+            scaler.scale(loss).backward(inputs=trainable_params)
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
+            phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
+            if phys_params_clip:
+                torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
+            scaler.step(optimizer)
+            scaler.update()
+            
+            # Lo scheduler viene avanzato solo se lo step dell'ottimizzatore non è stato saltato da AMP
+            if scaler.get_scale() >= initial_scale:
+                if cfg.lr_strategy in ['step_decay', 'cosine']: 
+                    scheduler.step()
+        else:
+            loss.backward(inputs=trainable_params)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
+            phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
+            if phys_params_clip:
+                torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
+            optimizer.step()
+            
+            if cfg.lr_strategy in ['step_decay', 'cosine']: 
+                scheduler.step()
+
         # Logging
         current_lr = optimizer.param_groups[0]['lr']
         history_entry = loss_dict.copy()
-        history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': lambda_physics})
+        history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
         
-        # Tracking inverse parameters
         if getattr(physics_problem, 'inverse_mode', False):
             history_entry.update({
-                'param_etas': physics_problem.mu_s.item() if isinstance(physics_problem.mu_s, torch.Tensor) else physics_problem.mu_s,
-                'param_etap': physics_problem.mu_p.item() if isinstance(physics_problem.mu_p, torch.Tensor) else physics_problem.mu_p,
-                'param_lam': physics_problem.lam.item() if isinstance(physics_problem.lam, torch.Tensor) else physics_problem.lam
+                'param_etas': physics_problem.mu_s.item(),
+                'param_etap': physics_problem.mu_p.item(),
+                'param_lam': physics_problem.lam.item()
             })
-
-        if cfg.log_gradients_every > 0 and (epoch + 1) % cfg.log_gradients_every == 0:
-            grad_norms = {}
-            for name, l_val in loss_dict.items():
-                if name == 'total_loss': continue
-                w = lambda_data if name == 'data_loss' else (lambda_bc if name == 'bc_loss' else (lambda_physics if name == 'pde_loss' else 1.0))
-                if isinstance(l_val, torch.Tensor) and l_val.requires_grad and w > 0:
-                    grads = torch.autograd.grad(l_val * w, _last_layer_trainable, retain_graph=True, allow_unused=True)
-                    grad_norms[f'grad_{name}'] = sum(g.data.norm(2).item()**2 for g in grads if g is not None)**0.5
-                else:
-                    grad_norms[f'grad_{name}'] = 0.0
-            history_entry.update(grad_norms)
-
         loss_history.update(epoch, history_entry, lr=current_lr)
-        
-        # Esecuzione del backward e step dell'ottimizzatore se non abbiamo usato il replay del grafo
-        if not use_cuda_graphs or requires_external_grads:
-            loss.backward(inputs=_current_trainable)
-            
-            # Gradient Clipping: rete e parametri fisici separatamente
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
-            if getattr(physics_problem, 'inverse_mode', False):
-                phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
-                if phys_params_clip:
-                    torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
-            
-            optimizer.step()
-        
-        if lr_strategy in ['step_decay', 'cosine']: scheduler.step()
-        elif lr_strategy == 'plateau':
-            active_losses = [
-                loss_dict[k] for k in ['data_loss', 'bc_loss', 'pde_loss']
-                if loss_dict.get(k) is not None and isinstance(loss_dict[k], torch.Tensor)
-            ]
-            monitored_loss = sum(active_losses) if active_losses else torch.tensor(0.0)
-            scheduler.step(monitored_loss.item())
 
-        # Monitoraggio e Plotting periodico
         if (epoch + 1) % 100 == 0:
-            pbar.set_postfix({
-                'Loss': f"{loss.item():.2e}", 
-                'BC_L': f"{loss_dict.get('bc_loss', 0):.2e}",
-                'LR': f"{current_lr:.1e}"
-            })            
-            model.eval()
+            pbar.set_postfix({'Loss': f"{loss.item():.2e}", 'LR': f"{optimizer.param_groups[0]['lr']:.1e}"})
+            
+            # --- Plot intermedi ---
             if (epoch + 1) % cfg.plot_every == 0:
+                model.eval()
                 with torch.set_grad_enabled(True): 
                     xy_grid_val = xy_grid.clone().detach().requires_grad_(True)
                     if hasattr(physics_problem, 'get_velocity'):
                         u_pred, _, _, _ = physics_problem.get_velocity(model, xy_grid_val)
                         T_pred_grid = u_pred.detach().cpu().reshape(Ny_dom, Nx_dom)
-                        out = model(xy_grid_val)
-                        stress_preds = {
-                            'tau_xx': out[:, 2].detach().cpu().reshape(Ny_dom, Nx_dom),
-                            'tau_xy': out[:, 3].detach().cpu().reshape(Ny_dom, Nx_dom),
-                            'tau_yy': out[:, 4].detach().cpu().reshape(Ny_dom, Nx_dom),
-                        }
                     else:
                         T_pred_grid = model(xy_grid_val)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
-                        stress_preds = {}
                     del xy_grid_val
                     
                 plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
                 plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path, physics_points=None, val_label=cfg.val_label, show_points=False)
                 plot_files.append(plot_path)
-                
-                # Plot stress fields in loop
-                for sname, spred in stress_preds.items():
-                    exact_g = stress_exact_grids.get(sname, torch.zeros_like(T_exact_grid)).cpu() if stress_exact_grids else torch.zeros_like(T_exact_grid)
-                    plot2D_comparison(X, Y, exact_g, spred, epoch+1, os.path.join(plots_dir, f'{sname}_{epoch+1}.png'), physics_points=None, val_label=sname, show_points=False)
-                
-                loss_history.plot_losses(
-                    save_path=os.path.join(final_dir, 'VE_loss_history.png'),
-                    experiment_name=cfg.experiment_name,
-                    smoothing_alpha=0.95,
-                    active_loss_keys=_active_keys
-                )
+            
+    pbar.close()
 
-
-    # --- SBLOCCO TOTALE + PRECISION SWITCH PER L-BFGS ---
-    if staged_training:
-        print(f"\n  [Staged Training] Fase 3: Raffinamento L-BFGS (tutto sbloccato)")
-        set_model_trainable(model, ['psi', 'p', 'tau'])
-        physics_problem.pde_weights = base_pde_weights
-        current_active_bcs = None
-        if getattr(physics_problem, 'inverse_mode', False):
-            physics_problem.mu_s.requires_grad_(True)
-            physics_problem.mu_p.requires_grad_(True)
-            physics_problem.lam.requires_grad_(True)
-            print("  [Inverse L-BFGS] Tutti i parametri fisici sbloccati per il raffinamento finale.")
+    # --- FASE L-BFGS (Full Batch, Precision Switch) ---
+    # Ripristino modello non compilato: L-BFGS usa line-search Python puro,
+    # incompatibile con il compilatore JIT di torch.compile.
+    model = _model_base
+    print("\n  [Staged Training] Fase 3: Raffinamento L-BFGS (Tutto sbloccato)")
+    set_model_trainable(model, ['psi', 'p', 'tau'])
+    physics_problem.pde_weights = base_pde_weights
     
-    # Ripristino Full-Batch per L-BFGS
-    if lambda_data > 0 and lambda_physics > 0:
-        xy_physics_full = xy_int.clone()
-    elif lambda_data == 0 and lambda_physics > 0 and collocation_points is not None:
-        xy_physics_full = collocation_points.clone()
-    else:
-        xy_physics_full = None
+    # Riaggiorniamo la lista dei parametri da clippare in L-BFGS
+    if getattr(physics_problem, 'inverse_mode', False):
+        physics_problem.mu_s.requires_grad_(True)
+        physics_problem.mu_p.requires_grad_(True)
+        physics_problem.lam.requires_grad_(True)
+    params_to_clamp_lbfgs = setup_inverse_parameters(physics_problem)
 
-    # Gestione precisione per L-BFGS
+    # Precision Switch (Gestito elegantemente)
     if cfg.precision_mode == 'staged':
-        print("\n--- Switching to FP64 for L-BFGS Refinement (Staged Mode) ---")
         torch.set_default_dtype(torch.float64)
-        torch.backends.cuda.matmul.allow_tf32 = False
         model.double()
         physics_problem.double()
-        xy_int      = xy_int.double()
-        T_int       = T_int.double()
-        xy_bc       = xy_bc.double()
-        dir_bc_d    = dir_bc.double()
-        neu_bc_d    = neu_bc.double()
-        norm_bc_d   = norm_bc.double()
-        T_bc_tuple  = (dir_bc_d, neu_bc_d, norm_bc_d)
-        if xy_physics_full is not None:
-            xy_physics_full = xy_physics_full.detach().double().requires_grad_(True)
-        xy_grid     = xy_grid.double()
-        T_exact_grid = T_exact_grid.double()
-        X, Y = X.double(), Y.double()
-    elif cfg.precision_mode == 'full_64':
-        print("\n--- Continuing with FP64 for L-BFGS (Full 64 Mode) ---")
-        if xy_physics_full is not None:
-            xy_physics_full = xy_physics_full.detach().requires_grad_(True)
-    else: # full_32
-        print("\n--- Continuing with FP32 for L-BFGS (Full 32 Mode) ---")
-        if xy_physics_full is not None:
-            xy_physics_full = xy_physics_full.detach().requires_grad_(True)
-    
-    # Verifica precisione finale
-    target_dtype = torch.float64 if cfg.precision_mode in ['staged', 'full_64'] else torch.float32
-    assert all(p.dtype == target_dtype for p in model.parameters()), \
-        f"Errore: parametri del modello non tutti in {target_dtype} prima di L-BFGS"
+        xy_int, T_int, xy_bc = xy_int.double(), T_int.double(), xy_bc.double()
+        T_bc_tuple = tuple(t.double() for t in T_bc_tuple)
+        if target_lambda_physics > 0:
+            xy_physics_full = xy_int.clone().requires_grad_(True) if lambda_data > 0 else collocation_points.double().requires_grad_(True)
+        else:
+            xy_physics_full = None
+    else:
+        if target_lambda_physics > 0:
+            xy_physics_full = xy_int.clone().requires_grad_(True) if lambda_data > 0 else collocation_points.clone().requires_grad_(True)
+        else:
+            xy_physics_full = None
 
-    max_total_lbfgs = cfg.max_lbfgs_iters
+    lbfgs_params = list(model.parameters()) + [p for p in physics_problem.parameters() if p.requires_grad]
+    optimizer_lbfgs = torch.optim.LBFGS(
+        lbfgs_params, lr=1.0, max_iter=cfg.max_lbfgs_iters,
+        tolerance_grad=1e-7, tolerance_change=1e-9,
+        history_size=50 if IS_1050TI else 300, line_search_fn="strong_wolfe"
+    )
+
     lbfgs_iter = [0]
-    pbar_lbfgs = tqdm(total=max_total_lbfgs, desc="Training VE (L-BFGS)", mininterval=2.0)
+    pbar_lbfgs = tqdm(total=cfg.max_lbfgs_iters, desc="Training VE (L-BFGS)", mininterval=2.0)
     
-    # Kwargs condivisi per compute_pinn_loss (evita duplicazione tra closure e final check)
-    loss_kwargs = {
-        'x_data': xy_int, 'y_data': T_int,
-        'x_bc': xy_bc, 'y_bc': T_bc_tuple,
-        'physics_problem': physics_problem,
-        'x_physics': xy_physics_full,
-        'lambda_data': lambda_data,
-        'lambda_bc': lambda_bc,
-        'lambda_physics': target_lambda_physics,
-        'mode': mode,
-        'variance_weights': variance_weights,
-        'active_bcs': current_active_bcs
-    }
-    
-    # Rileva se la GPU è una 1050 Ti per adattare history_size e abilitare chunking
-    hist_size = 300
-    chunk_size = 5000  # Default: nessun chunking
-    if IS_1050TI:
-        hist_size = 50
-        chunk_size = 500
-        if torch.cuda.is_available():
-            print(f"\n  [Memory Config] Rilevata GPU 1050 Ti o VRAM limitata ({torch.cuda.get_device_name(0)}). Riduzione history_size a 50 e abilitazione chunking (500 pts) per L-BFGS.")
-
-    last_loss_val = [0.0]
-    last_loss_dict = [{}]
-
-    for current_lr in [1.0, 0.5]:
-        remaining_evals = max_total_lbfgs - lbfgs_iter[0]
-        if remaining_evals <= 0:
-            break
-            
-        lbfgs_params = list(model.parameters()) + [p for p in physics_problem.parameters() if p.requires_grad]
-        optimizer_lbfgs = torch.optim.LBFGS(
-            lbfgs_params, 
-            lr=current_lr, 
-            max_iter=remaining_evals, 
-            max_eval=remaining_evals * 5, 
-            tolerance_grad=1e-7, 
-            tolerance_change=1e-9,
-            history_size=hist_size,
-            line_search_fn="strong_wolfe"
+    def closure():
+        optimizer_lbfgs.zero_grad()
+        clamp_physical_parameters_(params_to_clamp_lbfgs) # Niente if qui!
+        
+        loss, loss_dict = compute_pinn_loss(
+            model, x_data=xy_int, y_data=T_int,
+            x_bc=xy_bc, y_bc=T_bc_tuple,
+            physics_problem=physics_problem, x_physics=xy_physics_full,
+            lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
+            mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=None
         )
+        loss.backward()
         
-        def make_closure(opt_ref):
-            def closure():
-                opt_ref.zero_grad()
-                if getattr(physics_problem, 'inverse_mode', False):
-                    with torch.no_grad():
-                        if isinstance(physics_problem.mu_s, torch.Tensor): physics_problem.mu_s.clamp_(min=1e-6)
-                        if isinstance(physics_problem.mu_p, torch.Tensor): physics_problem.mu_p.clamp_(min=1e-6)
-                        if isinstance(physics_problem.lam, torch.Tensor): physics_problem.lam.clamp_(min=1e-6)
-                
-                n_data = xy_int.shape[0] if xy_int is not None else 0
-                n_phys = xy_physics_full.shape[0] if xy_physics_full is not None else 0
-                total_pts = max(n_data, n_phys)
-                
-                if total_pts <= chunk_size:
-                    loss, loss_dict = compute_pinn_loss(model, **loss_kwargs)
-                    loss.backward()
-                    if lbfgs_iter[0] % 10 == 0: 
-                        history_entry = loss_dict.copy()
-                        history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
-                        if getattr(physics_problem, 'inverse_mode', False):
-                            history_entry.update({
-                                'param_etas': physics_problem.mu_s.item() if isinstance(physics_problem.mu_s, torch.Tensor) else physics_problem.mu_s,
-                                'param_etap': physics_problem.mu_p.item() if isinstance(physics_problem.mu_p, torch.Tensor) else physics_problem.mu_p,
-                                'param_lam': physics_problem.lam.item() if isinstance(physics_problem.lam, torch.Tensor) else physics_problem.lam
-                            })
-                        loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=current_lr)
-                    last_loss_val[0] = loss.item()
-                    last_loss_dict[0] = loss_dict.copy()
-                    lbfgs_iter[0] += 1
-                    pbar_lbfgs.update(1)
-                    pbar_lbfgs.set_postfix({'Loss': f"{loss.item():.2e}"})
-                    return loss
-                else:
-                    num_chunks = (total_pts + chunk_size - 1) // chunk_size
-                    total_loss_val = 0.0
-                    accumulated_loss_dict = {}
-                    
-                    for i in range(num_chunks):
-                        start_idx = i * chunk_size
-                        end_idx = start_idx + chunk_size
-                        
-                        chunk_kwargs = loss_kwargs.copy()
-                        if xy_int is not None and xy_int.shape[0] > 0:
-                            chunk_kwargs['x_data'] = xy_int[start_idx:end_idx]
-                            chunk_kwargs['y_data'] = T_int[start_idx:end_idx]
-                        if xy_physics_full is not None and xy_physics_full.shape[0] > 0:
-                            chunk_kwargs['x_physics'] = xy_physics_full[start_idx:end_idx]
-                            
-                        loss_chunk, dict_chunk = compute_pinn_loss(model, **chunk_kwargs)
-                        loss_chunk = loss_chunk / num_chunks
-                        loss_chunk.backward()
-                        
-                        total_loss_val += loss_chunk.item()
-                        for k, v in dict_chunk.items():
-                            val_num = v.item() if hasattr(v, 'item') else v
-                            accumulated_loss_dict[k] = accumulated_loss_dict.get(k, 0.0) + val_num / num_chunks
-                            
-                    if lbfgs_iter[0] % 10 == 0: 
-                        history_entry = accumulated_loss_dict.copy()
-                        history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
-                        if getattr(physics_problem, 'inverse_mode', False):
-                            history_entry.update({
-                                'param_etas': physics_problem.mu_s.item() if isinstance(physics_problem.mu_s, torch.Tensor) else physics_problem.mu_s,
-                                'param_etap': physics_problem.mu_p.item() if isinstance(physics_problem.mu_p, torch.Tensor) else physics_problem.mu_p,
-                                'param_lam': physics_problem.lam.item() if isinstance(physics_problem.lam, torch.Tensor) else physics_problem.lam
-                            })
-                        loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=current_lr)
-                        
-                    last_loss_val[0] = total_loss_val
-                    last_loss_dict[0] = accumulated_loss_dict.copy()
-                    lbfgs_iter[0] += 1
-                    pbar_lbfgs.update(1)
-                    pbar_lbfgs.set_postfix({'Loss': f"{total_loss_val:.2e}"})
-                    return torch.tensor(total_loss_val, device=xy_int.device)
-            return closure
+        if lbfgs_iter[0] % 10 == 0: 
+            history_entry = loss_dict.copy()
+            history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
+            if getattr(physics_problem, 'inverse_mode', False):
+                history_entry.update({
+                    'param_etas': physics_problem.mu_s.item(),
+                    'param_etap': physics_problem.mu_p.item(),
+                    'param_lam': physics_problem.lam.item()
+                })
+            loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=1.0)
             
-        optimizer_lbfgs.step(make_closure(optimizer_lbfgs))
-        
-        if lbfgs_iter[0] >= max_total_lbfgs:
-            break
-        
-        if current_lr == 1.0:
-            print(f"\nL-BFGS interrotto a {lbfgs_iter[0]} chiamate (LR=1.0). Riprovo con LR=0.5 per le restanti {max_total_lbfgs - lbfgs_iter[0]}...")
-    
-    pbar_lbfgs.close()
-    
-    # Final loss check (utilizza i valori già calcolati nell'ultima closure di L-BFGS per evitare OOM)
-    final_loss_val = last_loss_val[0]
-    final_loss_dict = last_loss_dict[0]
-    final_entry = final_loss_dict.copy()
-    final_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
-    loss_history.update(epochs + lbfgs_iter[0], final_entry, lr=current_lr)
-    print(f"Loss finale dopo L-BFGS (iter {lbfgs_iter[0]}): {final_loss_val:.2e}")
+        lbfgs_iter[0] += 1
+        pbar_lbfgs.update(1)
+        pbar_lbfgs.set_postfix({'Loss': f"{loss.item():.2e}"})
+        return loss
 
-    # Plot Finale Interattivo
-    print("Training completato. Generazione plot finale...")
+    print("Esecuzione L-BFGS...")
+    optimizer_lbfgs.step(closure)
+    pbar_lbfgs.close()
+
+    # Ripristino Precisione
+    if cfg.precision_mode == 'staged':
+        torch.set_default_dtype(_dtype)
+        model.to(_dtype)
+        physics_problem.to(_dtype)
+        xy_int = xy_int.to(_dtype)
+        T_int = T_int.to(_dtype)
+        xy_bc = xy_bc.to(_dtype)
+        T_bc_tuple = tuple(t.to(_dtype) for t in T_bc_tuple)
+        if xy_physics_full is not None:
+            xy_physics_full = xy_physics_full.to(_dtype)
+    else:
+        torch.set_default_dtype(torch.float32)
+    
+    # --- PLOT FINALI E GIF ---
+    print("Training completato. Generazione plot finali e GIF...")
     model.eval()
     with torch.set_grad_enabled(True): 
         xy_grid_val = xy_grid.clone().detach().requires_grad_(True)
@@ -823,15 +464,14 @@ def train_ViscoelasticPINN(
         else:
             T_final = model(xy_grid_val)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
         del xy_grid_val
+        
     internal_pts = xy_int if lambda_data > 0 else None
     boundary_pts = xy_bc if lambda_bc > 0 else None
 
     final_path = os.path.join(final_dir, 'VEfinal_result.png')
-    plot2D_final_result(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, internal_points=internal_pts, boundary_points=boundary_pts, physics_points=xy_physics, val_label=cfg.val_label)
+    plot2D_final_result(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, internal_points=internal_pts, boundary_points=boundary_pts, physics_points=xy_physics_full, val_label=cfg.val_label)
     
-    # Plot Finale Multi-Campo Viscoelastic (u, p, tau_xx, tau_xy, tau_yy)
     if hasattr(physics_problem, 'get_velocity') and stress_exact_grids is not None:
-        print("Generazione plot multi-campo viscoelastico...")
         with torch.set_grad_enabled(True):
             xy_grid_val = xy_grid.clone().detach().requires_grad_(True)
             u_final, v_final, p_final, _ = physics_problem.get_velocity(model, xy_grid_val)
@@ -857,30 +497,22 @@ def train_ViscoelasticPINN(
         visco_final_path = os.path.join(final_dir, 'VE_viscoelastic_fields.png')
         plot2D_viscoelastic_final(
             X, Y, fields_pred, fields_exact, epochs,
-            save_path=visco_final_path,
-            internal_points=internal_pts,
-            boundary_points=boundary_pts,
-            physics_points=xy_physics
+            save_path=visco_final_path, internal_points=internal_pts, boundary_points=boundary_pts, physics_points=xy_physics_full
         )
     
-    # Generazione GIF
-    print(f"Creazione GIF con {len(plot_files)} frames...")
     if plot_files:
         gif_path = os.path.join(final_dir, 'VEtraining_evolution.gif')
         save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
     
-    # Rimuove l'intera cartella contenente i grafici intermedi
-    import shutil
     shutil.rmtree(plots_dir, ignore_errors=True)
     
-    # Phase markers per Staged Training
-    _phase_markers = None
-    if staged_training:
-        _phase_markers = [
-            {'epoch': half_epochs, 'label': 'Fase 2 (Tau)', 'color': 'purple'},
-        ]
+    _phase_markers = [{'epoch': half_epochs, 'label': 'Fase 2 (Dinamica)', 'color': 'purple'}] if staged_training else None
     
-    # Plot Loss History con split tra Adam e L-BFGS
+    _active_keys = set()
+    if lambda_data > 0: _active_keys.add('data')
+    if lambda_bc > 0: _active_keys.add('bc')
+    if target_lambda_physics > 0: _active_keys.add('physics')
+    
     loss_history.plot_losses(
         adam_epochs=epochs,
         save_path=os.path.join(final_dir, 'VE_loss_history.png'), 
@@ -890,22 +522,6 @@ def train_ViscoelasticPINN(
         smoothing_alpha=0.95,
         active_loss_keys=_active_keys if _active_keys else None
     )
-    
-    loss_history.plot_gradients(save_path=os.path.join(final_dir, 'VE_gradients.png'), experiment_name=f"{cfg.experiment_name} Gradients")
-    loss_history.plot_weights(save_path=os.path.join(final_dir, 'VE_weights.png'), experiment_name=f"{cfg.experiment_name} Weights")
-    
-    if getattr(physics_problem, 'inverse_mode', False):
-        loss_history.plot_physical_parameters(
-            true_etas=physics_problem.real_mu_s,
-            true_etap=physics_problem.real_mu_p,
-            true_lam=physics_problem.real_lam,
-            save_path=os.path.join(final_dir, 'VE_parameters_evolution.png'),
-            experiment_name=cfg.experiment_name
-        )
-
     plt.close("all")
 
-    # RIPRISTINO PRECISIONE PER EVENTUALI CHIAMATE SUCCESSIVE
-    final_dtype = torch.float32 if cfg.precision_mode != 'full_64' else torch.float64
-    torch.set_default_dtype(final_dtype)
     return loss_history

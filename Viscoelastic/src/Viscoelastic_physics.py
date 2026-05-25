@@ -217,7 +217,7 @@ class ViscoelasticPhysics(nn.Module):
 
         # --- 4. LOSS DI NEUMANN ---
         # Cache per sapere quali colonne hanno condizioni al contorno di Neumann (non-NaN)
-        # in modo da evitare la sincronizzazione GPU-CPU durante la cattura dei CUDA Graphs.
+        # in modo da evitare la sincronizzazione GPU-CPU ripetuta (incompatibile con torch.compile).
         if not hasattr(self, '_neu_active_mask_cache'):
             self._neu_active_mask_cache = {}
         
