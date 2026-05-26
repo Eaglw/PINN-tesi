@@ -12,6 +12,7 @@ from tqdm import tqdm
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from func.graphic_func import save_gif_PIL, plot2D_comparison, plot2D_final_result, plot2D_viscoelastic_final
 from func.history_tracker import TrainingHistory, compute_pinn_loss
+from Viscoelastic.src.losses import compute_chunked_gradients
 from func.hardware_utils import IS_1050TI, SUPPORTS_COMPILE
 
 # --- DEFINIZIONE DELLA RETE NEURALE E WRAPPER ---
@@ -384,18 +385,29 @@ def train_ViscoelasticPINN(
     lbfgs_iter = [0]
     pbar_lbfgs = tqdm(total=cfg.max_lbfgs_iters, desc="Training VE (L-BFGS)", mininterval=2.0)
     
+    # Chunking configuration to prevent CUDA OOM on GTX 1050 Ti while preserving exact mathematical precision
+    chunk_size = 500 if IS_1050TI else None
+    
     def closure():
         optimizer_lbfgs.zero_grad()
         clamp_physical_parameters_(params_to_clamp_lbfgs) # Niente if qui!
         
-        loss, loss_dict = compute_pinn_loss(
-            model, x_data=xy_int, y_data=T_int,
-            x_bc=xy_bc, y_bc=T_bc_tuple,
-            physics_problem=physics_problem, x_physics=xy_physics_full,
-            lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
-            mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=None
-        )
-        loss.backward()
+        if chunk_size is None:
+            # Original full-batch behavior (runs on standard/unrestricted GPUs)
+            loss, loss_dict = compute_pinn_loss(
+                model, x_data=xy_int, y_data=T_int,
+                x_bc=xy_bc, y_bc=T_bc_tuple,
+                physics_problem=physics_problem, x_physics=xy_physics_full,
+                lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
+                mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=None
+            )
+            loss.backward()
+        else:
+            # Chunked gradient accumulation behavior (strictly equivalent but memory-friendly)
+            loss, loss_dict = compute_chunked_gradients(
+                model, physics_problem, xy_int, T_int, xy_bc, T_bc_tuple, xy_physics_full, 
+                cfg.mode, cfg.variance_weights, lambda_data, lambda_bc, target_lambda_physics, chunk_size
+            )
         
         if lbfgs_iter[0] % 10 == 0: 
             history_entry = loss_dict.copy()

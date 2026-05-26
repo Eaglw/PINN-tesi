@@ -25,7 +25,6 @@ def supports_compile():
     Requisiti: PyTorch >= 2.0, Python < 3.14, CUDA disponibile,
     GPU con Compute Capability >= 7.0 (Turing/Ampere+).
     La 1050 Ti (Pascal, CC 6.1) non supporta il backend Triton.
-    Python 3.14+ non è ancora supportato da torch.compile.
     """
     if int(torch.__version__.split('.')[0]) < 2:
         return False

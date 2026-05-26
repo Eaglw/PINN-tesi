@@ -407,3 +407,4 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
         
     loss_dict['total_loss'] = total_loss
     return total_loss, loss_dict
+

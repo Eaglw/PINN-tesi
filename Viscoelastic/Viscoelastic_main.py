@@ -219,8 +219,7 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
     os.makedirs(config_dir, exist_ok=True)
     
     print(f"\n=== Running Configuration: {config_name} ===")
-    
-    histories, final_models = {}, {}
+    histories, final_models, final_phys_problems = {}, {}, {}
     is_dynamic = (weight_mode == 'dynamic')
     current_weight_str = DYNAMIC_WEIGHT_STR if is_dynamic else STATIC_WEIGHT_STR
 
@@ -364,6 +363,7 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
             update_results_csv(RESULTS_CSV_PATH, log_data)
             histories[label] = history
             final_models[label] = model_combined
+            final_phys_problems[label] = phys_problem
             
             if inv_mode:
                 history.plot_physical_parameters(
@@ -393,13 +393,19 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
     results_dir = os.path.join(config_dir, 'comparisons')
     os.makedirs(results_dir, exist_ok=True)
     
+    # Fallback clean physics problem for velocity evaluation in comparison plots
+    comp_phys_problem = ViscoelasticPhysics(
+        mu_s=mu_s, mu_p=mu_p, lam=lam, pde_weights=PDE_WEIGHTS
+    ).to(device).to(initial_dtype)
+    
     model_results = []
     model_results_multi = []
     for label, model in final_models.items():
         model.eval()
         with torch.set_grad_enabled(True):
             x_input = xy_grid_flat.clone().to(next(model.parameters()).dtype).requires_grad_(True)
-            u_p, _, p_p, _ = phys_problem.get_velocity(model, x_input)
+            active_phys_problem = final_phys_problems.get(label, comp_phys_problem)
+            u_p, _, p_p, _ = active_phys_problem.get_velocity(model, x_input)
             out = model(x_input)
             pred_u = u_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
             pred_p = p_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
@@ -433,6 +439,8 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
 
     # --- VRAM Cleanup: previene OOM nelle grid search lunghe ---
     del histories, final_models, model_results, model_results_multi
+    if 'final_phys_problems' in locals(): del final_phys_problems
+    if 'comp_phys_problem' in locals(): del comp_phys_problem
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
