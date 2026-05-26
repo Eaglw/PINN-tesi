@@ -130,7 +130,7 @@ def initialize_last_layer_zero(model):
     nn.init.zeros_(last_layer.bias)
     print(f"  [Init] Ultimo layer di {model.__class__.__name__} inizializzato a zero.")
 
-def setup_inverse_parameters(physics_problem):
+def setup_inverse_parameters(physics_problem): #roba di ottimizzazione che non ho capito troppo bene
     """
     Scansiona i parametri fisici prima del training. 
     Restituisce una lista di tensori che richiedono il clamp a ogni step,
@@ -152,145 +152,116 @@ def clamp_physical_parameters_(params_list, min_val=1e-6):
         for p in params_list:
             p.clamp_(min=min_val)
 
-def train_ViscoelasticPINN(
-    model, config, data_internal, data_boundary,
-    validation_grid, physics_problem, collocation_points,
-    plots_dir, final_dir, stress_exact_grids=None
-):
-    """
-    Training ottimizzato per PINN Viscoelastiche.
-    """
-    cfg = config
-    _dtype = next(model.parameters()).dtype
+def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, validation_grid, collocation_points, loss_history, plots_dir):
+    """Esegue la prima e la seconda fase di training tramite ottimizzatore Adam."""
     _device = next(model.parameters()).device
-
     epochs = cfg.epochs
     half_epochs = epochs // 2
     staged_training = cfg.staged_training
     
-    # --- Estrazione Liste Parametri (NO IF NEI LOOP) ---
     params_to_clamp = setup_inverse_parameters(physics_problem)
-    
-    # Pre-computazione dei pesi
     lambda_data = cfg.loss_weights.get('data', 1.0)
     lambda_bc = cfg.loss_weights.get('bc', 1.0)
     target_lambda_physics = cfg.loss_weights.get('physics', 1.0)
     base_pde_weights = physics_problem.pde_weights.copy()
     
-    # Unpack dei dati
-    xy_int, T_int = data_internal
+    xy_int, obs_int = data_internal
     xy_bc, dir_bc, neu_bc, norm_bc = data_boundary
-    T_bc_tuple = (dir_bc, neu_bc, norm_bc)
+    bc_targets = (dir_bc, neu_bc, norm_bc)
     xy_grid, T_exact_grid, X, Y = validation_grid
     
-    X, Y = X.cpu(), Y.cpu()
-    T_exact_grid = T_exact_grid.cpu()
     Ny_dom, Nx_dom = X.shape
-    
-    os.makedirs(plots_dir, exist_ok=True)
-    os.makedirs(final_dir, exist_ok=True)
     plot_files = []
-    loss_history = TrainingHistory()
     
-    # --- FASE ADAM ---
     pbar = tqdm(range(epochs), desc=f"Training VE (Adam) ({cfg.lr_strategy})", mininterval=2.0)
     
-    # Inizializzazione Staged/Non-Staged
     if staged_training:
         print(f"\n  [Staged Training] Fase 1: Cinematica e Reologia (psi+tau).")
-        set_model_trainable(model, ['psi', 'tau'])
-        physics_problem.pde_weights = {'momentum': 0.0, 'constitutive': base_pde_weights.get('constitutive', 1.0)}
-        current_active_bcs = ['u', 'v', 'txx', 'txy', 'tyy']
+        set_model_trainable(model, ['psi', 'tau']) #qui spengo rete pressione
+        physics_problem.pde_weights = {'momentum': 0.0, 'constitutive': base_pde_weights.get('constitutive', 1.0)} #calcolo anche loss su momentum ma a zero, motivi di efficienza JIT
+        current_active_bcs = ['u', 'v', 'txx', 'txy', 'tyy'] #non ho bc su p
     else:
         set_model_trainable(model, ['psi', 'p', 'tau'])
-        current_active_bcs = None
+        current_active_bcs = None #non filtra nulla, quindi tutto
 
     trainable_params = [p for p in model.parameters() if p.requires_grad] + \
-                       [p for p in physics_problem.parameters() if p.requires_grad]
+                       [p for p in physics_problem.parameters() if p.requires_grad] #assegnamo solo i parametri che hanno requiresgrad
     optimizer = torch.optim.Adam(trainable_params, lr=cfg.base_lr, eps=cfg.adam_eps)
     scheduler = _get_scheduler(optimizer, cfg.lr_strategy, half_epochs if staged_training else epochs)
 
-    # --- Accelerazione: torch.compile (preferito) ---
-    _model_base = model  # Riferimento al modello non compilato (necessario per L-BFGS)
     use_compiler = cfg.use_compile and _device.type == 'cuda'
-
     if use_compiler:
         print("\n  [Compiler] Compilazione JIT con torch.compile (prima epoca lenta)...")
-        model = torch.compile(model, mode="reduce-overhead")
+        model_compiled = torch.compile(model, mode="reduce-overhead")
+    else:
+        model_compiled = model
 
-    # Identificazione ultimo layer per Dynamic Weighting (salva memoria)
-    _last_layer_trainable = []
-    for net in [model.model_psi, model.model_p, model.model_tau]:
+    _last_layer_trainable = [] #bastano i gradienti dell'ultimo layer per una previsione accurata di tuta la rete, ma meno pesante
+    for net in [model_compiled.model_psi, model_compiled.model_p, model_compiled.model_tau]:
         if hasattr(net, 'fcs') and len(net.fcs) > 0:
             _last_layer_trainable.extend([p for p in net.fcs[-1].parameters() if p.requires_grad])
     if not _last_layer_trainable:
         _last_layer_trainable = trainable_params
 
-    alpha_dynamic = 0.9
+    alpha_dynamic = 0.9 #coefficiente di smoothing per aggiornare i pesi dinamici di loss bc e dati
 
     for epoch in pbar:
-        # Gestione Staged Training: Switch Fase 2
         if staged_training and epoch == half_epochs:
             print(f"\n  [Staged Training] Fase 2: Dinamica (psi+p). Navier-Stokes ON.")
-            set_model_trainable(model, ['psi', 'p'])
+            set_model_trainable(model_compiled, ['psi', 'p'])
             physics_problem.pde_weights = base_pde_weights
             current_active_bcs = ['u', 'v', 'p']
             
-            # Ricostruzione optimizer pulita
-            trainable_params = [p for p in model.parameters() if p.requires_grad] + \
+            trainable_params = [p for p in model_compiled.parameters() if p.requires_grad] + \
                                [p for p in physics_problem.parameters() if p.requires_grad]
-            optimizer = torch.optim.Adam(trainable_params, lr=cfg.base_lr, eps=cfg.adam_eps)
+            optimizer = torch.optim.Adam(trainable_params, lr=cfg.base_lr, eps=cfg.adam_eps) #va rifatto l'optimizer con set di parametri nuovo
             scheduler = _get_scheduler(optimizer, cfg.lr_strategy, epochs - half_epochs)
-            params_to_clamp = setup_inverse_parameters(physics_problem) # Aggiorna i clamp
+            params_to_clamp = setup_inverse_parameters(physics_problem)
             
-            # Ricostruzione _last_layer_trainable pulita (per evitare errori di gradienti disattivati)
             _last_layer_trainable = []
-            for net in [model.model_psi, model.model_p, model.model_tau]:
+            for net in [model_compiled.model_psi, model_compiled.model_p, model_compiled.model_tau]:
                 if hasattr(net, 'fcs') and len(net.fcs) > 0:
                     _last_layer_trainable.extend([p for p in net.fcs[-1].parameters() if p.requires_grad])
             if not _last_layer_trainable:
                 _last_layer_trainable = trainable_params
 
-        model.train()
-        optimizer.zero_grad(set_to_none=True)
+        model_compiled.train()
+        optimizer.zero_grad(set_to_none=True) #azzera i gradienti accumulati, ripartendo proprio da zero
         
-        # Campionamento Mini-Batch
-        xy_int_batch, T_int_batch = _sample_minibatch(xy_int, T_int, cfg.minibatch_internal, _device)
+        xy_int_batch, T_int_batch = _sample_minibatch(xy_int, T_int, cfg.minibatch_internal, _device) #prende un batch di dati
         xy_bc_batch, T_bc_tuple_batch = _sample_minibatch(xy_bc, T_bc_tuple, cfg.minibatch_boundary, _device)
         
-        if target_lambda_physics > 0:
+        if target_lambda_physics > 0: #attiva punti in memoria solo se la fisica viene calcolata
             if lambda_data > 0:
-                xy_phys_batch = xy_int_batch.clone().requires_grad_(True)
+                xy_phys_batch = xy_int_batch.clone().requires_grad_(True) #riusa i punti dei dati se vengono usati
             else:
                 xy_phys_batch = _sample_minibatch(collocation_points, collocation_points, cfg.minibatch_internal, _device)[0].clone().requires_grad_(True)
         else:
             xy_phys_batch = None
 
-        # CLAMP EFFICIENTE (Zero overhead Python)
-        clamp_physical_parameters_(params_to_clamp)
+        clamp_physical_parameters_(params_to_clamp) #parametri fisici mai negativi
 
-        # Forward + Loss
         loss, loss_dict = compute_pinn_loss(
-            model, x_data=xy_int_batch, y_data=T_int_batch,
+            model_compiled, x_data=xy_int_batch, y_data=T_int_batch,
             x_bc=xy_bc_batch, y_bc=T_bc_tuple_batch,
             physics_problem=physics_problem, x_physics=xy_phys_batch,
             lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
             mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=current_active_bcs
         )
 
-        # Dynamic Weighting logic (eseguito PRIMA di loss.backward per non liberare il grafo)
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
+            #calcolo norma massima del gradiente delle BC
             if lambda_bc > 0 and 'bc_loss' in loss_dict and isinstance(loss_dict['bc_loss'], torch.Tensor) and loss_dict['bc_loss'].requires_grad:
                 grads_bc = torch.autograd.grad(loss_dict['bc_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
                 max_norm_bc = max([g.norm(2) for g in grads_bc if g is not None]).item() if any(g is not None for g in grads_bc) else 0.0
-                
+                #scalo il peso delle PDE
                 if target_lambda_physics > 0 and 'pde_loss' in loss_dict and isinstance(loss_dict['pde_loss'], torch.Tensor) and loss_dict['pde_loss'].requires_grad:
                     grads_ph = torch.autograd.grad(loss_dict['pde_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
                     m_n_ph = max([g.norm(2) for g in grads_ph if g is not None]).item() if any(g is not None for g in grads_ph) else 0.0
                     if m_n_ph > 1e-12: 
                         ratio = min(max_norm_bc / m_n_ph, 100.0)
                         target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * ratio * lambda_bc
-
+                #scalo il peso dei dati interni
                 if lambda_data > 0 and 'data_loss' in loss_dict and isinstance(loss_dict['data_loss'], torch.Tensor) and loss_dict['data_loss'].requires_grad:
                     grads_dt = torch.autograd.grad(loss_dict['data_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
                     m_n_dt = max([g.norm(2) for g in grads_dt if g is not None]).item() if any(g is not None for g in grads_dt) else 0.0
@@ -298,18 +269,16 @@ def train_ViscoelasticPINN(
                         ratio_d = min(max_norm_bc / m_n_dt, 100.0)
                         lambda_data = alpha_dynamic * lambda_data + (1-alpha_dynamic) * ratio_d * lambda_bc
 
-        # Backward + Optimizer step
         loss.backward(inputs=trainable_params)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip_norm)
+        torch.nn.utils.clip_grad_norm_(model_compiled.parameters(), max_norm=cfg.grad_clip_norm) #clippa i gradienti con clip a 5
         phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad and p.grad is not None]
         if phys_params_clip:
-            torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm)
+            torch.nn.utils.clip_grad_norm_(phys_params_clip, max_norm=cfg.param_clip_norm) #clippa i parametri con clip a 1 più aggressivo
         optimizer.step()
         
         if cfg.lr_strategy in ['step_decay', 'cosine']: 
             scheduler.step()
 
-        # Logging
         current_lr = optimizer.param_groups[0]['lr']
         history_entry = loss_dict.copy()
         history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
@@ -324,17 +293,16 @@ def train_ViscoelasticPINN(
 
         if (epoch + 1) % 100 == 0:
             pbar.set_postfix({'Loss': f"{loss.item():.2e}", 'LR': f"{optimizer.param_groups[0]['lr']:.1e}"})
-            
-            # --- Plot intermedi ---
+            #plotting 
             if (epoch + 1) % cfg.plot_every == 0:
-                model.eval()
+                model_compiled.eval()
                 with torch.set_grad_enabled(True): 
                     xy_grid_val = xy_grid.clone().detach().requires_grad_(True)
                     if hasattr(physics_problem, 'get_velocity'):
-                        u_pred, _, _, _ = physics_problem.get_velocity(model, xy_grid_val)
+                        u_pred, _, _, _ = physics_problem.get_velocity(model_compiled, xy_grid_val)
                         T_pred_grid = u_pred.detach().cpu().reshape(Ny_dom, Nx_dom)
                     else:
-                        T_pred_grid = model(xy_grid_val)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
+                        T_pred_grid = model_compiled(xy_grid_val)[:, 0].detach().cpu().reshape(Ny_dom, Nx_dom)
                     del xy_grid_val
                     
                 plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
@@ -342,29 +310,31 @@ def train_ViscoelasticPINN(
                 plot_files.append(plot_path)
             
     pbar.close()
+    return loss_history, plot_files, lambda_data, lambda_bc, target_lambda_physics, base_pde_weights
 
-    # --- FASE L-BFGS (Full Batch, Precision Switch) ---
-    # Ripristino modello non compilato: L-BFGS usa line-search Python puro,
-    # incompatibile con il compilatore JIT di torch.compile.
-    model = _model_base
+def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, collocation_points, loss_history, lambda_data, lambda_bc, target_lambda_physics, base_pde_weights):
+    """Esegue il raffinamento finale in FP64 usando L-BFGS."""
+    _dtype = next(model.parameters()).dtype
+    xy_int, obs_int = data_internal
+    xy_bc, dir_bc, neu_bc, norm_bc = data_boundary
+    bc_targets = (dir_bc, neu_bc, norm_bc)
+    
     print("\n  [Staged Training] Fase 3: Raffinamento L-BFGS (Tutto sbloccato)")
     set_model_trainable(model, ['psi', 'p', 'tau'])
     physics_problem.pde_weights = base_pde_weights
     
-    # Riaggiorniamo la lista dei parametri da clippare in L-BFGS
     if getattr(physics_problem, 'inverse_mode', False):
         physics_problem.mu_s.requires_grad_(True)
         physics_problem.mu_p.requires_grad_(True)
         physics_problem.lam.requires_grad_(True)
     params_to_clamp_lbfgs = setup_inverse_parameters(physics_problem)
 
-    # Precision Switch (Gestito elegantemente)
     if cfg.precision_mode == 'staged':
         torch.set_default_dtype(torch.float64)
         model.double()
         physics_problem.double()
-        xy_int, T_int, xy_bc = xy_int.double(), T_int.double(), xy_bc.double()
-        T_bc_tuple = tuple(t.double() for t in T_bc_tuple)
+        xy_int, obs_int, xy_bc = xy_int.double(), obs_int.double(), xy_bc.double()
+        bc_targets = tuple(t.double() for t in bc_targets)
         if target_lambda_physics > 0:
             xy_physics_full = xy_int.clone().requires_grad_(True) if lambda_data > 0 else collocation_points.double().requires_grad_(True)
         else:
@@ -384,28 +354,24 @@ def train_ViscoelasticPINN(
 
     lbfgs_iter = [0]
     pbar_lbfgs = tqdm(total=cfg.max_lbfgs_iters, desc="Training VE (L-BFGS)", mininterval=2.0)
-    
-    # Chunking configuration to prevent CUDA OOM on GTX 1050 Ti while preserving exact mathematical precision
     chunk_size = 500 if IS_1050TI else None
     
     def closure():
         optimizer_lbfgs.zero_grad()
-        clamp_physical_parameters_(params_to_clamp_lbfgs) # Niente if qui!
+        clamp_physical_parameters_(params_to_clamp_lbfgs)
         
         if chunk_size is None:
-            # Original full-batch behavior (runs on standard/unrestricted GPUs)
             loss, loss_dict = compute_pinn_loss(
-                model, x_data=xy_int, y_data=T_int,
-                x_bc=xy_bc, y_bc=T_bc_tuple,
+                model, x_data=xy_int, y_data=obs_int,
+                x_bc=xy_bc, y_bc=bc_targets,
                 physics_problem=physics_problem, x_physics=xy_physics_full,
                 lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
                 mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=None
             )
             loss.backward()
         else:
-            # Chunked gradient accumulation behavior (strictly equivalent but memory-friendly)
             loss, loss_dict = compute_chunked_gradients(
-                model, physics_problem, xy_int, T_int, xy_bc, T_bc_tuple, xy_physics_full, 
+                model, physics_problem, xy_int, obs_int, xy_bc, bc_targets, xy_physics_full, 
                 cfg.mode, cfg.variance_weights, lambda_data, lambda_bc, target_lambda_physics, chunk_size
             )
         
@@ -418,7 +384,7 @@ def train_ViscoelasticPINN(
                     'param_etap': physics_problem.mu_p.item(),
                     'param_lam': physics_problem.lam.item()
                 })
-            loss_history.update(epochs + lbfgs_iter[0], history_entry, lr=1.0)
+            loss_history.update(cfg.epochs + lbfgs_iter[0], history_entry, lr=1.0)
             
         lbfgs_iter[0] += 1
         pbar_lbfgs.update(1)
@@ -429,22 +395,29 @@ def train_ViscoelasticPINN(
     optimizer_lbfgs.step(closure)
     pbar_lbfgs.close()
 
-    # Ripristino Precisione
     if cfg.precision_mode == 'staged':
         torch.set_default_dtype(_dtype)
         model.to(_dtype)
         physics_problem.to(_dtype)
-        xy_int = xy_int.to(_dtype)
-        T_int = T_int.to(_dtype)
-        xy_bc = xy_bc.to(_dtype)
-        T_bc_tuple = tuple(t.to(_dtype) for t in T_bc_tuple)
-        if xy_physics_full is not None:
-            xy_physics_full = xy_physics_full.to(_dtype)
     else:
         torch.set_default_dtype(torch.float32)
-    
-    # --- PLOT FINALI E GIF ---
+
+    return loss_history
+
+def _generate_training_artifacts(model, physics_problem, validation_grid, stress_exact_grids,
+                                 data_internal, data_boundary, collocation_points, 
+                                 plots_dir, final_dir, loss_history, plot_files, 
+                                 lambda_data, lambda_bc, target_lambda_physics, cfg):
+    """Gestisce l'inferenza finale, il plotting, le GIF e il salvataggio dei log."""
     print("Training completato. Generazione plot finali e GIF...")
+    xy_grid, T_exact_grid, X, Y = validation_grid
+    X, Y = X.cpu(), Y.cpu()
+    T_exact_grid = T_exact_grid.cpu()
+    Ny_dom, Nx_dom = X.shape
+    
+    xy_int, _ = data_internal
+    xy_bc, _, _, _ = data_boundary
+
     model.eval()
     with torch.set_grad_enabled(True): 
         xy_grid_val = xy_grid.clone().detach().requires_grad_(True)
@@ -457,9 +430,13 @@ def train_ViscoelasticPINN(
         
     internal_pts = xy_int if lambda_data > 0 else None
     boundary_pts = xy_bc if lambda_bc > 0 else None
+    if target_lambda_physics > 0:
+        xy_physics_full = xy_int if lambda_data > 0 else collocation_points
+    else:
+        xy_physics_full = None
 
     final_path = os.path.join(final_dir, 'VEfinal_result.png')
-    plot2D_final_result(X, Y, T_exact_grid, T_final, epochs, save_path=final_path, internal_points=internal_pts, boundary_points=boundary_pts, physics_points=xy_physics_full, val_label=cfg.val_label)
+    plot2D_final_result(X, Y, T_exact_grid, T_final, cfg.epochs, save_path=final_path, internal_points=internal_pts, boundary_points=boundary_pts, physics_points=xy_physics_full, val_label=cfg.val_label)
     
     if hasattr(physics_problem, 'get_velocity') and stress_exact_grids is not None:
         with torch.set_grad_enabled(True):
@@ -486,7 +463,7 @@ def train_ViscoelasticPINN(
         
         visco_final_path = os.path.join(final_dir, 'VE_viscoelastic_fields.png')
         plot2D_viscoelastic_final(
-            X, Y, fields_pred, fields_exact, epochs,
+            X, Y, fields_pred, fields_exact, cfg.epochs,
             save_path=visco_final_path, internal_points=internal_pts, boundary_points=boundary_pts, physics_points=xy_physics_full
         )
     
@@ -496,7 +473,8 @@ def train_ViscoelasticPINN(
     
     shutil.rmtree(plots_dir, ignore_errors=True)
     
-    _phase_markers = [{'epoch': half_epochs, 'label': 'Fase 2 (Dinamica)', 'color': 'purple'}] if staged_training else None
+    half_epochs = cfg.epochs // 2
+    _phase_markers = [{'epoch': half_epochs, 'label': 'Fase 2 (Dinamica)', 'color': 'purple'}] if cfg.staged_training else None
     
     _active_keys = set()
     if lambda_data > 0: _active_keys.add('data')
@@ -504,7 +482,7 @@ def train_ViscoelasticPINN(
     if target_lambda_physics > 0: _active_keys.add('physics')
     
     loss_history.plot_losses(
-        adam_epochs=epochs,
+        adam_epochs=cfg.epochs,
         save_path=os.path.join(final_dir, 'VE_loss_history.png'), 
         experiment_name=cfg.experiment_name, 
         skip_epochs=50,
@@ -513,5 +491,43 @@ def train_ViscoelasticPINN(
         active_loss_keys=_active_keys if _active_keys else None
     )
     plt.close("all")
+
+def train_ViscoelasticPINN(
+    model, config, data_internal, data_boundary,
+    validation_grid, physics_problem, collocation_points,
+    plots_dir, final_dir, stress_exact_grids=None
+):
+    """
+    Pipeline principale di addestramento per PINN Viscoelastiche.
+    Si divide in 3 fasi:
+      1. Adam (Warmup: Cinematica e Reologia)
+      2. Adam (Dinamica accoppiata)
+      3. L-BFGS (Raffinamento in precisione FP64)
+    """
+    os.makedirs(plots_dir, exist_ok=True)
+    os.makedirs(final_dir, exist_ok=True)
+    loss_history = TrainingHistory()
+    
+    # 1. Fase Adam (Eventuale Staged Training gestito internamente)
+    loss_history, plot_files, lambda_data, lambda_bc, target_lambda_physics, base_pde_weights = _run_adam_phase(
+        model, physics_problem, config, 
+        data_internal, data_boundary, validation_grid, collocation_points, 
+        loss_history, plots_dir
+    )
+
+    # 2. Fase L-BFGS (Raffinamento di precisione)
+    loss_history = _run_lbfgs_phase(
+        model, physics_problem, config, 
+        data_internal, data_boundary, collocation_points, 
+        loss_history, lambda_data, lambda_bc, target_lambda_physics, base_pde_weights
+    )
+
+    # 3. Inferenza e Generazione Artefatti Finali
+    _generate_training_artifacts(
+        model, physics_problem, validation_grid, stress_exact_grids,
+        data_internal, data_boundary, collocation_points,
+        plots_dir, final_dir, loss_history, plot_files,
+        lambda_data, lambda_bc, target_lambda_physics, config
+    )
 
     return loss_history

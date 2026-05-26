@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-def compute_chunked_gradients(model, physics_problem, xy_int, T_int, xy_bc, T_bc_tuple, xy_physics_full, 
+def compute_chunked_gradients(model, physics_problem, xy_int, obs_int, xy_bc, bc_targets, xy_physics_full, 
                               mode, variance_weights, lambda_data, lambda_bc, lambda_physics, chunk_size):
     """
     Gestisce l'accumulo dei gradienti a blocchi (chunking) per VRAM limitate.
@@ -14,14 +14,14 @@ def compute_chunked_gradients(model, physics_problem, xy_int, T_int, xy_bc, T_bc
     loss_dict = {'data_loss': 0.0, 'bc_loss': 0.0, 'pde_loss': 0.0, 'total_loss': 0.0}
     
     # 1. Data Loss Chunking
-    if xy_int is not None and T_int is not None and xy_int.numel() > 0:
+    if xy_int is not None and obs_int is not None and xy_int.numel() > 0:
         N_data = xy_int.shape[0]
         scale_u = variance_weights.get('u', 1.0) if (mode == 'semi_inverse' and variance_weights is not None) else 1.0
         scale_v = variance_weights.get('v', 1.0) if (mode == 'semi_inverse' and variance_weights is not None) else 1.0
         
         for i in range(0, N_data, chunk_size):
             x_data_c = xy_int[i : i + chunk_size]
-            y_data_c = T_int[i : i + chunk_size]
+            y_data_c = obs_int[i : i + chunk_size]
             
             if lambda_data == 0:
                 with torch.no_grad():
@@ -34,7 +34,7 @@ def compute_chunked_gradients(model, physics_problem, xy_int, T_int, xy_bc, T_bc
                         loss_c = 0.5 * (loss_u_c + loss_v_c)
                     else:
                         y_pred_c = model(x_data_c)
-                        num_features = T_int.shape[1]
+                        num_features = obs_int.shape[1]
                         loss_c = torch.nn.functional.mse_loss(y_pred_c, y_data_c, reduction='sum') / (N_data * num_features)
             else:
                 if mode == 'semi_inverse' and physics_problem is not None:
@@ -46,7 +46,7 @@ def compute_chunked_gradients(model, physics_problem, xy_int, T_int, xy_bc, T_bc
                     loss_c = 0.5 * (loss_u_c + loss_v_c)
                 else:
                     y_pred_c = model(x_data_c)
-                    num_features = T_int.shape[1]
+                    num_features = obs_int.shape[1]
                     loss_c = torch.nn.functional.mse_loss(y_pred_c, y_data_c, reduction='sum') / (N_data * num_features)
                 
             loss_dict['data_loss'] += loss_c.item()
@@ -56,8 +56,8 @@ def compute_chunked_gradients(model, physics_problem, xy_int, T_int, xy_bc, T_bc
         total_loss_val += lambda_data * loss_dict['data_loss']
         
     # 2. Boundary Loss (Nessun chunking necessario)
-    if physics_problem is not None and xy_bc is not None and T_bc_tuple is not None and xy_bc.numel() > 0:
-        bc_loss_val = physics_problem.boundary_loss(model, xy_bc, T_bc_tuple, variance_weights=variance_weights, active_bcs=None)
+    if physics_problem is not None and xy_bc is not None and bc_targets is not None and xy_bc.numel() > 0:
+        bc_loss_val = physics_problem.boundary_loss(model, xy_bc, bc_targets, variance_weights=variance_weights, active_bcs=None)
         loss_dict['bc_loss'] = bc_loss_val.item()
         total_loss_val += lambda_bc * bc_loss_val.item()
         if lambda_bc > 0:
