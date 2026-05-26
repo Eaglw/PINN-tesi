@@ -8,6 +8,10 @@ import sys
 import itertools
 from datetime import datetime
 
+# Ottimizzazioni per GPU Ampere (es. RTX 3080)
+torch.set_float32_matmul_precision('high') # Abilita TF32 per i matmul, enorme boost di velocità (fino a 2-3x)
+torch.backends.cudnn.benchmark = True # Ottimizza i kernel CUDNN
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
@@ -35,7 +39,7 @@ SEED = 123
 
 # --- Training Goals ---
 # 0=PurePhys, 1=Phys+Data, 2=SoloData
-GOALS_TO_RUN = [2, 1, 0]
+GOALS_TO_RUN = [1, 0]
 
 GOAL_CONFIGS = {
     0: {'label': 'PurePhys',  'weights': {'bc': 1.0, 'physics': 1.0, 'data': 0.0}, 'mode': 'standard'},
@@ -45,13 +49,13 @@ GOAL_CONFIGS = {
 
 # --- Architecture (Grid Search) ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]] #VENet 8x128
-EPOCHS_OPTIONS = [100]
+EPOCHS_OPTIONS = [12000]
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']
 
 # --- L-BFGS ---
-MAX_LBFGS_ITERS = 20
+MAX_LBFGS_ITERS = 2000
 
 # --- Optimizer ---
 BASE_LR = 1e-3
