@@ -54,6 +54,6 @@ For the complete technical specification of the neural network architectures, st
 - **Data Sparsity**: While robust, the model requires sufficient spatio-temporal resolution (e.g., ~50,000 points) to learn complex viscosity parameters accurately.
 
 ## Related
-- **Literature**: [[Thakur_et_al_ViscoelasticNet]], [[Oldroyd_B_Model]], [[Viscoelasticity_Theory]], [[Note_05_Academic_Context]]
+- **Literature**: [[Thakur_et_al_ViscoelasticNet]], [[Oldroyd_B_Model]], [[Viscoelasticity_Theory]], [[Note_05_Academic_Context]], [[Generazione_Dataset_Poiseuille]]
 - **Topics**: [[Viscoelasticity]], [[Fluid_Dynamics]], [[Inverse_Problems]], [[Pressure_Stress_Decoupling]]
 - **Systems/Experiments**: [[Viscoelastic_Training]]

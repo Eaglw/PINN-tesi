@@ -36,6 +36,10 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     Rinominata da plot_comparison per uso generale.
     Aggiunge la visualizzazione dei punti di collocazione della fisica se forniti."""
     
+    # Assicurati che siano su CPU per le operazioni matplotlib
+    T_true = T_true.detach().cpu()
+    T_pred = T_pred.detach().cpu()
+    
     # Calcolo Errori
     abs_error = torch.abs(T_pred - T_true)
     
@@ -102,6 +106,10 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, internal_points=
     Left: Solution u(x,y) with overlaid training points (Internal, Boundary & Physics).
     Right: Relative Error Map %.
     """
+    # Assicurati che siano su CPU
+    T_true = T_true.detach().cpu()
+    T_pred = T_pred.detach().cpu()
+    
     # Calculate Relative Error Standard (diviso per valore locale) con masking
     abs_error = torch.abs(T_pred - T_true)
     rel_error = torch.zeros_like(T_true)
@@ -198,7 +206,8 @@ def plot2D_unified_comparison(X, Y, T_true, model_results, hyperparams, save_pat
         col = i % cols
         ax = axes[row, col]
         
-        T_pred = res['T_pred']
+        T_pred = res['T_pred'].detach().cpu()
+        T_true = T_true.detach().cpu()
         label = res['label']
         
         abs_error = torch.abs(T_pred - T_true)
@@ -255,6 +264,9 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
     
     for i, (T_pred, label) in enumerate(zip(T_preds, labels)):
         ax = axes[i]
+        
+        T_pred = T_pred.detach().cpu()
+        T_true = T_true.detach().cpu()
         
         abs_error = torch.abs(T_pred - T_true)
         
@@ -318,9 +330,9 @@ def plot_loss_comparison(histories, labels, save_path=None, title="Loss Comparis
 
 def _compute_rel_error(pred, exact):
     """Calcola errore relativo percentuale con masking per valori piccoli."""
-    # Cast to same dtype (L-BFGS usa float64, ma i plot vogliono float32)
-    pred = pred.float()
-    exact = exact.float()
+    # Cast to same dtype (L-BFGS usa float64, ma i plot vogliono float32) e spostamento su CPU
+    pred = pred.detach().cpu().float()
+    exact = exact.detach().cpu().float()
     abs_error = torch.abs(pred - exact)
     rel_error = torch.zeros_like(exact)
     mask = torch.abs(exact) > 0.01

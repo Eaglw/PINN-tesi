@@ -103,4 +103,5 @@ Si raccomanda di seguire rigorosamente le procedure descritte nel `PINN-wiki/GEM
 
 ## Note aggiunte
 Prima di scrivere qualsiasi tipo di codice spiegami cosa stai cercando di fare. 
-Se sei su windows non usare && per dare più comandi in uno, usa il modo corretto o runna singolarmente i comandi
+Se sei su windows non usare && per dare più comandi in uno, usa il modo corretto o runna singolarmente i comandi.
+Su Windows, esegui SEMPRE i comandi python e pip facendo riferimento all'interprete del virtual environment (es. `.\venv\Scripts\python` o `.\venv\Scripts\pip`), senza dare per scontato che l'eseguibile globale sia presente nel PATH.

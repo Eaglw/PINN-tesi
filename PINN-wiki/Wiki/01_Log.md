@@ -150,3 +150,15 @@
 ## [2026-05-25] update_wiki | Inserimento dettagli su splittaggio Dirichlet/Neumann BC e staged masking
 - Aggiornata la pagina [[Viscoelastic_Training]] documentando la separazione matematica e computazionale tra le condizioni al contorno di Dirichlet e Neumann.
 - Descritto il meccanismo di mascheramento basato su `NaN` e il funzionamento del filtraggio dinamico con `active_bcs` durante le fasi dello Staged Training per ottimizzare l'esecuzione del codice ed evitare calcoli autograd superflui.
+
+## [2026-05-26] ingest | Generazione Dataset Flusso di Oldroyd-B (Poiseuille)
+- Processed the document teorico sulla generazione del dataset sintetico per il flusso di Poiseuille di Oldroyd-B.
+- Estratti i profili analitici di velocità, sforzi e funzione di corrente, e documentate le metodologie di campionamento (Grid e Sobol) con rumore Gaussiano.
+- Creata la pagina Literature [[Generazione_Dataset_Poiseuille]].
+- Aggiornato l'indice [[00_Index]] e la pagina di sistema [[Viscoelastic_Fluids]].
+
+## [2026-05-26] update_wiki | Aggiunta ViscoelasticNet Unified Model
+- Creata la pagina di metodo [[ViscoelasticNet_Unified]] per documentare l'equazione costitutiva unificata 2D (che unisce Oldroyd-B, Giesekus e Linear PTT).
+- Documentata l'estensione del sistema di monitoraggio, logging CSV ed evoluzione dei parametri fisici su 5 subplots per tracciare la convergenza di $\epsilon$ e $\alpha$ in modalità inversa.
+- Documentate le ottimizzazioni computazionali (fattorizzazione algebrica dei coefficienti e calcolo selettivo di Navier-Stokes in Fase 1).
+- Aggiornato l'indice generale [[00_Index]].
