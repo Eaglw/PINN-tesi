@@ -128,20 +128,24 @@ class ViscoelasticPhysics(nn.Module):
         # ρ(u·∇u) + ∇p - μ_s∇²u - ∇·τ = 0
         f_u = self.rho * (u * u_x + v * u_y) + p_x - mu_s_eff * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
         f_v = self.rho * (u * v_x + v * v_y) + p_y - mu_s_eff * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
-        
-        # Equazioni Costitutive (Oldroyd-B)
-        f_tau_xx = tau_xx + lam_eff * (u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy) - 2 * mu_p_eff * u_x
-        f_tau_yy = tau_yy + lam_eff * (u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy) - 2 * mu_p_eff * v_y
-        # Upper-Convected Derivative, componente xy:
+
+        # Upper-Convected Derivative
         # (∇u · τ)_xy = u_x·τ_xy + u_y·τ_yy
         # (τ · ∇u^T)_xy = τ_xx·v_x + τ_xy·v_y
-        f_tau_xy = tau_xy + lam_eff * (
-            u * tau_xy_x + v * tau_xy_y
-            - u_x * tau_xy
-            - u_y * tau_yy
-            - tau_xx * v_x
-            - tau_xy * v_y
-        ) - mu_p_eff * (u_y + v_x)
+        upper_xx = (u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy)
+        upper_yy = (u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy)
+        upper_xy = ( u * tau_xy_x + v * tau_xy_y - u_x * tau_xy - u_y * tau_yy- tau_xx * v_x - tau_xy * v_y)
+
+        #PTT coeff
+        PTT_coeff = (1+eps_eff*lam_eff*(tau_xx+tau_yy)/mu_p_eff)
+
+        #Giesekus coeff
+        G_coeff = alpha_eff*lam_eff/mu_p_eff
+
+        # Equazioni Costitutive (VENet unito)
+        f_tau_xx = PTT_coeff*tau_xx + lam_eff * upper_xx + G_coeff * (tau_xx^2+tau_xy^2) - 2 * mu_p_eff * u_x
+        f_tau_yy = PTT_coeff*tau_yy + lam_eff * upper_yy + G_coeff * (tau_xy^2+tau_yy^2) - 2 * mu_p_eff * v_y
+        f_tau_xy = PTT_coeff*tau_xy + lam_eff * upper_xy + G_coeff * tau_xy*(tau_xx+tau_yy) - mu_p_eff * (u_y + v_x)
         
         return f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy
 
@@ -337,10 +341,10 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     n_outlet = torch.tensor([[1.0, 0.0]], device=device).expand(Ny_outlet, 2)
     
     # Dirichlet: Scarico a pressione zero
-    #p_outlet   = get_zero(y_outlet) rimuovo la pressione impostata a zero
+    p_outlet   = get_zero(y_outlet) #rimetto la pressione impostata a zero
     nan_outlet = get_nan(y_outlet)
     
-    outlet_dirichlet = pack_state(nan_outlet, nan_outlet, nan_outlet, nan_outlet, nan_outlet, nan_outlet)
+    outlet_dirichlet = pack_state(nan_outlet, nan_outlet, p_outlet, nan_outlet, nan_outlet, nan_outlet)
     
     # Neumann: Flusso in uscita libero
     tau_outlet=get_zero(y_outlet) #imposto a zero la componente normale dello stress, che passo a tauxx e tau xy. 
