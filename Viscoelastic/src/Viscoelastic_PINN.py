@@ -80,6 +80,15 @@ def set_model_trainable(model_combined, active_components=['psi', 'p', 'tau']):
         
     print(f"  [Trainable status] Psi: {'psi' in active_components}, P: {'p' in active_components}, Tau: {'tau' in active_components}")
 
+def set_physics_trainable(physics_problem, active_params=['mu_s', 'mu_p', 'lam', 'eps', 'alpha']):
+    if not getattr(physics_problem, 'inverse_mode', False):
+        return
+    for p_name in ['mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
+        p_val = getattr(physics_problem, p_name)
+        if isinstance(p_val, torch.Tensor) and p_val.is_leaf:
+            p_val.requires_grad_(p_name in active_params)
+    print(f"  [Physics Trainable] {active_params}")
+
 @dataclass
 class TrainingConfig:
     epochs: int = 1000
@@ -173,49 +182,58 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
     
     pbar = tqdm(range(epochs), desc=f"Training VE (Adam) ({cfg.lr_strategy})", mininterval=2.0)
     
+    warmup_ratio = getattr(cfg, 'warmup_ratio', 0.1)
+    warmup_epochs_1 = int(epochs * warmup_ratio) if staged_training else 0
+    warmup_epochs_2 = half_epochs + int(epochs * warmup_ratio) if staged_training else 0
+    
+    def _rebuild_optimizer(steps_remaining):
+        t_params = [p for p in model.parameters() if p.requires_grad] + \
+                   [p for p in physics_problem.parameters() if p.requires_grad]
+        opt = torch.optim.Adam(t_params, lr=cfg.base_lr, eps=cfg.adam_eps)
+        sch = _get_scheduler(opt, cfg.lr_strategy, steps_remaining if steps_remaining > 0 else 1)
+        
+        last_layer = []
+        for net in [model.model_psi, model.model_p, model.model_tau]:
+            if hasattr(net, 'fcs') and len(net.fcs) > 0:
+                last_layer.extend([p for p in net.fcs[-1].parameters() if p.requires_grad])
+        if not last_layer:
+            last_layer = t_params
+        
+        return opt, sch, last_layer, setup_inverse_parameters(physics_problem)
+    
     if staged_training:
-        print(f"\n  [Staged Training] Fase 1: Cinematica e Reologia (psi+tau).")
+        print(f"\n  [Staged Training] Fase 1 (Warmup): Cinematica e Reologia (psi+tau).")
         set_model_trainable(model, ['psi', 'tau']) #qui spengo rete pressione
-        physics_problem.pde_weights = {'momentum': 0.0, 'constitutive': base_pde_weights.get('constitutive', 1.0)} #calcolo anche loss su momentum ma a zero, motivi di efficienza JIT
+        physics_problem.pde_weights = {'momentum': 0.0, 'constitutive': base_pde_weights.get('constitutive', 1.0)} 
         current_active_bcs = ['u', 'v', 'txx', 'txy', 'tyy'] #non ho bc su p
+        set_physics_trainable(physics_problem, []) # Tutto bloccato nel warmup
     else:
         set_model_trainable(model, ['psi', 'p', 'tau'])
         current_active_bcs = None #non filtra nulla, quindi tutto
+        set_physics_trainable(physics_problem, ['mu_s', 'mu_p', 'lam', 'eps', 'alpha'])
 
-    trainable_params = [p for p in model.parameters() if p.requires_grad] + \
-                       [p for p in physics_problem.parameters() if p.requires_grad] #assegnamo solo i parametri che hanno requiresgrad
-    optimizer = torch.optim.Adam(trainable_params, lr=cfg.base_lr, eps=cfg.adam_eps)
-    scheduler = _get_scheduler(optimizer, cfg.lr_strategy, half_epochs if staged_training else epochs)
-
-
-    _last_layer_trainable = [] #bastano i gradienti dell'ultimo layer per una previsione accurata di tuta la rete, ma meno pesante
-    for net in [model.model_psi, model.model_p, model.model_tau]:
-        if hasattr(net, 'fcs') and len(net.fcs) > 0:
-            _last_layer_trainable.extend([p for p in net.fcs[-1].parameters() if p.requires_grad])
-    if not _last_layer_trainable:
-        _last_layer_trainable = trainable_params
+    optimizer, scheduler, _last_layer_trainable, params_to_clamp = _rebuild_optimizer(warmup_epochs_1 if staged_training else epochs)
 
     alpha_dynamic = 0.9 #coefficiente di smoothing per aggiornare i pesi dinamici di loss bc e dati
 
     for epoch in pbar:
+        if staged_training and epoch == warmup_epochs_1:
+            print(f"\n  [Staged Training] Fine Warmup 1. Sblocco parametri costitutivi.")
+            set_physics_trainable(physics_problem, ['mu_p', 'lam', 'eps', 'alpha'])
+            optimizer, scheduler, _last_layer_trainable, params_to_clamp = _rebuild_optimizer(half_epochs - warmup_epochs_1)
+            
         if staged_training and epoch == half_epochs:
-            print(f"\n  [Staged Training] Fase 2: Dinamica (psi+p). Navier-Stokes ON.")
+            print(f"\n  [Staged Training] Fase 2 (Warmup): Dinamica (psi+p). Navier-Stokes ON.")
             set_model_trainable(model, ['psi', 'p'])
-            physics_problem.pde_weights = base_pde_weights
+            physics_problem.pde_weights = {'momentum': base_pde_weights.get('momentum', 10.0), 'constitutive': 0.0}
             current_active_bcs = ['u', 'v', 'p']
-            
-            trainable_params = [p for p in model.parameters() if p.requires_grad] + \
-                               [p for p in physics_problem.parameters() if p.requires_grad]
-            optimizer = torch.optim.Adam(trainable_params, lr=cfg.base_lr, eps=cfg.adam_eps) #va rifatto l'optimizer con set di parametri nuovo
-            scheduler = _get_scheduler(optimizer, cfg.lr_strategy, epochs - half_epochs)
-            params_to_clamp = setup_inverse_parameters(physics_problem)
-            
-            _last_layer_trainable = []
-            for net in [model.model_psi, model.model_p, model.model_tau]:
-                if hasattr(net, 'fcs') and len(net.fcs) > 0:
-                    _last_layer_trainable.extend([p for p in net.fcs[-1].parameters() if p.requires_grad])
-            if not _last_layer_trainable:
-                _last_layer_trainable = trainable_params
+            set_physics_trainable(physics_problem, []) # Tutto bloccato nel warmup
+            optimizer, scheduler, _last_layer_trainable, params_to_clamp = _rebuild_optimizer(warmup_epochs_2 - half_epochs)
+
+        if staged_training and epoch == warmup_epochs_2:
+            print(f"\n  [Staged Training] Fine Warmup 2. Sblocco parametro momentum.")
+            set_physics_trainable(physics_problem, ['mu_s'])
+            optimizer, scheduler, _last_layer_trainable, params_to_clamp = _rebuild_optimizer(epochs - warmup_epochs_2)
 
         model.train()
         optimizer.zero_grad(set_to_none=True) #azzera i gradienti accumulati, ripartendo proprio da zero

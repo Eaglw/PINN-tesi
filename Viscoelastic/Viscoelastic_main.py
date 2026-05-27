@@ -39,7 +39,7 @@ SEED = 123
 
 # --- Training Goals ---
 # 0=PurePhys, 1=Phys+Data, 2=SoloData
-GOALS_TO_RUN = [1, 0]
+GOALS_TO_RUN = [2, 1, 0]
 
 GOAL_CONFIGS = {
     0: {'label': 'PurePhys',  'weights': {'bc': 1.0, 'physics': 1.0, 'data': 0.0}, 'mode': 'standard'},
@@ -49,7 +49,7 @@ GOAL_CONFIGS = {
 
 # --- Architecture (Grid Search) ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]] #VENet 8x128
-EPOCHS_OPTIONS = [12000]
+EPOCHS_OPTIONS = [10000]
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']

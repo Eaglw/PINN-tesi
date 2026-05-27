@@ -222,14 +222,13 @@ class ViscoelasticPhysics(nn.Module):
         total_bc_loss = 0.0
 
         # --- 3. LOSS DI DIRICHLET ---
-        valid_dir = (~torch.isnan(dir_target)) & active_mask #matrice booleana con 1 solo se dirichlet è non NaN + variabile attiva
-        
-        diff_dir = pred_bc - torch.nan_to_num(dir_target, nan=0.0) #differenza con fix per NaN
-        sq_diff_dir = (diff_dir ** 2) / var_w #quadrato pesato
-
-        sum_dir = (sq_diff_dir * valid_dir.float()).sum() #valid_dir.float() trasforma True in 1.0 e False in 0.0 per eliminare i campi non voluti
-        count_dir = valid_dir.float().sum()
-        total_bc_loss += sum_dir / count_dir.clamp_min(1.0) #dividiamo per i punti totali, clamp mi salva da eventuali 0 se non ho dirichlet
+        for i in range(6):
+            valid_dir_i = (~torch.isnan(dir_target[:, i:i+1])) & active_mask[:, i:i+1]
+            mask_i = valid_dir_i.float()
+            if mask_i.sum() > 0:
+                diff_i = pred_bc[:, i:i+1] - torch.nan_to_num(dir_target[:, i:i+1], nan=0.0)
+                sq_diff_i = (diff_i ** 2) / var_w[0, i]
+                total_bc_loss += (sq_diff_i * mask_i).sum() / mask_i.sum().clamp_min(1.0)
 
         # --- 4. LOSS DI NEUMANN ---
         # Cache per sapere quali colonne hanno condizioni al contorno di Neumann (non-NaN)
@@ -299,7 +298,12 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     # Dirichlet: Profilo parabolico (u) e velocità trasversale nulla (v)
     u_inlet = 4 * u_max * (y_inlet * (Ly - y_inlet)) / (Ly**2)
     v_inlet = get_zero(y_inlet)
-    p_inlet = torch.ones_like(y_inlet)
+    
+    p_exact_grid = stress_exact_dict.get('p')
+    if p_exact_grid is not None:
+        p_inlet = p_exact_grid[:, 0].reshape(-1, 1).to(device)
+    else:
+        p_inlet = torch.ones_like(y_inlet)
     
     # Dirichlet: Estrazione sforzi esatti
     txx_exact = stress_exact_dict.get('tau_xx', torch.full((Ny, Nx), float('nan'), device=device)).to(device)
@@ -352,8 +356,11 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     x_outlet = torch.full_like(y_outlet, Lx)
     n_outlet = torch.tensor([[1.0, 0.0]], device=device).expand(Ny_outlet, 2)
     
-    # Dirichlet: Scarico a pressione zero
-    p_outlet   = get_zero(y_outlet) #rimetto la pressione impostata a zero
+    # Dirichlet: Scarico a pressione zero (o quella esatta del dataset se fornita)
+    if p_exact_grid is not None:
+        p_outlet = p_exact_grid[1:-1, -1].reshape(-1, 1).to(device)
+    else:
+        p_outlet = get_zero(y_outlet)
     nan_outlet = get_nan(y_outlet)
     
     outlet_dirichlet = pack_state(nan_outlet, nan_outlet, p_outlet, nan_outlet, nan_outlet, nan_outlet)
