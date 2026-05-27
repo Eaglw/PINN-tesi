@@ -136,7 +136,7 @@ def setup_inverse_parameters(physics_problem): #roba di ottimizzazione che non h
     """
     params_to_clamp = []
     if getattr(physics_problem, 'inverse_mode', False):
-        for p_name in ['mu_s', 'mu_p', 'lam']:
+        for p_name in ['mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
             p_val = getattr(physics_problem, p_name)
             if isinstance(p_val, torch.Tensor) and p_val.requires_grad:
                 params_to_clamp.append(p_val)
@@ -279,7 +279,9 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
             history_entry.update({
                 'param_etas': physics_problem.mu_s.item(),
                 'param_etap': physics_problem.mu_p.item(),
-                'param_lam': physics_problem.lam.item()
+                'param_lam': physics_problem.lam.item(),
+                'param_epsilon': physics_problem.eps.item(),
+                'param_alpha': physics_problem.alpha.item()
             })
         loss_history.update(epoch, history_entry, lr=current_lr)
 
@@ -319,6 +321,8 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
         physics_problem.mu_s.requires_grad_(True)
         physics_problem.mu_p.requires_grad_(True)
         physics_problem.lam.requires_grad_(True)
+        physics_problem.eps.requires_grad_(True)
+        physics_problem.alpha.requires_grad_(True)
     params_to_clamp_lbfgs = setup_inverse_parameters(physics_problem)
 
     if cfg.precision_mode == 'staged': #se abbiamo staged e si parte da float32 poi casta tutto a 64
@@ -374,7 +378,9 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
                 history_entry.update({
                     'param_etas': physics_problem.mu_s.item(),
                     'param_etap': physics_problem.mu_p.item(),
-                    'param_lam': physics_problem.lam.item()
+                    'param_lam': physics_problem.lam.item(),
+                    'param_epsilon': physics_problem.eps.item(),
+                    'param_alpha': physics_problem.alpha.item()
                 })
             loss_history.update(cfg.epochs + lbfgs_iter[0], history_entry, lr=1.0) #per continuare su stesso grafico di adam
             

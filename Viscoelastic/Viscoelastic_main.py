@@ -85,6 +85,8 @@ INVERSE_PROBLEM = True
 GUESS_MU_S = 0.004  # True is 0.005
 GUESS_MU_P = 0.004  # True is 0.005
 GUESS_LAM = 0.8     # True is 1.0
+GUESS_EPS = 0.01    # Guess iniziale (per PTT)
+GUESS_ALPHA = 0.01  # Guess iniziale (per Giesekus)
 
 # --- Logging & Plotting ---
 LOG_GRADIENTS_EVERY = 500
@@ -133,8 +135,10 @@ Lx, Ly = params['L'], params['H']
 mu_s = params.get('mu_s', 0.005)
 mu_p = params.get('mu_p', 0.005)
 lam = params.get('lam', 1.0)
+eps = params.get('eps', 0.0)
+alpha = params.get('alpha', 0.0)
 u_max = params['u_max']
-print(f"Dataset caricato: L={Lx}, H={Ly}, mu_s={mu_s}, mu_p={mu_p}, lam={lam}, u_max={u_max}")
+print(f"Dataset caricato: L={Lx}, H={Ly}, mu_s={mu_s}, mu_p={mu_p}, lam={lam}, eps={eps}, alpha={alpha}, u_max={u_max}")
 
 # --- Preparazione Grid e Soluzioni Esatte ---
 xy_grid_flat = dataset['coords']
@@ -236,11 +240,15 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
             mu_s=GUESS_MU_S if inv_mode else mu_s, 
             mu_p=GUESS_MU_P if inv_mode else mu_p, 
             lam=GUESS_LAM if inv_mode else lam, 
+            eps=GUESS_EPS if inv_mode else eps,
+            alpha=GUESS_ALPHA if inv_mode else alpha,
             pde_weights=PDE_WEIGHTS,
             inverse_mode=inv_mode,
             real_mu_s=mu_s,
             real_mu_p=mu_p,
-            real_lam=lam
+            real_lam=lam,
+            real_eps=eps,
+            real_alpha=alpha
         ).to(device).to(initial_dtype)
         label = goal_cfg['label']
         mode_param = goal_cfg['mode']
@@ -326,7 +334,9 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
             cur_mu_s = phys_problem.mu_s.item() if isinstance(phys_problem.mu_s, torch.Tensor) else phys_problem.mu_s
             cur_mu_p = phys_problem.mu_p.item() if isinstance(phys_problem.mu_p, torch.Tensor) else phys_problem.mu_p
             cur_lam = phys_problem.lam.item() if isinstance(phys_problem.lam, torch.Tensor) else phys_problem.lam
-            print(f"  [Parametri Fisici Finali - {label}] mu_s: {cur_mu_s:.5f}, mu_p: {cur_mu_p:.5f}, lam: {cur_lam:.5f}")
+            cur_eps = phys_problem.eps.item() if isinstance(phys_problem.eps, torch.Tensor) else phys_problem.eps
+            cur_alpha = phys_problem.alpha.item() if isinstance(phys_problem.alpha, torch.Tensor) else phys_problem.alpha
+            print(f"  [Parametri Fisici Finali - {label}] mu_s: {cur_mu_s:.5f}, mu_p: {cur_mu_p:.5f}, lam: {cur_lam:.5f}, eps: {cur_eps:.5f}, alpha: {cur_alpha:.5f}")
             
             # Metriche multi-campo
             fields_exact_for_metrics = {
@@ -374,6 +384,8 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
                     true_etas=mu_s,
                     true_etap=mu_p,
                     true_lam=lam,
+                    true_epsilon=eps,
+                    true_alpha=alpha,
                     save_path=os.path.join(exp_dir, 'VE_parameters_evolution.png'),
                     experiment_name=f"Viscoelastic {label}"
                 )
@@ -399,7 +411,7 @@ for layers_config, epochs, act_fn, lr_strat, weight_mode in configs:
     
     # Fallback clean physics problem for velocity evaluation in comparison plots
     comp_phys_problem = ViscoelasticPhysics(
-        mu_s=mu_s, mu_p=mu_p, lam=lam, pde_weights=PDE_WEIGHTS
+        mu_s=mu_s, mu_p=mu_p, lam=lam, eps=eps, alpha=alpha, pde_weights=PDE_WEIGHTS
     ).to(device).to(initial_dtype)
     
     model_results = []

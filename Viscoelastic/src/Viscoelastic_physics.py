@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class ViscoelasticPhysics(nn.Module):
-    def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0, rho=1.0, pde_weights=None, inverse_mode=False, real_mu_s=None, real_mu_p=None, real_lam=None):
+    def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0, eps=0.0, alpha=0.0, rho=1.0, pde_weights=None, inverse_mode=False, real_mu_s=None, real_mu_p=None, real_lam=None, real_eps=None, real_alpha=None):
         """
         Modulo per calcolare i residui fisici (equazioni di Navier-Stokes e modello Oldroyd-B).
         
@@ -17,6 +17,8 @@ class ViscoelasticPhysics(nn.Module):
             mu_s: Viscosità del solvente [Pa·s] (o guess iniziale per inverse problem)
             mu_p: Viscosità polimerica [Pa·s] (o guess iniziale per inverse problem)
             lam: Tempo di rilassamento [s] (o guess iniziale per inverse problem)
+            eps: Parametro di mobilità PTT (o guess iniziale)
+            alpha: Parametro di mobilità Giesekus (o guess iniziale)
             rho: Densità del fluido [kg/m³]. Default=1.0 (adimensionale).
                  Se rho != 1, le equazioni del momento vengono scalate di conseguenza.
             pde_weights: Dict con pesi per le componenti PDE.
@@ -33,16 +35,24 @@ class ViscoelasticPhysics(nn.Module):
             self.mu_s = nn.Parameter(torch.tensor([mu_s], dtype=torch.float32))
             self.mu_p = nn.Parameter(torch.tensor([mu_p], dtype=torch.float32))
             self.lam = nn.Parameter(torch.tensor([lam], dtype=torch.float32))
+            self.eps = nn.Parameter(torch.tensor([eps], dtype=torch.float32))
+            self.alpha = nn.Parameter(torch.tensor([alpha], dtype=torch.float32))
             self.real_mu_s = real_mu_s if real_mu_s is not None else mu_s
             self.real_mu_p = real_mu_p if real_mu_p is not None else mu_p
             self.real_lam = real_lam if real_lam is not None else lam
+            self.real_eps = real_eps if real_eps is not None else eps
+            self.real_alpha = real_alpha if real_alpha is not None else alpha
         else:
             self.register_buffer('mu_s', torch.tensor([mu_s], dtype=torch.float32))
             self.register_buffer('mu_p', torch.tensor([mu_p], dtype=torch.float32))
             self.register_buffer('lam', torch.tensor([lam], dtype=torch.float32))
+            self.register_buffer('eps', torch.tensor([eps], dtype=torch.float32))
+            self.register_buffer('alpha', torch.tensor([alpha], dtype=torch.float32))
             self.real_mu_s = real_mu_s if real_mu_s is not None else mu_s
             self.real_mu_p = real_mu_p if real_mu_p is not None else mu_p
             self.real_lam = real_lam if real_lam is not None else lam
+            self.real_eps = real_eps if real_eps is not None else eps
+            self.real_alpha = real_alpha if real_alpha is not None else alpha
             
         self.rho = rho
         self.mse_loss = nn.MSELoss()
@@ -123,6 +133,8 @@ class ViscoelasticPhysics(nn.Module):
         mu_s_eff = torch.abs(self.mu_s)
         mu_p_eff = torch.abs(self.mu_p)
         lam_eff  = torch.abs(self.lam)
+        eps_eff = torch.abs(self.eps)
+        alpha_eff = torch.abs(self.alpha)
         
         # Equazioni di Quantità di Moto (Navier-Stokes)
         # ρ(u·∇u) + ∇p - μ_s∇²u - ∇·τ = 0
@@ -143,8 +155,8 @@ class ViscoelasticPhysics(nn.Module):
         G_coeff = alpha_eff*lam_eff/mu_p_eff
 
         # Equazioni Costitutive (VENet unito)
-        f_tau_xx = PTT_coeff*tau_xx + lam_eff * upper_xx + G_coeff * (tau_xx^2+tau_xy^2) - 2 * mu_p_eff * u_x
-        f_tau_yy = PTT_coeff*tau_yy + lam_eff * upper_yy + G_coeff * (tau_xy^2+tau_yy^2) - 2 * mu_p_eff * v_y
+        f_tau_xx = PTT_coeff*tau_xx + lam_eff * upper_xx + G_coeff * (tau_xx**2+tau_xy**2) - 2 * mu_p_eff * u_x
+        f_tau_yy = PTT_coeff*tau_yy + lam_eff * upper_yy + G_coeff * (tau_xy**2+tau_yy**2) - 2 * mu_p_eff * v_y
         f_tau_xy = PTT_coeff*tau_xy + lam_eff * upper_xy + G_coeff * tau_xy*(tau_xx+tau_yy) - mu_p_eff * (u_y + v_x)
         
         return f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy

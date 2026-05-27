@@ -270,22 +270,30 @@ class TrainingHistory:
         if show_plot: plt.show()
         plt.close()
 
-    def plot_physical_parameters(self, true_etas, true_etap, true_lam, save_path=None, experiment_name="", show_plot=False):
-        has_params = any(k in self.losses for k in ['param_etas', 'param_etap', 'param_lam'])
+    def plot_physical_parameters(self, true_etas, true_etap, true_lam, true_epsilon=None, true_alpha=None, save_path=None, experiment_name="", show_plot=False):
+        has_params = any(k in self.losses for k in ['param_etas', 'param_etap', 'param_lam', 'param_epsilon', 'param_alpha'])
         if not has_params:
             return
 
-        fig, axs = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+        active_params = []
+        if 'param_etas' in self.losses: active_params.append({'key': 'param_etas', 'true_val': true_etas, 'title': r'Solvent Viscosity ($\eta_s$)', 'color': 'b'})
+        if 'param_etap' in self.losses: active_params.append({'key': 'param_etap', 'true_val': true_etap, 'title': r'Polymer Viscosity ($\eta_p$)', 'color': 'g'})
+        if 'param_lam' in self.losses: active_params.append({'key': 'param_lam', 'true_val': true_lam, 'title': r'Relaxation Time ($\lambda$)', 'color': 'r'})
+        if 'param_epsilon' in self.losses: active_params.append({'key': 'param_epsilon', 'true_val': true_epsilon, 'title': r'PTT Mobility ($\epsilon$)', 'color': 'm'})
+        if 'param_alpha' in self.losses: active_params.append({'key': 'param_alpha', 'true_val': true_alpha, 'title': r'Giesekus Mobility ($\alpha$)', 'color': 'c'})
+
+        n_params = len(active_params)
+        if n_params == 0:
+            return
+
+        fig, axs = plt.subplots(n_params, 1, figsize=(10, 4*n_params), sharex=True)
+        if n_params == 1:
+            axs = [axs]
+            
         fig.suptitle(f'Inverse Problem: Physical Parameters Evolution\n{experiment_name}', fontsize=16)
 
-        param_configs = [
-            {'key': 'param_etas', 'true_val': true_etas, 'ax_idx': 0, 'title': r'Solvent Viscosity ($\eta_s$)', 'color': 'b'},
-            {'key': 'param_etap', 'true_val': true_etap, 'ax_idx': 1, 'title': r'Polymer Viscosity ($\eta_p$)', 'color': 'g'},
-            {'key': 'param_lam', 'true_val': true_lam, 'ax_idx': 2, 'title': r'Relaxation Time ($\lambda$)', 'color': 'r'}
-        ]
-
-        for config in param_configs:
-            ax = axs[config['ax_idx']]
+        for i, config in enumerate(active_params):
+            ax = axs[i]
             key = config['key']
             true_val = config['true_val']
             color = config['color']
@@ -294,21 +302,22 @@ class TrainingHistory:
             if key in self.losses:
                 values = self.losses[key]
                 clean_values = [v if v is not None else np.nan for v in values]
-                valid_indices = [i for i, v in enumerate(clean_values) if not np.isnan(v)]
+                valid_indices = [idx for idx, v in enumerate(clean_values) if not np.isnan(v)]
                 
                 if valid_indices:
-                    epochs = [self.epochs[i] for i in valid_indices]
-                    vals = [clean_values[i] for i in valid_indices]
+                    epochs = [self.epochs[idx] for idx in valid_indices]
+                    vals = [clean_values[idx] for idx in valid_indices]
                     
                     ax.plot(epochs, vals, label='Learned Value', color=color, linewidth=2)
             
             # Plot the true value as a dashed line
-            ax.axhline(true_val, color='k', linestyle='--', linewidth=2, label='True Value')
+            if true_val is not None:
+                ax.axhline(true_val, color='k', linestyle='--', linewidth=2, label='True Value')
             ax.set_title(title)
             ax.grid(True, ls="--", alpha=0.5)
             ax.legend(loc='best', frameon=True)
 
-        axs[2].set_xlabel('Epoch/Iter')
+        axs[-1].set_xlabel('Epoch/Iter')
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
         if save_path:

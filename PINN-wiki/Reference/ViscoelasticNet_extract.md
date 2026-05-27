@@ -194,7 +194,7 @@ Figure 3: Relative errors between the predictions of the model and the correspon
 
 
 
-Algorithm 1 The algorithm for viscoelasticNet
+## Algorithm 1 The algorithm for viscoelasticNet
 
 
 Input: Spatio-temporal point clouds, IC and BCs on stress
