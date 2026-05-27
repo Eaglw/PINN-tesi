@@ -25,7 +25,9 @@ where:
 * $\epsilon$ is the PTT extensibility parameter.
 * $\alpha$ is the Giesekus mobility parameter.
 * $tr(\boldsymbol{\tau}) = \tau^{xx} + \tau^{yy}$ is the trace of the stress tensor.
-* $\overset{\nabla}{\boldsymbol{\tau}}$ is the upper-convected time derivative.
+* $\overset{\nabla}{\boldsymbol{\tau}}$ is the [[Upper-convected time derivative]].
+
+
 
 ### Model Identification Matrix
 By training the parameters $\epsilon$ and $\alpha$, we can classify the flow behavior as follows:

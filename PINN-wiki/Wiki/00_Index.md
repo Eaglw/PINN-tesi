@@ -59,7 +59,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Sobolev_Regularization]]: Derivative supervision for stream function kinematics
 - [[Integral_Loss_Scaling]]: Volume-proportional loss balancing
 - [[ViscoelasticNet]]: PINN framework for stress discovery
-- [[ViscoelasticNet_Unified]]: Unified constitutive relation model (Oldroyd-B / Giesekus / Linear PTT)
+- [[ViscoelasticNet_Full model]]: Unified constitutive relation model (Oldroyd-B / Giesekus / Linear PTT)
 - [[Log_Conformation_Tensor]]: Variable transformation for high Weissenberg numbers
 - [[Viscoelastic_Metrics]]: Multi-field error aggregation
 - [[Loss_History_Tracking]]: Convergence and gradient visualization

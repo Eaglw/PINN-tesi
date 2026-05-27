@@ -158,7 +158,7 @@
 - Aggiornato l'indice [[00_Index]] e la pagina di sistema [[Viscoelastic_Fluids]].
 
 ## [2026-05-26] update_wiki | Aggiunta ViscoelasticNet Unified Model
-- Creata la pagina di metodo [[ViscoelasticNet_Unified]] per documentare l'equazione costitutiva unificata 2D (che unisce Oldroyd-B, Giesekus e Linear PTT).
+- Creata la pagina di metodo [[ViscoelasticNet_Full model]] per documentare l'equazione costitutiva unificata 2D (che unisce Oldroyd-B, Giesekus e Linear PTT).
 - Documentata l'estensione del sistema di monitoraggio, logging CSV ed evoluzione dei parametri fisici su 5 subplots per tracciare la convergenza di $\epsilon$ e $\alpha$ in modalità inversa.
 - Documentate le ottimizzazioni computazionali (fattorizzazione algebrica dei coefficienti e calcolo selettivo di Navier-Stokes in Fase 1).
 - Aggiornato l'indice generale [[00_Index]].

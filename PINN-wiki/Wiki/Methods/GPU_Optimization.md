@@ -24,11 +24,11 @@ Small batch sizes (e.g., $N=1024$) fail to saturate the parallel cores of modern
 
 ## Advanced Optimization Techniques
 
-### 4. PyTorch JIT Compilation (`torch.compile`) — [SCARTATA]
-I PINN richiedono centinaia di lanci di kernel CUDA a causa delle derivate di autograd ad ogni epoca. 
-- **Stato**: **Scartata** per incompatibilità d'ambiente.
-- **Motivazione**: PyTorch 2.x non supporta `torch.compile` su versioni di Python superiori a 3.10/3.11 (nello specifico, fallisce su Python 3.14+).
-- **Alternativa**: Sostituita interamente dai **CUDA Graphs** per l'eliminazione dell'overhead CPU.
+### 4. PyTorch JIT Compilation (TorchScript / `torch.compile`) — [ATTIVA TRAMITE TORCHSCRIPT]
+I PINN richiedono centinaia di lanci di kernel CUDA a causa delle derivate di autograd ad ogni epoca e generano derivate seconde.
+- **Evoluzione Ambientale (`torch.compile`)**: Il problema del supporto su Windows e Python 3.14 è stato superato installando `triton-windows`. Tuttavia, `torch.compile` (backend AOTAutograd) presenta un limite architetturale invalicabile con il *double backward* (le derivate seconde spaziali delle PINN generano l'errore `RuntimeError: torch.compile with aot_autograd does not currently support double backward`).
+- **Stato e Soluzione**: **TorchScript Attivo**. Per superare il problema senza perdere precisione o riscrivere la matematica in Forward-Mode AutoDiff, viene utilizzato `torch.jit.trace` sui sottomodelli della rete. TorchScript compila il forward pass in un grafo C++ ottimizzato ed è nativamente compatibile con il double backward.
+- **Vantaggi**: Riduce l'overhead Python (specie in assenza dei CUDA Graphs) fondendo le operazioni lineari e di attivazione, garantendo un training più veloce in modalità eager.
 
 ### 5. Automatic Mixed Precision (AMP) — [SCARTATA / DISATTIVATA]
 - **Stato**: **Disattivata di default** (esclusa dalle ottimizzazioni attive).

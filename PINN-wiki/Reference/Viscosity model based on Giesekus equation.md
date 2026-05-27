@@ -9,12 +9,6 @@ description: "This work presents a viscosity model based on the Giesekus equatio
 tags:
   - "clippings"
 ---
-Become an author with De Gruyter Brill
-
-[Submit Manuscript](https://www.degruyterbrill.com/document/doi/10.1515/arh-2024-0004/%3Cp%3E%3Ca%20href=%22https://www.editorialmanager.com/applrheol%22%20%22%3Ehttps://www.editorialmanager.com/applrheol%3C/a%3E%3C/p%3E)
-
-From the journal [Applied Rheology](https://www.degruyterbrill.com/journal/key/arh/html) [Volume 34 Issue 1](https://www.degruyterbrill.com/journal/key/arh/34/1/html)
-
 This work presents a viscosity model based on the Giesekus equation. The model is shown to be more flexible than the Cross and Carreau models in representing the shear-thinning behavior of viscoelastic fluids. It has been investigated that the influence of the model parameters on the viscosity showed that the mobility parameter *α* plays a distinctive role in adjusting the inflection shape of the viscosity curve. The results show that the new model is able to accurately capture the shear-thinning behavior of polystyrene data, while the Cross and Carreau models tend to underestimate and overestimate the viscosity at the inflection point, respectively. It has been also shown that the Yasuda-type modification is also applicable to the proposed model. Moreover, the viscosity model has been applied to simultaneously fitting a polymeric liquid system and a particulate slurry system. The new viscosity model is a promising tool for modeling the shear-thinning behavior of viscoelastic fluids in a wide range of applications.
 
 Keywords: [viscosity model](https://www.degruyterbrill.com/search?query=keywordValues%3A%28%22viscosity%20model%22%29%20AND%20journalKey%3A%28%22ARH%22%29&documentVisibility=all&documentTypeFacet=article); [Giesekus equation](https://www.degruyterbrill.com/search?query=keywordValues%3A%28%22Giesekus%20equation%22%29%20AND%20journalKey%3A%28%22ARH%22%29&documentVisibility=all&documentTypeFacet=article); [shear thinning](https://www.degruyterbrill.com/search?query=keywordValues%3A%28%22shear%20thinning%22%29%20AND%20journalKey%3A%28%22ARH%22%29&documentVisibility=all&documentTypeFacet=article); [group viscosity](https://www.degruyterbrill.com/search?query=keywordValues%3A%28%22group%20viscosity%22%29%20AND%20journalKey%3A%28%22ARH%22%29&documentVisibility=all&documentTypeFacet=article)
