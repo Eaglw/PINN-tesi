@@ -1,5 +1,15 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+def _softplus_inverse(x):
+    """Calcola y tale che softplus(y) = x. Per inizializzare parametri reparametrizzati."""
+    if x > 20.0:
+        return x  # Per grandi valori, softplus(x) ≈ x
+    if x < 1e-8:
+        return -20.0  # softplus(-20) ≈ 2e-9 ≈ 0
+    return float(torch.log(torch.exp(torch.tensor(x, dtype=torch.float64)) - 1.0).item())
+
 
 class ViscoelasticPhysics(nn.Module):
     def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0, eps=0.0, alpha=0.0, rho=1.0, pde_weights=None, inverse_mode=False, real_mu_s=None, real_mu_p=None, real_lam=None, real_eps=None, real_alpha=None):
@@ -32,11 +42,12 @@ class ViscoelasticPhysics(nn.Module):
         super().__init__()
         self.inverse_mode = inverse_mode
         if inverse_mode:
-            self.mu_s = nn.Parameter(torch.tensor([mu_s], dtype=torch.float32))
-            self.mu_p = nn.Parameter(torch.tensor([mu_p], dtype=torch.float32))
-            self.lam = nn.Parameter(torch.tensor([lam], dtype=torch.float32))
-            self.eps = nn.Parameter(torch.tensor([eps], dtype=torch.float32))
-            self.alpha = nn.Parameter(torch.tensor([alpha], dtype=torch.float32))
+            # Reparametrizzazione: salviamo softplus_inverse(guess) così che softplus(raw) = guess
+            self.mu_s = nn.Parameter(torch.tensor([_softplus_inverse(mu_s)], dtype=torch.float32))
+            self.mu_p = nn.Parameter(torch.tensor([_softplus_inverse(mu_p)], dtype=torch.float32))
+            self.lam = nn.Parameter(torch.tensor([_softplus_inverse(lam)], dtype=torch.float32))
+            self.eps = nn.Parameter(torch.tensor([_softplus_inverse(eps)], dtype=torch.float32))
+            self.alpha = nn.Parameter(torch.tensor([_softplus_inverse(alpha)], dtype=torch.float32))
             self.real_mu_s = real_mu_s if real_mu_s is not None else mu_s
             self.real_mu_p = real_mu_p if real_mu_p is not None else mu_p
             self.real_lam = real_lam if real_lam is not None else lam
@@ -57,6 +68,55 @@ class ViscoelasticPhysics(nn.Module):
         self.rho = rho
         self.mse_loss = nn.MSELoss()
         self.pde_weights = pde_weights or {'momentum': 10.0, 'constitutive': 1.0}
+
+    @classmethod
+    def from_dataset(cls, dataset, device='cpu', **kwargs):
+        """
+        Costruisce il modulo fisico estraendo i parametri esatti dal dataset.
+        Forza inverse_mode=False perché è pensato per il forward problem.
+        """
+        if isinstance(dataset, dict) and 'params' in dataset:
+            params = dataset['params']
+        elif hasattr(dataset, 'params'):
+            params = dataset.params
+        else:
+            raise ValueError("Il dataset fornito non contiene i parametri (chiave 'params' o attributo 'params').")
+            
+        mu_s = params.get('mu_s', 0.005)
+        mu_p = params.get('mu_p', 0.005)
+        lam = params.get('lam', 1.0)
+        eps = params.get('eps', 0.0)
+        alpha = params.get('alpha', 0.0)
+        rho = params.get('rho', 1.0)
+        
+        return cls(
+            mu_s=mu_s, mu_p=mu_p, lam=lam, eps=eps, alpha=alpha, rho=rho,
+            inverse_mode=False,
+            real_mu_s=mu_s, real_mu_p=mu_p, real_lam=lam, real_eps=eps, real_alpha=alpha,
+            **kwargs
+        ).to(device)
+
+    def _get_effective_params(self):
+        """Restituisce i parametri fisici effettivi usati nelle equazioni.
+        In forward mode: valori diretti (buffer).
+        In inverse mode: softplus(raw) con clamp di sicurezza post-softplus.
+        """
+        if self.inverse_mode:
+            return {
+                'mu_s': torch.clamp(F.softplus(self.mu_s), min=1e-6),
+                'mu_p': torch.clamp(F.softplus(self.mu_p), min=1e-6),
+                'lam': torch.clamp(F.softplus(self.lam), min=1e-6),
+                'eps': torch.clamp(F.softplus(self.eps), min=1e-8),
+                'alpha': torch.clamp(F.softplus(self.alpha), min=1e-8),
+            }
+        else:
+            return {
+                'mu_s': self.mu_s,
+                'mu_p': self.mu_p,
+                'lam': self.lam,
+                'eps': self.eps,
+                'alpha': self.alpha,
+            }
 
     def get_velocity(self, model, x):
         """
@@ -129,12 +189,13 @@ class ViscoelasticPhysics(nn.Module):
         grad_tau_yy = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0]
         tau_yy_x, tau_yy_y = grad_tau_yy[:, 0:1], grad_tau_yy[:, 1:2]
         
-        # Valori assoluti per garantire positività fisica
-        mu_s_eff = torch.abs(self.mu_s)
-        mu_p_eff = torch.abs(self.mu_p)
-        lam_eff  = torch.abs(self.lam)
-        eps_eff = torch.abs(self.eps)
-        alpha_eff = torch.abs(self.alpha)
+        # Parametri effettivi: forward mode = valori diretti, inverse mode = softplus(raw) + clamp
+        eff = self._get_effective_params()
+        mu_s_eff = eff['mu_s']
+        mu_p_eff = eff['mu_p']
+        lam_eff  = eff['lam']
+        eps_eff  = eff['eps']
+        alpha_eff = eff['alpha']
         
         # Equazioni di Quantità di Moto (Navier-Stokes)
         # ρ(u·∇u) + ∇p - μ_s∇²u - ∇·τ = 0
@@ -266,7 +327,7 @@ class ViscoelasticPhysics(nn.Module):
 
         return total_bc_loss
 
-def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, device):
+def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, device, u_exact_grid=None):
     """
     Genera le condizioni al contorno per il dominio rettangolare.
     Ritorna 4 tensori: xy_boundary, dirichlet_target, neumann_target, normals
@@ -295,8 +356,11 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     x_inlet = get_zero(y_inlet)
     n_inlet = torch.tensor([[-1.0, 0.0]], device=device).expand(Ny, 2) # Vettore normale
     
-    # Dirichlet: Profilo parabolico (u) e velocità trasversale nulla (v)
-    u_inlet = 4 * u_max * (y_inlet * (Ly - y_inlet)) / (Ly**2)
+    # Dirichlet: Profilo di velocità dall'esatto (o parabolico come fallback)
+    if u_exact_grid is not None:
+        u_inlet = u_exact_grid[:, 0].reshape(-1, 1).to(device)
+    else:
+        u_inlet = 4 * u_max * (y_inlet * (Ly - y_inlet)) / (Ly**2)
     v_inlet = get_zero(y_inlet)
     
     p_exact_grid = stress_exact_dict.get('p')

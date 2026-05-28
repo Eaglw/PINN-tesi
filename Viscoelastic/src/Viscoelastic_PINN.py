@@ -137,27 +137,6 @@ def initialize_last_layer_zero(model):
     nn.init.zeros_(last_layer.bias)
     print(f"  [Init] Ultimo layer di {model.__class__.__name__} inizializzato a zero.")
 
-def setup_inverse_parameters(physics_problem): #roba di ottimizzazione che non ho capito troppo bene
-    """
-    Scansiona i parametri fisici prima del training. 
-    Restituisce una lista di tensori che richiedono il clamp a ogni step,
-    eliminando la necessità di fare if/isinstance nei loop.
-    """
-    params_to_clamp = []
-    if getattr(physics_problem, 'inverse_mode', False):
-        for p_name in ['mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
-            p_val = getattr(physics_problem, p_name)
-            if isinstance(p_val, torch.Tensor) and p_val.requires_grad:
-                params_to_clamp.append(p_val)
-    return params_to_clamp
-
-def clamp_physical_parameters_(params_list, min_val=1e-6):
-    """Applica il clamp in-place alla lista pre-compilata di parametri."""
-    if not params_list:
-        return
-    with torch.no_grad():
-        for p in params_list:
-            p.clamp_(min=min_val)
 
 def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, validation_grid, collocation_points, loss_history, plots_dir):
     """Esegue la prima e la seconda fase di training tramite ottimizzatore Adam."""
@@ -165,8 +144,6 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
     epochs = cfg.epochs
     half_epochs = epochs // 2
     staged_training = cfg.staged_training
-    
-    params_to_clamp = setup_inverse_parameters(physics_problem)
     lambda_data = cfg.loss_weights.get('data', 1.0)
     lambda_bc = cfg.loss_weights.get('bc', 1.0)
     target_lambda_physics = cfg.loss_weights.get('physics', 1.0)
@@ -199,7 +176,7 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         if not last_layer:
             last_layer = t_params
         
-        return opt, sch, last_layer, setup_inverse_parameters(physics_problem)
+        return opt, sch, last_layer, t_params
     
     if staged_training:
         print(f"\n  [Staged Training] Fase 1 (Warmup): Cinematica e Reologia (psi+tau).")
@@ -212,7 +189,7 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         current_active_bcs = None #non filtra nulla, quindi tutto
         set_physics_trainable(physics_problem, ['mu_s', 'mu_p', 'lam', 'eps', 'alpha'])
 
-    optimizer, scheduler, _last_layer_trainable, params_to_clamp = _rebuild_optimizer(warmup_epochs_1 if staged_training else epochs)
+    optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(warmup_epochs_1 if staged_training else epochs)
 
     alpha_dynamic = 0.9 #coefficiente di smoothing per aggiornare i pesi dinamici di loss bc e dati
 
@@ -220,7 +197,7 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         if staged_training and epoch == warmup_epochs_1:
             print(f"\n  [Staged Training] Fine Warmup 1. Sblocco parametri costitutivi.")
             set_physics_trainable(physics_problem, ['mu_p', 'lam', 'eps', 'alpha'])
-            optimizer, scheduler, _last_layer_trainable, params_to_clamp = _rebuild_optimizer(half_epochs - warmup_epochs_1)
+            optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(half_epochs - warmup_epochs_1)
             
         if staged_training and epoch == half_epochs:
             print(f"\n  [Staged Training] Fase 2 (Warmup): Dinamica (psi+p). Navier-Stokes ON.")
@@ -228,12 +205,12 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
             physics_problem.pde_weights = {'momentum': base_pde_weights.get('momentum', 10.0), 'constitutive': 0.0}
             current_active_bcs = ['u', 'v', 'p']
             set_physics_trainable(physics_problem, []) # Tutto bloccato nel warmup
-            optimizer, scheduler, _last_layer_trainable, params_to_clamp = _rebuild_optimizer(warmup_epochs_2 - half_epochs)
+            optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(warmup_epochs_2 - half_epochs)
 
         if staged_training and epoch == warmup_epochs_2:
             print(f"\n  [Staged Training] Fine Warmup 2. Sblocco parametro momentum.")
             set_physics_trainable(physics_problem, ['mu_s'])
-            optimizer, scheduler, _last_layer_trainable, params_to_clamp = _rebuild_optimizer(epochs - warmup_epochs_2)
+            optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(epochs - warmup_epochs_2)
 
         model.train()
         optimizer.zero_grad(set_to_none=True) #azzera i gradienti accumulati, ripartendo proprio da zero
@@ -248,8 +225,6 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
                 xy_phys_batch = _sample_minibatch(collocation_points, collocation_points, cfg.minibatch_internal, _device)[0].clone().requires_grad_(True)
         else:
             xy_phys_batch = None
-
-        clamp_physical_parameters_(params_to_clamp) #parametri fisici mai negativi
 
         loss, loss_dict = compute_pinn_loss(
             model, x_data=xy_int_batch, y_data=obs_int_batch,
@@ -294,12 +269,13 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
         
         if getattr(physics_problem, 'inverse_mode', False):
+            eff = physics_problem._get_effective_params()
             history_entry.update({
-                'param_etas': physics_problem.mu_s.item(),
-                'param_etap': physics_problem.mu_p.item(),
-                'param_lam': physics_problem.lam.item(),
-                'param_epsilon': physics_problem.eps.item(),
-                'param_alpha': physics_problem.alpha.item()
+                'param_etas': eff['mu_s'].item(),
+                'param_etap': eff['mu_p'].item(),
+                'param_lam': eff['lam'].item(),
+                'param_epsilon': eff['eps'].item(),
+                'param_alpha': eff['alpha'].item()
             })
         loss_history.update(epoch, history_entry, lr=current_lr)
 
@@ -335,13 +311,12 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
     set_model_trainable(model, ['psi', 'p', 'tau']) #sblocchiamo tutto
     physics_problem.pde_weights = base_pde_weights
     
-    if getattr(physics_problem, 'inverse_mode', False): #check che i parametri siano trainabili
+    if getattr(physics_problem, 'inverse_mode', False):
         physics_problem.mu_s.requires_grad_(True)
         physics_problem.mu_p.requires_grad_(True)
         physics_problem.lam.requires_grad_(True)
         physics_problem.eps.requires_grad_(True)
         physics_problem.alpha.requires_grad_(True)
-    params_to_clamp_lbfgs = setup_inverse_parameters(physics_problem)
 
     if cfg.precision_mode == 'staged': #se abbiamo staged e si parte da float32 poi casta tutto a 64
         torch.set_default_dtype(torch.float64)
@@ -372,7 +347,6 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
     
     def closure():
         optimizer_lbfgs.zero_grad()
-        clamp_physical_parameters_(params_to_clamp_lbfgs)
         
         if chunk_size is None: #se lowvram splitta il calcolo dei gradienti
             loss, loss_dict = compute_pinn_loss(
@@ -393,12 +367,13 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
             history_entry = loss_dict.copy()
             history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
             if getattr(physics_problem, 'inverse_mode', False):
+                eff = physics_problem._get_effective_params()
                 history_entry.update({
-                    'param_etas': physics_problem.mu_s.item(),
-                    'param_etap': physics_problem.mu_p.item(),
-                    'param_lam': physics_problem.lam.item(),
-                    'param_epsilon': physics_problem.eps.item(),
-                    'param_alpha': physics_problem.alpha.item()
+                    'param_etas': eff['mu_s'].item(),
+                    'param_etap': eff['mu_p'].item(),
+                    'param_lam': eff['lam'].item(),
+                    'param_epsilon': eff['eps'].item(),
+                    'param_alpha': eff['alpha'].item()
                 })
             loss_history.update(cfg.epochs + lbfgs_iter[0], history_entry, lr=1.0) #per continuare su stesso grafico di adam
             
@@ -514,6 +489,14 @@ def _generate_training_artifacts(model, physics_problem, validation_grid, stress
         smoothing_alpha=0.95,
         active_loss_keys=_active_keys if _active_keys else None
     )
+    
+    # --- STORICO GRADIENTI ---
+    loss_history.plot_gradients(
+        save_path=os.path.join(final_dir, 'VE_gradients.png'), 
+        experiment_name=f"{cfg.experiment_name} Gradients", 
+        show_plot=False
+    )
+    
     plt.close("all")
 
 def train_ViscoelasticPINN(

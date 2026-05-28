@@ -44,9 +44,11 @@ def compute_metrics(model, xy_grid_flat, T_grid_true):
         l2_rel_error = 0.0 # Should unlikely happen for Heat Eq solution 
     
     # Max Relative Error Peak
-    # Using the same mask logic as in graphic_func.py to avoid division by small numbers
+    # Using dynamic mask logic to avoid division by small numbers
     abs_error = torch.abs(T_pred_flat - T_true_flat)
-    mask = torch.abs(T_true_flat) > 0.01
+    max_val = torch.max(torch.abs(T_true_flat)).item()
+    threshold = max(0.05 * max_val, 1e-8)
+    mask = torch.abs(T_true_flat) > threshold
     
     rel_error = torch.zeros_like(T_true_flat)
     
@@ -112,7 +114,9 @@ def compute_viscoelastic_metrics(model, physics_problem, xy_grid_flat, fields_ex
         
         # Max Relative Error
         abs_error = torch.abs(pred_flat - true_flat)
-        mask = torch.abs(true_flat) > 0.01
+        max_val = torch.max(torch.abs(true_flat)).item()
+        threshold = max(0.05 * max_val, 1e-8)
+        mask = torch.abs(true_flat) > threshold
         rel_error = torch.zeros_like(true_flat)
         if mask.sum() > 0:
             rel_error[mask] = (abs_error[mask] / torch.abs(true_flat[mask])) * 100
@@ -134,7 +138,7 @@ def update_results_csv(file_path, data_dict):
                    Keys must match the specified columns.
     """
     fieldnames = [
-        'Timestamp', 'Architecture', 'Activation_Func', 'Epochs', 'Run_Type',
+        'Timestamp', 'Dataset', 'Architecture', 'Activation_Func', 'Epochs', 'Run_Type',
         'Optimizer', 'Learning_Rate', 'Loss_Total', 'Loss_Physics', 
         'Loss_Boundary', 'Loss_Data', 'L2_Relative_Error', 'Max_Relative_Error_Peak',
         'L2_u', 'Max_u', 'L2_p', 'Max_p',

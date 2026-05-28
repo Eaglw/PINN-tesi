@@ -43,9 +43,11 @@ def plot2D_comparison(X, Y, T_true, T_pred, epoch, save_path, physics_points=Non
     # Calcolo Errori
     abs_error = torch.abs(T_pred - T_true)
     
-    # Errore Relativo Standard (diviso per valore locale) con masking
+    # Errore Relativo Standard (diviso per valore locale) con masking dinamico
     rel_error = torch.zeros_like(T_true)
-    mask = torch.abs(T_true) > 0.01
+    max_val = torch.max(torch.abs(T_true)).item()
+    threshold = max(0.05 * max_val, 1e-8) # Ignora i valori sotto il 5% del picco massimo per evitare esplosioni
+    mask = torch.abs(T_true) > threshold
     if mask.sum() > 0:
         rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
     
@@ -110,10 +112,12 @@ def plot2D_final_result(X, Y, T_true, T_pred, epoch, save_path, internal_points=
     T_true = T_true.detach().cpu()
     T_pred = T_pred.detach().cpu()
     
-    # Calculate Relative Error Standard (diviso per valore locale) con masking
+    # Calculate Relative Error Standard (diviso per valore locale) con masking dinamico
     abs_error = torch.abs(T_pred - T_true)
     rel_error = torch.zeros_like(T_true)
-    mask = torch.abs(T_true) > 0.01
+    max_val = torch.max(torch.abs(T_true)).item()
+    threshold = max(0.05 * max_val, 1e-8)
+    mask = torch.abs(T_true) > threshold
     if mask.sum() > 0:
         rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
     
@@ -270,9 +274,11 @@ def plot_error_map_comparison(X, Y, T_true, T_preds, labels, save_path=None):
         
         abs_error = torch.abs(T_pred - T_true)
         
-        # Errore Relativo Standard con masking
+        # Errore Relativo Standard con masking dinamico
         rel_error = torch.zeros_like(T_true)
-        mask = torch.abs(T_true) > 0.01
+        max_val = torch.max(torch.abs(T_true)).item()
+        threshold = max(0.05 * max_val, 1e-8)
+        mask = torch.abs(T_true) > threshold
         if mask.sum() > 0:
             rel_error[mask] = (abs_error[mask] / torch.abs(T_true[mask])) * 100
             
@@ -329,13 +335,17 @@ def plot_loss_comparison(histories, labels, save_path=None, title="Loss Comparis
         plt.show()
 
 def _compute_rel_error(pred, exact):
-    """Calcola errore relativo percentuale con masking per valori piccoli."""
+    """Calcola errore relativo percentuale con masking dinamico per valori piccoli."""
     # Cast to same dtype (L-BFGS usa float64, ma i plot vogliono float32) e spostamento su CPU
     pred = pred.detach().cpu().float()
     exact = exact.detach().cpu().float()
     abs_error = torch.abs(pred - exact)
     rel_error = torch.zeros_like(exact)
-    mask = torch.abs(exact) > 0.01
+    
+    max_val = torch.max(torch.abs(exact)).item()
+    threshold = max(0.05 * max_val, 1e-8)
+    mask = torch.abs(exact) > threshold
+    
     if mask.sum() > 0:
         rel_error[mask] = (abs_error[mask] / torch.abs(exact[mask])) * 100
     return rel_error
