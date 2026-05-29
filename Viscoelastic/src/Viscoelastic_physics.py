@@ -360,7 +360,7 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     if u_exact_grid is not None:
         u_inlet = u_exact_grid[:, 0].reshape(-1, 1).to(device)
     else:
-        u_inlet = 4 * u_max * (y_inlet * (Ly - y_inlet)) / (Ly**2)
+        u_inlet = u_max * [1-((y_inlet-(Ly/2))/(Ly_2))^2] # cambiato il profilo di inlet
     v_inlet = get_zero(y_inlet)
     
     p_exact_grid = stress_exact_dict.get('p')
