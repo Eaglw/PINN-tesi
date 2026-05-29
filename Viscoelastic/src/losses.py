@@ -16,8 +16,8 @@ def compute_chunked_gradients(model, physics_problem, xy_int, obs_int, xy_bc, bc
     # 1. Data Loss Chunking
     if xy_int is not None and obs_int is not None and xy_int.numel() > 0:
         N_data = xy_int.shape[0]
-        scale_u = variance_weights.get('u', 1.0) if (mode == 'semi_inverse' and variance_weights is not None) else 1.0
-        scale_v = variance_weights.get('v', 1.0) if (mode == 'semi_inverse' and variance_weights is not None) else 1.0
+        scale_u = variance_weights.get('u', 1.0) if (mode in ('semi_inverse', 'comsol_full') and variance_weights is not None) else 1.0
+        scale_v = variance_weights.get('v', 1.0) if (mode in ('semi_inverse', 'comsol_full') and variance_weights is not None) else 1.0
         
         for i in range(0, N_data, chunk_size):
             x_data_c = xy_int[i : i + chunk_size]
@@ -25,25 +25,33 @@ def compute_chunked_gradients(model, physics_problem, xy_int, obs_int, xy_bc, bc
             
             if lambda_data == 0:
                 with torch.no_grad():
-                    if mode == 'semi_inverse' and physics_problem is not None:
+                    if mode in ('semi_inverse', 'comsol_full') and physics_problem is not None:
                         u_pred_c, v_pred_c, _, _ = physics_problem.get_velocity(model, x_data_c)
                         u_obs_c = y_data_c[:, 0:1]
                         v_obs_c = y_data_c[:, 1:2]
                         loss_u_c = torch.nn.functional.mse_loss(u_pred_c, u_obs_c, reduction='sum') / (N_data * scale_u)
                         loss_v_c = torch.nn.functional.mse_loss(v_pred_c, v_obs_c, reduction='sum') / (N_data * scale_v)
                         loss_c = 0.5 * (loss_u_c + loss_v_c)
+                        if mode == 'comsol_full' and y_data_c.shape[1] >= 6:
+                            out_c = model(x_data_c)
+                            loss_c = loss_c + torch.nn.functional.mse_loss(out_c[:, 1:2], y_data_c[:, 2:3], reduction='sum') / N_data
+                            loss_c = loss_c + torch.nn.functional.mse_loss(out_c[:, 2:5], y_data_c[:, 3:6], reduction='sum') / (N_data * 3)
                     else:
                         y_pred_c = model(x_data_c)
                         num_features = obs_int.shape[1]
                         loss_c = torch.nn.functional.mse_loss(y_pred_c, y_data_c, reduction='sum') / (N_data * num_features)
             else:
-                if mode == 'semi_inverse' and physics_problem is not None:
+                if mode in ('semi_inverse', 'comsol_full') and physics_problem is not None:
                     u_pred_c, v_pred_c, _, _ = physics_problem.get_velocity(model, x_data_c)
                     u_obs_c = y_data_c[:, 0:1]
                     v_obs_c = y_data_c[:, 1:2]
                     loss_u_c = torch.nn.functional.mse_loss(u_pred_c, u_obs_c, reduction='sum') / (N_data * scale_u)
                     loss_v_c = torch.nn.functional.mse_loss(v_pred_c, v_obs_c, reduction='sum') / (N_data * scale_v)
                     loss_c = 0.5 * (loss_u_c + loss_v_c)
+                    if mode == 'comsol_full' and y_data_c.shape[1] >= 6:
+                        out_c = model(x_data_c)
+                        loss_c = loss_c + torch.nn.functional.mse_loss(out_c[:, 1:2], y_data_c[:, 2:3], reduction='sum') / N_data
+                        loss_c = loss_c + torch.nn.functional.mse_loss(out_c[:, 2:5], y_data_c[:, 3:6], reduction='sum') / (N_data * 3)
                 else:
                     y_pred_c = model(x_data_c)
                     num_features = obs_int.shape[1]

@@ -38,8 +38,16 @@ PRECISION_MODE = 'staged'           # 'full_32' | 'staged' | 'full_64'
 SEED = 123
 
 # --- Training Goals ---
-#DATASET_OPTIONS = ['giesekus_clean.pt', 'oldroydb_clean.pt']
-DATASET_OPTIONS = ['giesekus_clean.pt']
+DATASET_OPTIONS = ['Oldroyd.csv']
+
+COMSOL_PARAMS = {
+    'mu_s': 0.005,   # Viscosità solvente [Pa·s]
+    'mu_p': 0.005,   # Viscosità polimerica [Pa·s]
+    'lam': 0.1,      # Tempo di rilassamento [s]
+    'eps': 0.0,      # Parametro PTT
+    'alpha': 0.0,    # Parametro Giesekus
+    'rho': 1.0,      # Densità [kg/m³]
+}
 
 # 0=PurePhys, 1=Phys+Data, 2=SoloData
 GOALS_TO_RUN = [2, 1, 0]
@@ -90,6 +98,7 @@ GUESS_MIN_EPS = 0.01   # Guess minimo se il valore vero è 0 (per PTT)
 GUESS_MIN_ALPHA = 0.01 # Guess minimo se il valore vero è 0 (per Giesekus)
 
 # --- Logging & Plotting ---
+# Riduciamo la frequenza per non intasare l'output se l'utente desidera
 LOG_GRADIENTS_EVERY = 500
 PLOT_EVERY = 500
 
@@ -123,55 +132,110 @@ print(f"Using device: {device} with Precision Mode: {PRECISION_MODE} (Initial dt
 
 
 for dataset_filename in DATASET_OPTIONS:
-    DATASET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dataset', dataset_filename)
-    dataset_name_prefix = dataset_filename.replace('_clean.pt', '')
+    # Cerca il file in diverse posizioni possibili per massima flessibilità
+    possible_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dataset', dataset_filename),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'COMSOL', dataset_filename),
+        dataset_filename
+    ]
+    DATASET_PATH = None
+    for p in possible_paths:
+        if os.path.exists(p):
+            DATASET_PATH = p
+            break
+            
+    if DATASET_PATH is None:
+        print(f"❌ Dataset non trovato nelle posizioni note: {possible_paths}")
+        sys.exit(1)
+
+    dataset_name_prefix = os.path.basename(DATASET_PATH).replace('.pt', '').replace('.csv', '')
     print(f'\n=======================================================')
     print(f'=== PROCESSING DATASET: {dataset_name_prefix.upper()} ===')
     print(f'=======================================================')
-    # --- CARICAMENTO DATASET ---
-    if not os.path.exists(DATASET_PATH):
-        print(f"❌ Dataset non trovato in: {DATASET_PATH}")
-        sys.exit(1)
+    
+    is_unstruct = DATASET_PATH.endswith('.csv')
+    
+    if is_unstruct:
+        from Viscoelastic.dataset.load_comsol import load_comsol_csv, generate_boundaries_from_comsol
+        dataset = load_comsol_csv(DATASET_PATH, COMSOL_PARAMS, device=device)
+        
+        # Cast dei campi al tipo richiesto
+        for key in ['coords', 'u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
+            if key in dataset:
+                dataset[key] = dataset[key].to(initial_dtype)
+        
+        params = dataset['params']
+        Lx, Ly = dataset['scales']['L'], dataset['scales']['H']
+        mu_s = params['mu_s']
+        mu_p = params['mu_p']
+        lam = params['lam']
+        eps = params.get('eps', 0.0)
+        alpha = params.get('alpha', 0.0)
+        u_max = dataset['scales']['U_ref']
+        
+        xy_grid_flat = dataset['coords']
+        u_exact = dataset['u']
+        v_exact = dataset['v']
+        p_exact = dataset['p']
+        tau_xx_exact = dataset['tau_xx']
+        tau_xy_exact = dataset['tau_xy']
+        tau_yy_exact = dataset['tau_yy']
+        psi_exact = None
+        
+        import matplotlib.tri as tri
+        x_np = xy_grid_flat[:, 0].cpu().numpy()
+        y_np = xy_grid_flat[:, 1].cpu().numpy()
+        triang = tri.Triangulation(x_np, y_np)
+        
+        validation_grid_u = (xy_grid_flat, u_exact, triang)
+        stress_exact_grids = {
+            'p': p_exact,
+            'tau_xx': tau_xx_exact,
+            'tau_xy': tau_xy_exact,
+            'tau_yy': tau_yy_exact
+        }
+        Nx_dom, Ny_dom = None, None
+        X, Y = None, None
+        
+    else:
+        # Legacy structured loading
+        dataset = torch.load(DATASET_PATH, map_location=device, weights_only=False)
+        for key in ['coords', 'u', 'v', 'p', 'psi', 'tau_xx', 'tau_xy', 'tau_yy', 'u_exact', 'p_exact', 'psi_exact', 'tau_xx_exact', 'tau_xy_exact', 'tau_yy_exact']:
+            if key in dataset:
+                dataset[key] = dataset[key].to(initial_dtype)
+        
+        params = dataset['params']
+        Lx, Ly = params['L'], params['H']
+        mu_s = params.get('mu_s', 0.005)
+        mu_p = params.get('mu_p', 0.005)
+        lam = params.get('lam', 1.0)
+        eps = params.get('eps', 0.0)
+        alpha = params.get('alpha', 0.0)
+        u_max = params.get('u_max', dataset['u_exact'].max().item())
+        
+        xy_grid_flat = dataset['coords']
+        u_exact = dataset['u_exact']
+        p_exact = dataset['p_exact']
+        psi_exact = dataset.get('psi_exact', None)
+        v_exact = torch.zeros_like(u_exact)
+        tau_xx_exact = dataset.get('tau_xx_exact', torch.zeros_like(u_exact))
+        tau_xy_exact = dataset.get('tau_xy_exact', torch.zeros_like(u_exact))
+        tau_yy_exact = dataset.get('tau_yy_exact', torch.zeros_like(u_exact))
+        
+        x_sorted = torch.unique(xy_grid_flat[:, 0], sorted=True)
+        y_sorted = torch.unique(xy_grid_flat[:, 1], sorted=True)
+        Nx_dom, Ny_dom = len(x_sorted), len(y_sorted)
 
-    dataset = torch.load(DATASET_PATH, map_location=device, weights_only=False)
-    for key in ['coords', 'u', 'v', 'p', 'psi', 'tau_xx', 'tau_xy', 'tau_yy', 'u_exact', 'p_exact', 'psi_exact', 'tau_xx_exact', 'tau_xy_exact', 'tau_yy_exact']:
-        if key in dataset:
-            dataset[key] = dataset[key].to(initial_dtype)
-    params = dataset['params']
+        X = xy_grid_flat[:, 0].reshape(Ny_dom, Nx_dom)
+        Y = xy_grid_flat[:, 1].reshape(Ny_dom, Nx_dom)
+        U_grid = u_exact.reshape(Ny_dom, Nx_dom)
+        P_grid = p_exact.reshape(Ny_dom, Nx_dom)
+        TAU_XX_grid = tau_xx_exact.reshape(Ny_dom, Nx_dom)
+        TAU_XY_grid = tau_xy_exact.reshape(Ny_dom, Nx_dom)
+        TAU_YY_grid = tau_yy_exact.reshape(Ny_dom, Nx_dom)
 
-    Lx, Ly = params['L'], params['H']
-    mu_s = params.get('mu_s', 0.005)
-    mu_p = params.get('mu_p', 0.005)
-    lam = params.get('lam', 1.0)
-    eps = params.get('eps', 0.0)
-    alpha = params.get('alpha', 0.0)
-    u_max = params.get('u_max', dataset['u_exact'].max().item())
-    print(f"Dataset caricato: L={Lx}, H={Ly}, mu_s={mu_s}, mu_p={mu_p}, lam={lam}, eps={eps}, alpha={alpha}, u_max={u_max}")
-
-    # --- Preparazione Grid e Soluzioni Esatte ---
-    xy_grid_flat = dataset['coords']
-    u_exact = dataset['u_exact']
-    p_exact = dataset['p_exact']
-    psi_exact = dataset['psi_exact']
-    v_exact = torch.zeros_like(u_exact)
-    tau_xx_exact = dataset.get('tau_xx_exact', torch.zeros_like(u_exact))
-    tau_xy_exact = dataset.get('tau_xy_exact', torch.zeros_like(u_exact))
-    tau_yy_exact = dataset.get('tau_yy_exact', torch.zeros_like(u_exact))
-
-    x_sorted = torch.unique(xy_grid_flat[:, 0], sorted=True)
-    y_sorted = torch.unique(xy_grid_flat[:, 1], sorted=True)
-    Nx_dom, Ny_dom = len(x_sorted), len(y_sorted)
-
-    X = xy_grid_flat[:, 0].reshape(Ny_dom, Nx_dom)
-    Y = xy_grid_flat[:, 1].reshape(Ny_dom, Nx_dom)
-    U_grid = u_exact.reshape(Ny_dom, Nx_dom)
-    P_grid = p_exact.reshape(Ny_dom, Nx_dom)
-    TAU_XX_grid = tau_xx_exact.reshape(Ny_dom, Nx_dom)
-    TAU_XY_grid = tau_xy_exact.reshape(Ny_dom, Nx_dom)
-    TAU_YY_grid = tau_yy_exact.reshape(Ny_dom, Nx_dom)
-
-    validation_grid_u = (xy_grid_flat, U_grid, X, Y)
-    stress_exact_grids = {'p': P_grid, 'tau_xx': TAU_XX_grid, 'tau_xy': TAU_XY_grid, 'tau_yy': TAU_YY_grid}
+        validation_grid_u = (xy_grid_flat, U_grid, X, Y)
+        stress_exact_grids = {'p': P_grid, 'tau_xx': TAU_XX_grid, 'tau_xy': TAU_XY_grid, 'tau_yy': TAU_YY_grid}
 
     # Varianze per normalizzazione (Goal 1 - ViscoelasticNet)
     sigma2_u   = max(u_exact.var().item(), VARIANCE_EPS)
@@ -185,13 +249,19 @@ for dataset_filename in DATASET_OPTIONS:
     VAR_WEIGHTS = {'u': sigma2_u, 'v': sigma2_v, 'p': sigma2_p, 'txx': sigma2_txx, 'txy': sigma2_txy, 'tyy': sigma2_tyy}
 
     # --- BOUNDARY CONDITIONS ---
-    xy_master_boundary, dir_master_boundary, neu_master_boundary, norm_master_boundary = generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_grids, Nx_dom, Ny_dom, device, u_exact_grid=U_grid)
+    if is_unstruct:
+        xy_master_boundary, dir_master_boundary, neu_master_boundary, norm_master_boundary = generate_boundaries_from_comsol(dataset, device)
+    else:
+        xy_master_boundary, dir_master_boundary, neu_master_boundary, norm_master_boundary = generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_grids, Nx_dom, Ny_dom, device, u_exact_grid=U_grid)
 
     # --- Data Subset ---
     torch.manual_seed(42)
     idx = torch.randperm(xy_grid_flat.shape[0])[:NUM_DATA_SUBSET]
     xy_pinn_data = xy_grid_flat[idx]
-    psip_pinn_data = torch.cat([psi_exact[idx], p_exact[idx], tau_xx_exact[idx], tau_xy_exact[idx], tau_yy_exact[idx]], dim=1)
+    if is_unstruct:
+        psip_pinn_data = torch.cat([u_exact[idx], v_exact[idx], p_exact[idx], tau_xx_exact[idx], tau_xy_exact[idx], tau_yy_exact[idx]], dim=1)
+    else:
+        psip_pinn_data = torch.cat([psi_exact[idx], p_exact[idx], tau_xx_exact[idx], tau_xy_exact[idx], tau_yy_exact[idx]], dim=1) if psi_exact is not None else None
     uv_pinn_data = torch.cat([u_exact[idx], v_exact[idx]], dim=1)
 
     # GPU Pre-cast al dtype iniziale
@@ -279,6 +349,8 @@ for dataset_filename in DATASET_OPTIONS:
                 ).to(device).to(initial_dtype)
             label = goal_cfg['label']
             mode_param = goal_cfg['mode']
+            if is_unstruct:
+                mode_param = 'comsol_full'
             current_w = dict(goal_cfg['weights'])
 
             prefix = f"{goal}_{label}"
@@ -303,7 +375,10 @@ for dataset_filename in DATASET_OPTIONS:
                 effective_w['data'] *= STATIC_WEIGHTS['data']
 
             # Configurazione dati per Goal
-            if goal == 1:
+            if mode_param == 'comsol_full':
+                pinn_data_internal_fresh = (xy_pinn_data, psip_pinn_data)
+                var_weights = VAR_WEIGHTS
+            elif goal == 1:
                 pinn_data_internal_fresh = (xy_pinn_data, uv_pinn_data)
                 var_weights = VAR_WEIGHTS
             else:
@@ -367,13 +442,22 @@ for dataset_filename in DATASET_OPTIONS:
                 print(f"  [Parametri Fisici Finali - {label}] mu_s: {cur_mu_s:.5f}, mu_p: {cur_mu_p:.5f}, lam: {cur_lam:.5f}, eps: {cur_eps:.5f}, alpha: {cur_alpha:.5f}")
             
                 # Metriche multi-campo
-                fields_exact_for_metrics = {
-                    'u': U_grid, 'p': P_grid,
-                    'tau_xx': TAU_XX_grid, 'tau_xy': TAU_XY_grid, 'tau_yy': TAU_YY_grid
-                }
-                visco_metrics = compute_viscoelastic_metrics(
-                    model_combined, phys_problem, xy_grid_flat, fields_exact_for_metrics, Ny_dom, Nx_dom
-                )
+                if is_unstruct:
+                    fields_exact_for_metrics = {
+                        'u': u_exact, 'p': p_exact,
+                        'tau_xx': tau_xx_exact, 'tau_xy': tau_xy_exact, 'tau_yy': tau_yy_exact
+                    }
+                    visco_metrics = compute_viscoelastic_metrics(
+                        model_combined, phys_problem, xy_grid_flat, fields_exact_for_metrics
+                    )
+                else:
+                    fields_exact_for_metrics = {
+                        'u': U_grid, 'p': P_grid,
+                        'tau_xx': TAU_XX_grid, 'tau_xy': TAU_XY_grid, 'tau_yy': TAU_YY_grid
+                    }
+                    visco_metrics = compute_viscoelastic_metrics(
+                        model_combined, phys_problem, xy_grid_flat, fields_exact_for_metrics, Ny_dom, Nx_dom
+                    )
             
                 # Metriche aggregate
                 l2_values = [v[0] for v in visco_metrics.values() if v[0] > 1e-10]
@@ -432,8 +516,8 @@ for dataset_filename in DATASET_OPTIONS:
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-
-        # --- COMPARISON PLOTS ---
+ 
+         # --- COMPARISON PLOTS ---
         print(f"  > Generating Comparisons for {config_name}...")
         results_dir = os.path.join(config_dir, 'comparisons')
         os.makedirs(results_dir, exist_ok=True)
@@ -452,11 +536,18 @@ for dataset_filename in DATASET_OPTIONS:
                 active_phys_problem = final_phys_problems.get(label, comp_phys_problem)
                 u_p, _, p_p, _ = active_phys_problem.get_velocity(model, x_input)
                 out = model(x_input)
-                pred_u = u_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
-                pred_p = p_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
-                pred_txx = out[:, 2].detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
-                pred_txy = out[:, 3].detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
-                pred_tyy = out[:, 4].detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
+                if is_unstruct:
+                    pred_u = u_p.detach().cpu().to(torch.float32).view(-1)
+                    pred_p = p_p.detach().cpu().to(torch.float32).view(-1)
+                    pred_txx = out[:, 2].detach().cpu().to(torch.float32).view(-1)
+                    pred_txy = out[:, 3].detach().cpu().to(torch.float32).view(-1)
+                    pred_tyy = out[:, 4].detach().cpu().to(torch.float32).view(-1)
+                else:
+                    pred_u = u_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
+                    pred_p = p_p.detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
+                    pred_txx = out[:, 2].detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
+                    pred_txy = out[:, 3].detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
+                    pred_tyy = out[:, 4].detach().cpu().to(torch.float32).reshape(Ny_dom, Nx_dom)
             model_results.append({'T_pred': pred_u, 'label': label})
             model_results_multi.append({
                 'label': label,
@@ -465,18 +556,31 @@ for dataset_filename in DATASET_OPTIONS:
     
         if model_results:
             hparams = {'arch': layers_str, 'epochs': str(epochs), 'act': act_str, 'lr_strategy': lr_strat, 'weight': current_weight_str}
-            plot2D_unified_comparison(X.cpu(), Y.cpu(), U_grid.cpu(), model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
+            if is_unstruct:
+                from func.graphic_func import plot2D_unified_comparison_unstruct, plot2D_viscoelastic_comparison_unstruct
+                plot2D_unified_comparison_unstruct(triang, u_exact.cpu().view(-1), model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
+            else:
+                plot2D_unified_comparison(X.cpu(), Y.cpu(), U_grid.cpu(), model_results, hparams, save_path=os.path.join(results_dir, 'Comparison_Unified_ErrorMaps.png'))
     
         if model_results_multi:
-            fields_exact_cpu = {
-                'u': U_grid.cpu(), 'p': P_grid.cpu(),
-                'tau_xx': TAU_XX_grid.cpu(), 'tau_xy': TAU_XY_grid.cpu(), 'tau_yy': TAU_YY_grid.cpu()
-            }
-            plot2D_viscoelastic_comparison(
-                X.cpu(), Y.cpu(), fields_exact_cpu, model_results_multi, hparams,
-                save_path=os.path.join(results_dir, 'Comparison_Viscoelastic_AllFields.png')
-            )
-    
+            if is_unstruct:
+                fields_exact_cpu = {
+                    'u': u_exact.cpu().view(-1), 'p': p_exact.cpu().view(-1),
+                    'tau_xx': tau_xx_exact.cpu().view(-1), 'tau_xy': tau_xy_exact.cpu().view(-1), 'tau_yy': tau_yy_exact.cpu().view(-1)
+                }
+                plot2D_viscoelastic_comparison_unstruct(
+                    triang, fields_exact_cpu, model_results_multi, hparams,
+                    save_path=os.path.join(results_dir, 'Comparison_Viscoelastic_AllFields.png')
+                )
+            else:
+                fields_exact_cpu = {
+                    'u': U_grid.cpu(), 'p': P_grid.cpu(),
+                    'tau_xx': TAU_XX_grid.cpu(), 'tau_xy': TAU_XY_grid.cpu(), 'tau_yy': TAU_YY_grid.cpu()
+                }
+                plot2D_viscoelastic_comparison(
+                    X.cpu(), Y.cpu(), fields_exact_cpu, model_results_multi, hparams,
+                    save_path=os.path.join(results_dir, 'Comparison_Viscoelastic_AllFields.png')
+                )
         if len(histories) > 1:
             labels_list = list(histories.keys())
             hist_list = [histories[l] for l in labels_list]

@@ -355,27 +355,44 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_
     if x_data is not None and y_data is not None and x_data.numel() > 0:
         if lambda_data_is_zero:
             with torch.no_grad():
-                if mode == 'semi_inverse' and physics_problem is not None:
-                    u_pred, v_pred, _, _ = physics_problem.get_velocity(model, x_data)
+                if mode in ('semi_inverse', 'comsol_full') and physics_problem is not None:
+                    u_pred, v_pred, p_pred, tau_pred = physics_problem.get_velocity(model, x_data)
                     u_obs = y_data[:, 0:1]
                     v_obs = y_data[:, 1:2]
                     loss_u = mse_loss(u_pred, u_obs) / scale_u
                     loss_v = mse_loss(v_pred, v_obs) / scale_v
                     data_loss = 0.5 * (loss_u + loss_v)
+                    if mode == 'comsol_full' and y_data.shape[1] >= 6:
+                        out = model(x_data)
+                        data_loss = data_loss + mse_loss(out[:, 1:2], y_data[:, 2:3])  # p
+                        data_loss = data_loss + mse_loss(out[:, 2:5], y_data[:, 3:6])  # tau
                 else:
                     y_pred = model(x_data)
                     data_loss = mse_loss(y_pred, y_data)
         else:
-            if mode == 'semi_inverse' and physics_problem is not None:
-                # y_data contiene [u_obs, v_obs]
-                u_pred, v_pred, _, _ = physics_problem.get_velocity(model, x_data)
+            if mode in ('semi_inverse', 'comsol_full') and physics_problem is not None:
+                # y_data contiene [u_obs, v_obs] (semi_inverse) o [u,v,p,txx,txy,tyy] (comsol_full)
+                u_pred, v_pred, p_pred, tau_pred = physics_problem.get_velocity(model, x_data)
                 u_obs = y_data[:, 0:1]
                 v_obs = y_data[:, 1:2]
                 
                 loss_u = mse_loss(u_pred, u_obs) / scale_u
                 loss_v = mse_loss(v_pred, v_obs) / scale_v
                 
-                data_loss = 0.5 * (loss_u + loss_v) # Media sulle due componenti spaziali
+                data_loss = 0.5 * (loss_u + loss_v)
+                
+                # In comsol_full, confrontiamo anche p e tau direttamente
+                if mode == 'comsol_full' and y_data.shape[1] >= 6:
+                    out = model(x_data)
+                    scale_p = variance_weights.get('p', 1.0) if variance_weights is not None else 1.0
+                    scale_txx = variance_weights.get('txx', 1.0) if variance_weights is not None else 1.0
+                    scale_txy = variance_weights.get('txy', 1.0) if variance_weights is not None else 1.0
+                    scale_tyy = variance_weights.get('tyy', 1.0) if variance_weights is not None else 1.0
+                    loss_p = mse_loss(out[:, 1:2], y_data[:, 2:3]) / scale_p
+                    loss_txx = mse_loss(out[:, 2:3], y_data[:, 3:4]) / scale_txx
+                    loss_txy = mse_loss(out[:, 3:4], y_data[:, 4:5]) / scale_txy
+                    loss_tyy = mse_loss(out[:, 4:5], y_data[:, 5:6]) / scale_tyy
+                    data_loss = data_loss + (loss_p + loss_txx + loss_txy + loss_tyy) / 4.0
             else:
                 y_pred = model(x_data)
                 data_loss = mse_loss(y_pred, y_data)

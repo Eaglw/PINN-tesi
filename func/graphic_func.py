@@ -3,6 +3,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
+import matplotlib.tri as tri
 
 def save_gif_PIL(outfile, files, fps=5, loop=0, delete_files=False):
     "Helper function for saving GIFs, modificata per rimuovere i file"
@@ -508,6 +509,434 @@ def plot2D_viscoelastic_comparison(X, Y, fields_exact, model_results_multi, hype
             if row == n_fields - 1:
                 ax.set_xlabel('x')
     
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
+
+
+# =============================================================================
+#  UNSTRUCTURED MESH VARIANTS (tricontourf-based)
+# =============================================================================
+
+def _to_numpy_1d(arr):
+    """Convert a tensor or array to a flat numpy array (CPU)."""
+    if hasattr(arr, 'detach'):
+        arr = arr.detach().cpu().numpy()
+    return np.asarray(arr).ravel()
+
+
+def plot2D_comparison_unstruct(triang, field_exact_1d, field_pred_1d, epoch, save_path,
+                               physics_points=None, val_label='Value', show_points=False):
+    """Genera grafici: Predizione, Errore Assoluto, Errore Relativo su mesh non strutturata.
+    Variante di plot2D_comparison che usa tricontourf su un oggetto Triangulation.
+
+    Args:
+        triang: matplotlib.tri.Triangulation object.
+        field_exact_1d: 1-D tensor/array with exact field values at mesh nodes.
+        field_pred_1d: 1-D tensor/array with predicted field values at mesh nodes.
+        epoch: Current epoch number (used in title).
+        save_path: Path to save the figure (None → plt.show()).
+        physics_points: Optional (N,2) tensor/array of physics collocation points.
+        val_label: Label for the colorbar of the solution plot.
+        show_points: If True, overlay physics points on the prediction subplot.
+    """
+    pred_np = _to_numpy_1d(field_pred_1d)
+    exact_np = _to_numpy_1d(field_exact_1d)
+
+    abs_error = np.abs(pred_np - exact_np)
+
+    # Relative error with dynamic masking (same logic as structured version)
+    rel_error = np.zeros_like(exact_np)
+    max_val = np.max(np.abs(exact_np))
+    threshold = max(0.05 * max_val, 1e-8)
+    mask = np.abs(exact_np) > threshold
+    if mask.sum() > 0:
+        rel_error[mask] = (abs_error[mask] / np.abs(exact_np[mask])) * 100
+
+    fig, axes = plt.subplots(3, 1, figsize=(12, 12))
+
+    # 1. Predicted solution
+    ax = axes[0]
+    c1 = ax.tricontourf(triang, pred_np, levels=50, cmap='inferno')
+    plt.colorbar(c1, ax=ax, label=val_label)
+    ax.set_title(f'Predizione (Epoch {epoch})')
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_aspect('equal', adjustable='box')
+
+    if show_points and physics_points is not None:
+        xy_phys = _to_numpy_1d(physics_points).reshape(-1, 2) if not isinstance(physics_points, np.ndarray) else np.asarray(physics_points)
+        if hasattr(physics_points, 'detach'):
+            xy_phys = physics_points.detach().cpu().numpy()
+        else:
+            xy_phys = np.asarray(physics_points)
+        if len(xy_phys) > 2000:
+            idx = np.random.choice(len(xy_phys), 2000, replace=False)
+            xy_phys = xy_phys[idx]
+        ax.scatter(xy_phys[:, 0], xy_phys[:, 1], s=1, facecolor='white',
+                   edgecolor='none', marker='o', alpha=0.2, label='Punti Fisica')
+        ax.legend(loc='upper right', fontsize='x-small', framealpha=0.5)
+
+    # 2. Absolute error
+    ax = axes[1]
+    c2 = ax.tricontourf(triang, abs_error, levels=50, cmap='magma')
+    plt.colorbar(c2, ax=ax, label='Errore Assoluto')
+    ax.set_title('Errore Assoluto |pred - exact|')
+    ax.set_xlabel('x')
+    ax.set_aspect('equal', adjustable='box')
+
+    # 3. Relative error
+    ax = axes[2]
+    vmax_adaptive = 10.0
+    c3 = ax.tricontourf(triang, rel_error, levels=50, cmap='jet', vmin=0, vmax=vmax_adaptive)
+    plt.colorbar(c3, ax=ax, label='% Errore Relativo (|err|/|exact|)')
+    ax.set_title('Errore Relativo % (|err| / |exact|)')
+    ax.set_xlabel('x')
+    ax.set_aspect('equal', adjustable='box')
+
+    plt.tight_layout()
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot2D_final_result_unstruct(triang, field_exact_1d, field_pred_1d, epoch, save_path,
+                                 internal_points=None, boundary_points=None,
+                                 physics_points=None, val_label='Value'):
+    """Plot finale su mesh non strutturata: Soluzione + punti sovrapposti, Errore Relativo.
+    Variante di plot2D_final_result che usa tricontourf.
+
+    Args:
+        triang: matplotlib.tri.Triangulation object.
+        field_exact_1d: 1-D tensor/array with exact field values.
+        field_pred_1d: 1-D tensor/array with predicted field values.
+        epoch: Current epoch number.
+        save_path: Path to save the figure (None → plt.show()).
+        internal_points: Optional (N,2) tensor/array of internal data points.
+        boundary_points: Optional (N,2) tensor/array of boundary points.
+        physics_points: Optional (N,2) tensor/array of physics collocation points.
+        val_label: Label for the colorbar.
+    """
+    pred_np = _to_numpy_1d(field_pred_1d)
+    exact_np = _to_numpy_1d(field_exact_1d)
+
+    # Relative error with masking
+    abs_error = np.abs(pred_np - exact_np)
+    rel_error = np.zeros_like(exact_np)
+    max_val = np.max(np.abs(exact_np))
+    threshold = max(0.05 * max_val, 1e-8)
+    mask = np.abs(exact_np) > threshold
+    if mask.sum() > 0:
+        rel_error[mask] = (abs_error[mask] / np.abs(exact_np[mask])) * 100
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
+
+    # 1. Solution + Points
+    ax = axes[0]
+    c1 = ax.tricontourf(triang, pred_np, levels=50, cmap='inferno')
+    plt.colorbar(c1, ax=ax, label=val_label)
+    ax.set_title(f'Prediction (Epoch {epoch})')
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_aspect('equal', adjustable='box')
+
+    # Overlay Points
+    if physics_points is not None:
+        xy_phys = physics_points.detach().cpu().numpy() if hasattr(physics_points, 'detach') else np.asarray(physics_points)
+        if len(xy_phys) > 2000:
+            xy_phys = xy_phys[np.random.choice(len(xy_phys), 2000, replace=False)]
+        ax.scatter(xy_phys[:, 0], xy_phys[:, 1], s=1, facecolor='white',
+                   edgecolor='none', marker='o', alpha=0.2, label='Physics Points')
+
+    if internal_points is not None:
+        xy_int = internal_points.detach().cpu().numpy() if hasattr(internal_points, 'detach') else np.asarray(internal_points)
+        if len(xy_int) > 3000:
+            xy_int = xy_int[np.random.choice(len(xy_int), 3000, replace=False)]
+        ax.scatter(xy_int[:, 0], xy_int[:, 1], s=8, c='cyan', marker='o',
+                   alpha=0.6, edgecolor='none', label='Internal Points')
+
+    if boundary_points is not None:
+        xy_bc = boundary_points.detach().cpu().numpy() if hasattr(boundary_points, 'detach') else np.asarray(boundary_points)
+        ax.scatter(xy_bc[:, 0], xy_bc[:, 1], s=12, c='red', marker='s',
+                   alpha=0.7, edgecolor='none', label='Boundary Points')
+
+    if physics_points is not None or internal_points is not None or boundary_points is not None:
+        ax.legend(loc='upper right', framealpha=0.9, fontsize='small')
+
+    # 2. Relative Error
+    ax = axes[1]
+    vmax_adaptive = 10.0
+    c2 = ax.tricontourf(triang, rel_error, levels=50, cmap='jet', vmin=0, vmax=vmax_adaptive)
+    plt.colorbar(c2, ax=ax, label='% Relative Error (|err|/|exact|)')
+    ax.set_title('Relative Error % (|err| / |exact|)')
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_aspect('equal', adjustable='box')
+
+    plt.tight_layout()
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot2D_viscoelastic_final_unstruct(triang, fields_pred, fields_exact, epoch, save_path,
+                                       internal_points=None, boundary_points=None,
+                                       physics_points=None):
+    """Plot multi-campo finale per il caso viscoelastico su mesh non strutturata.
+    Genera una griglia n_fields × 3: Predizione | Soluzione Esatta | Errore Relativo.
+    Variante di plot2D_viscoelastic_final che usa tricontourf.
+
+    Args:
+        triang: matplotlib.tri.Triangulation object.
+        fields_pred: Dict {'u': 1d_tensor, 'p': 1d_tensor, 'tau_xx': ..., 'tau_xy': ..., 'tau_yy': ...}
+        fields_exact: Dict with the same keys.
+        epoch: Current epoch number.
+        save_path: Path to save the figure (None → plt.show()).
+        internal_points: Optional (N,2) tensor/array of internal data points.
+        boundary_points: Optional (N,2) tensor/array of boundary points.
+        physics_points: Optional (N,2) tensor/array of physics collocation points.
+    """
+    field_names = ['u', 'p', 'tau_xx', 'tau_xy', 'tau_yy']
+    field_labels = ['u (Velocity)', 'p (Pressure)', 'τ_xx', 'τ_xy', 'τ_yy']
+    cmaps_field = ['inferno', 'viridis', 'plasma', 'plasma', 'plasma']
+
+    n_fields = len(field_names)
+    fig, axes = plt.subplots(n_fields, 3, figsize=(18, 4 * n_fields))
+
+    fig.suptitle(f'Viscoelastic VE — Final Results (Epoch {epoch})', fontsize=18, fontweight='bold', y=0.995)
+
+    for i, (fname, flabel, cmap) in enumerate(zip(field_names, field_labels, cmaps_field)):
+        pred_raw = fields_pred.get(fname)
+        exact_raw = fields_exact.get(fname)
+
+        if pred_raw is None or exact_raw is None:
+            for j in range(3):
+                axes[i, j].set_visible(False)
+            continue
+
+        pred_np = _to_numpy_1d(pred_raw)
+        exact_np = _to_numpy_1d(exact_raw)
+
+        # Shared color limits
+        vmin_shared = min(pred_np.min(), exact_np.min())
+        vmax_shared = max(pred_np.max(), exact_np.max())
+
+        # Col 0: Prediction
+        ax = axes[i, 0]
+        c = ax.tricontourf(triang, pred_np, levels=50, cmap=cmap, vmin=vmin_shared, vmax=vmax_shared)
+        plt.colorbar(c, ax=ax, label=flabel)
+        ax.set_title(f'{flabel} — Prediction')
+        ax.set_ylabel('y')
+        ax.set_aspect('equal', adjustable='box')
+
+        # Overlay points only on the first row
+        if i == 0:
+            if physics_points is not None:
+                xy_p = physics_points.detach().cpu().numpy() if hasattr(physics_points, 'detach') else np.asarray(physics_points)
+                if len(xy_p) > 2000:
+                    xy_p = xy_p[np.random.choice(len(xy_p), 2000, replace=False)]
+                ax.scatter(xy_p[:, 0], xy_p[:, 1], s=1, facecolor='white',
+                           edgecolor='none', marker='o', alpha=0.2, label='Physics')
+            if internal_points is not None:
+                xy_i = internal_points.detach().cpu().numpy() if hasattr(internal_points, 'detach') else np.asarray(internal_points)
+                if len(xy_i) > 3000:
+                    xy_i = xy_i[np.random.choice(len(xy_i), 3000, replace=False)]
+                ax.scatter(xy_i[:, 0], xy_i[:, 1], s=6, c='cyan', marker='o',
+                           alpha=0.5, edgecolor='none', label='Data')
+            if boundary_points is not None:
+                xy_b = boundary_points.detach().cpu().numpy() if hasattr(boundary_points, 'detach') else np.asarray(boundary_points)
+                ax.scatter(xy_b[:, 0], xy_b[:, 1], s=10, c='red', marker='s',
+                           alpha=0.6, edgecolor='none', label='BC')
+            ax.legend(loc='upper right', fontsize='x-small', framealpha=0.6)
+
+        # Col 1: Exact solution
+        ax = axes[i, 1]
+        c = ax.tricontourf(triang, exact_np, levels=50, cmap=cmap, vmin=vmin_shared, vmax=vmax_shared)
+        plt.colorbar(c, ax=ax, label=flabel)
+        ax.set_title(f'{flabel} — Exact')
+        ax.set_aspect('equal', adjustable='box')
+
+        # Col 2: Relative error
+        ax = axes[i, 2]
+        abs_err = np.abs(pred_np - exact_np)
+        rel_err = np.zeros_like(exact_np)
+        max_val = np.max(np.abs(exact_np))
+        thr = max(0.05 * max_val, 1e-8)
+        m = np.abs(exact_np) > thr
+        if m.sum() > 0:
+            rel_err[m] = (abs_err[m] / np.abs(exact_np[m])) * 100
+
+        vmax_err = 10.0
+        c = ax.tricontourf(triang, rel_err, levels=50, cmap='jet', vmin=0, vmax=vmax_err)
+        plt.colorbar(c, ax=ax, label='% Relative Error')
+        ax.set_title(f'{flabel} — Rel. Error %')
+        ax.set_aspect('equal', adjustable='box')
+
+        # x-label only on last row
+        if i == n_fields - 1:
+            for j in range(3):
+                axes[i, j].set_xlabel('x')
+
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot2D_unified_comparison_unstruct(triang, T_true_1d, model_results, hyperparams, save_path=None):
+    """Genera una griglia dinamica di mappe di errore relativo su mesh non strutturata.
+    Variante di plot2D_unified_comparison che usa tricontourf.
+
+    Args:
+        triang: matplotlib.tri.Triangulation object.
+        T_true_1d: 1-D tensor/array with exact solution values at mesh nodes.
+        model_results: List of dicts [{'T_pred': 1d_tensor, 'label': str}, ...].
+        hyperparams: Dict {'arch': str, 'epochs': int, 'act': str}.
+        save_path: Path to save the figure (None → plt.show()).
+    """
+    n = len(model_results)
+    if n == 0:
+        print("Warning: plot2D_unified_comparison_unstruct called with 0 model results. Skipping.")
+        return
+
+    exact_np = _to_numpy_1d(T_true_1d)
+
+    cols = min(n, 2)
+    rows = (n + cols - 1) // cols
+
+    fig, axes = plt.subplots(rows, cols, figsize=(7 * cols, 6 * rows), squeeze=False)
+
+    arch = hyperparams.get('arch', 'N/A')
+    epochs = hyperparams.get('epochs', 'N/A')
+    act = hyperparams.get('act', 'N/A')
+
+    fig.suptitle(f"Comparison: {arch} | Epochs: {epochs} | Activation: {act}", fontsize=18, fontweight='bold')
+
+    for i, res in enumerate(model_results):
+        row = i // cols
+        col = i % cols
+        ax = axes[row, col]
+
+        pred_np = _to_numpy_1d(res['T_pred'])
+        label = res['label']
+
+        abs_error = np.abs(pred_np - exact_np)
+
+        # Relative error with masking
+        rel_error = np.zeros_like(exact_np)
+        m = np.abs(exact_np) > 0.01
+        if m.sum() > 0:
+            rel_error[m] = (abs_error[m] / np.abs(exact_np[m])) * 100
+
+        vmax_adaptive = 10.0
+        c = ax.tricontourf(triang, rel_error, levels=50, cmap='jet', vmin=0, vmax=vmax_adaptive)
+        cbar = plt.colorbar(c, ax=ax)
+        cbar.set_label('% Relative Error (|err|/|exact|)', rotation=270, labelpad=15)
+
+        ax.set_facecolor('lightgray')
+        ax.set_title(label, fontsize=14)
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_aspect('equal', adjustable='box')
+
+    # Hide empty axes
+    for i in range(n, rows * cols):
+        row = i // cols
+        col = i % cols
+        axes[row, col].set_visible(False)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot2D_viscoelastic_comparison_unstruct(triang, fields_exact, model_results_multi,
+                                            hyperparams, save_path=None):
+    """Comparison multi-campo tra diversi modelli su mesh non strutturata.
+    Variante di plot2D_viscoelastic_comparison che usa tricontourf.
+
+    Args:
+        triang: matplotlib.tri.Triangulation object.
+        fields_exact: Dict {'u': 1d_tensor, 'p': 1d_tensor, 'tau_xx': ..., ...}
+        model_results_multi: List of dicts:
+            [{'label': 'Model A', 'fields': {'u': 1d_tensor, 'p': ..., ...}}, ...]
+        hyperparams: Dict for the suptitle.
+        save_path: Path to save the figure (None → plt.show()).
+    """
+    field_names = ['u', 'p', 'tau_xx', 'tau_xy', 'tau_yy']
+    field_labels = ['u (Velocity)', 'p (Pressure)', 'τ_xx', 'τ_xy', 'τ_yy']
+
+    n_models = len(model_results_multi)
+    n_fields = len(field_names)
+
+    fig, axes = plt.subplots(n_fields, n_models, figsize=(6 * n_models, 3.5 * n_fields), squeeze=False)
+
+    arch = hyperparams.get('arch', 'N/A')
+    epochs = hyperparams.get('epochs', 'N/A')
+    act = hyperparams.get('act', 'N/A')
+    fig.suptitle(f'Relative Error Comparison | {arch} | E={epochs} | {act}', fontsize=16, fontweight='bold')
+
+    for row, (fname, flabel) in enumerate(zip(field_names, field_labels)):
+        exact_raw = fields_exact.get(fname)
+        if exact_raw is None:
+            for col in range(n_models):
+                axes[row, col].set_visible(False)
+            continue
+
+        exact_np = _to_numpy_1d(exact_raw)
+
+        for col, mres in enumerate(model_results_multi):
+            ax = axes[row, col]
+            pred_raw = mres['fields'].get(fname)
+            label = mres['label']
+
+            if pred_raw is None:
+                ax.set_visible(False)
+                continue
+
+            pred_np = _to_numpy_1d(pred_raw)
+
+            # Relative error
+            abs_err = np.abs(pred_np - exact_np)
+            rel_err = np.zeros_like(exact_np)
+            max_val = np.max(np.abs(exact_np))
+            thr = max(0.05 * max_val, 1e-8)
+            m = np.abs(exact_np) > thr
+            if m.sum() > 0:
+                rel_err[m] = (abs_err[m] / np.abs(exact_np[m])) * 100
+
+            vmax_err = 10.0
+            c = ax.tricontourf(triang, rel_err, levels=50, cmap='jet', vmin=0, vmax=vmax_err)
+            cbar = plt.colorbar(c, ax=ax)
+            cbar.set_label('%', rotation=0, labelpad=10)
+
+            if row == 0:
+                ax.set_title(f'{label}', fontsize=13, fontweight='bold')
+
+            ax.set_ylabel(f'{flabel}' if col == 0 else '')
+            ax.set_aspect('equal', adjustable='box')
+
+            if row == n_fields - 1:
+                ax.set_xlabel('x')
+
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)

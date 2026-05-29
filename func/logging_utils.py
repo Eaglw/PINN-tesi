@@ -62,7 +62,7 @@ def compute_metrics(model, xy_grid_flat, T_grid_true):
         
     return l2_rel_error, max_rel_error_peak
 
-def compute_viscoelastic_metrics(model, physics_problem, xy_grid_flat, fields_exact_flat, Ny_dom, Nx_dom):
+def compute_viscoelastic_metrics(model, physics_problem, xy_grid_flat, fields_exact_flat, Ny_dom=None, Nx_dom=None):
     """
     Calcola L2 Relative Error e Max Relative Error per ogni campo fisico
     del modello viscoelastico: u, p, tau_xx, tau_xy, tau_yy.

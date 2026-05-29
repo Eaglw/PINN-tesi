@@ -12,16 +12,26 @@ def _softplus_inverse(x):
 
 
 class ViscoelasticPhysics(nn.Module):
-    def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0, eps=0.0, alpha=0.0, rho=1.0, pde_weights=None, inverse_mode=False, real_mu_s=None, real_mu_p=None, real_lam=None, real_eps=None, real_alpha=None):
+    def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0, eps=0.0, alpha=0.0, rho=1.0,
+                 U_ref=1.0, H_ref=1.0,
+                 pde_weights=None, inverse_mode=False,
+                 real_mu_s=None, real_mu_p=None, real_lam=None, real_eps=None, real_alpha=None):
         """
-        Modulo per calcolare i residui fisici (equazioni di Navier-Stokes e modello Oldroyd-B).
+        Modulo per calcolare i residui fisici in forma ADIMENSIONALE.
+        
+        Le PDE sono scritte in termini di Re, Wi, β calcolati on-the-fly
+        dai parametri dimensionali (mu_s, mu_p, lam) e dalle scale di riferimento
+        (U_ref, H_ref).
         
         NOTA FISICA — Scelta della Stream Function:
             L'equazione di continuità (∇·u = 0) è automaticamente soddisfatta
             dall'uso della stream function: u = ∂ψ/∂y, v = -∂ψ/∂x.
-            Dimostrazione: ∂u/∂x + ∂v/∂y = ∂²ψ/∂x∂y - ∂²ψ/∂y∂x = 0.
             Perciò NON è inclusa esplicitamente tra i residui.
-            Se si passasse a output diretto (u, v), va aggiunta come residuo.
+        
+        Forma adimensionale:
+            Momentum: Re(u·∇u) + ∇p - β∇²u - ∇·τ = 0
+            Costitutiva: f·τ + Wi·∇̊τ + α·Wi/(1-β)·(τ·τ) - 2(1-β)·D = 0
+                dove f = 1 + ε·Wi/(1-β)·tr(τ) (PTT)
         
         Args:
             mu_s: Viscosità del solvente [Pa·s] (o guess iniziale per inverse problem)
@@ -29,18 +39,19 @@ class ViscoelasticPhysics(nn.Module):
             lam: Tempo di rilassamento [s] (o guess iniziale per inverse problem)
             eps: Parametro di mobilità PTT (o guess iniziale)
             alpha: Parametro di mobilità Giesekus (o guess iniziale)
-            rho: Densità del fluido [kg/m³]. Default=1.0 (adimensionale).
-                 Se rho != 1, le equazioni del momento vengono scalate di conseguenza.
+            rho: Densità del fluido [kg/m³].
+            U_ref: Velocità di riferimento per adimensionalizzazione [m/s].
+            H_ref: Lunghezza di riferimento (altezza canale) [m].
             pde_weights: Dict con pesi per le componenti PDE.
                 Default: {'momentum': 10.0, 'constitutive': 1.0}
-                NOTA: Per Oldroyd-B i residui degli stress (tau_xx soprattutto)
-                hanno magnitudini strutturalmente diverse dai residui di momentum,
-                perché tau_xx scala come γ̇² (quadratico) mentre f_u scala come γ̇ (lineare).
             inverse_mode: Se True, i parametri mu_s, mu_p, lam diventano addestrabili.
             real_*: Valori reali usati per il plotting e la verifica in modalità inversa.
         """
         super().__init__()
         self.inverse_mode = inverse_mode
+        self.U_ref = U_ref
+        self.H_ref = H_ref
+        
         if inverse_mode:
             # Reparametrizzazione: salviamo softplus_inverse(guess) così che softplus(raw) = guess
             self.mu_s = nn.Parameter(torch.tensor([_softplus_inverse(mu_s)], dtype=torch.float32))
@@ -73,6 +84,7 @@ class ViscoelasticPhysics(nn.Module):
     def from_dataset(cls, dataset, device='cpu', **kwargs):
         """
         Costruisce il modulo fisico estraendo i parametri esatti dal dataset.
+        Supporta sia il formato .pt legacy sia il formato COMSOL con 'scales'.
         Forza inverse_mode=False perché è pensato per il forward problem.
         """
         if isinstance(dataset, dict) and 'params' in dataset:
@@ -89,8 +101,14 @@ class ViscoelasticPhysics(nn.Module):
         alpha = params.get('alpha', 0.0)
         rho = params.get('rho', 1.0)
         
+        # Estrai scale di riferimento per adimensionalizzazione (COMSOL format)
+        scales = dataset.get('scales', {})
+        U_ref = scales.get('U_ref', 1.0)
+        H_ref = scales.get('H', 1.0)
+        
         return cls(
             mu_s=mu_s, mu_p=mu_p, lam=lam, eps=eps, alpha=alpha, rho=rho,
+            U_ref=U_ref, H_ref=H_ref,
             inverse_mode=False,
             real_mu_s=mu_s, real_mu_p=mu_p, real_lam=lam, real_eps=eps, real_alpha=alpha,
             **kwargs
@@ -118,6 +136,31 @@ class ViscoelasticPhysics(nn.Module):
                 'alpha': self.alpha,
             }
 
+    def _get_nondim_params(self):
+        """Calcola i numeri adimensionali (Re, Wi, β, ε, α) dai parametri dimensionali correnti.
+        
+        Re = ρ·U_ref·H_ref / (μ_s + μ_p)
+        Wi = λ·U_ref / H_ref
+        β  = μ_s / (μ_s + μ_p)
+        ε e α sono già adimensionali.
+        """
+        eff = self._get_effective_params()
+        mu_s_eff = eff['mu_s']
+        mu_p_eff = eff['mu_p']
+        mu_tot = mu_s_eff + mu_p_eff
+        
+        Re = self.rho * self.U_ref * self.H_ref / mu_tot
+        Wi = eff['lam'] * self.U_ref / self.H_ref
+        beta = mu_s_eff / mu_tot
+        
+        return {
+            'Re': Re,
+            'Wi': Wi,
+            'beta': beta,
+            'eps': eff['eps'],
+            'alpha': eff['alpha'],
+        }
+
     def get_velocity(self, model, x):
         """
         Calcola u, v e p a partire dalle reti neurali.
@@ -142,9 +185,17 @@ class ViscoelasticPhysics(nn.Module):
 
     def compute_residuals(self, model, x):
         """
-        Calcola i residui delle equazioni di Navier-Stokes + Oldroyd-B per un set di punti x.
+        Calcola i residui delle PDE in FORMA ADIMENSIONALE.
         
-        Ottimizzazioni rispetto all'implementazione naive:
+        Momentum:  Re(u·∇u) + ∇p - β∇²u - ∇·τ = 0
+        Costitutiva (Oldroyd-B + PTT + Giesekus):
+            f·τ + Wi·∇̊τ + α·Wi/(1-β)·(τ·τ) - 2(1-β)·D = 0
+            dove f = 1 + ε·Wi/(1-β)·tr(τ) (PTT coefficient)
+        
+        I numeri adimensionali (Re, Wi, β) sono calcolati on-the-fly
+        dai parametri dimensionali correnti tramite _get_nondim_params().
+        
+        Ottimizzazioni autograd invariate:
         - Riusa get_velocity() per evitare duplicazione del forward pass + grad(psi)
         - Sfrutta v_y = -u_x (equazione di continuità) per risparmiare 1 chiamata autograd
         - Sfrutta v_yy = -u_yx (teorema di Schwarz) per risparmiare 1 chiamata autograd
@@ -177,8 +228,7 @@ class ViscoelasticPhysics(nn.Module):
         grad_v_x = torch.autograd.grad(v_x.sum(), x, create_graph=True)[0]
         v_xx = grad_v_x[:, 0:1]
         
-        # v_yy = -u_yx per il teorema di Schwarz:
-        # u_yx = ∂³ψ/∂x∂y² e v_yy = -∂³ψ/∂x∂y² → v_yy = -u_yx
+        # v_yy = -u_yx per il teorema di Schwarz
         v_yy = -u_yx
         
         # Derivate prime di tau
@@ -189,36 +239,42 @@ class ViscoelasticPhysics(nn.Module):
         grad_tau_yy = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0]
         tau_yy_x, tau_yy_y = grad_tau_yy[:, 0:1], grad_tau_yy[:, 1:2]
         
-        # Parametri effettivi: forward mode = valori diretti, inverse mode = softplus(raw) + clamp
-        eff = self._get_effective_params()
-        mu_s_eff = eff['mu_s']
-        mu_p_eff = eff['mu_p']
-        lam_eff  = eff['lam']
-        eps_eff  = eff['eps']
-        alpha_eff = eff['alpha']
+        # Parametri adimensionali calcolati on-the-fly
+        nd = self._get_nondim_params()
+        Re    = nd['Re']
+        Wi    = nd['Wi']
+        beta  = nd['beta']
+        eps   = nd['eps']
+        alpha = nd['alpha']
+        one_m_beta = 1.0 - beta  # (1-β) = μ_p/μ_tot
         
-        # Equazioni di Quantità di Moto (Navier-Stokes)
-        # ρ(u·∇u) + ∇p - μ_s∇²u - ∇·τ = 0
-        f_u = self.rho * (u * u_x + v * u_y) + p_x - mu_s_eff * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
-        f_v = self.rho * (u * v_x + v * v_y) + p_y - mu_s_eff * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
+        # ═══════════════════════════════════════════════════
+        # Momentum (Navier-Stokes adimensionale)
+        # Re(u·∇u) + ∇p - β∇²u - ∇·τ = 0
+        # ═══════════════════════════════════════════════════
+        f_u = Re * (u * u_x + v * u_y) + p_x - beta * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
+        f_v = Re * (u * v_x + v * v_y) + p_y - beta * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
 
-        # Upper-Convected Derivative
-        # (∇u · τ)_xy = u_x·τ_xy + u_y·τ_yy
-        # (τ · ∇u^T)_xy = τ_xx·v_x + τ_xy·v_y
+        # ═══════════════════════════════════════════════════
+        # Upper-Convected Derivative (stessa struttura, ora pesata da Wi)
+        # ═══════════════════════════════════════════════════
         upper_xx = (u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy)
         upper_yy = (u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy)
-        upper_xy = ( u * tau_xy_x + v * tau_xy_y - u_x * tau_xy - u_y * tau_yy- tau_xx * v_x - tau_xy * v_y)
+        upper_xy = (u * tau_xy_x + v * tau_xy_y - u_x * tau_xy - u_y * tau_yy - tau_xx * v_x - tau_xy * v_y)
 
-        #PTT coeff
-        PTT_coeff = (1+eps_eff*lam_eff*(tau_xx+tau_yy)/mu_p_eff)
+        # PTT coefficient: f = 1 + ε·Wi/(1-β)·tr(τ)
+        PTT_coeff = 1.0 + eps * Wi / one_m_beta.clamp(min=1e-8) * (tau_xx + tau_yy)
 
-        #Giesekus coeff
-        G_coeff = alpha_eff*lam_eff/mu_p_eff
+        # Giesekus coefficient: α·Wi/(1-β)
+        G_coeff = alpha * Wi / one_m_beta.clamp(min=1e-8)
 
-        # Equazioni Costitutive (VENet unito)
-        f_tau_xx = PTT_coeff*tau_xx + lam_eff * upper_xx + G_coeff * (tau_xx**2+tau_xy**2) - 2 * mu_p_eff * u_x
-        f_tau_yy = PTT_coeff*tau_yy + lam_eff * upper_yy + G_coeff * (tau_xy**2+tau_yy**2) - 2 * mu_p_eff * v_y
-        f_tau_xy = PTT_coeff*tau_xy + lam_eff * upper_xy + G_coeff * tau_xy*(tau_xx+tau_yy) - mu_p_eff * (u_y + v_x)
+        # ═══════════════════════════════════════════════════
+        # Equazioni Costitutive adimensionali
+        # f·τ + Wi·∇̊τ + G·(τ·τ) - 2(1-β)·D = 0
+        # ═══════════════════════════════════════════════════
+        f_tau_xx = PTT_coeff * tau_xx + Wi * upper_xx + G_coeff * (tau_xx**2 + tau_xy**2) - 2 * one_m_beta * u_x
+        f_tau_yy = PTT_coeff * tau_yy + Wi * upper_yy + G_coeff * (tau_xy**2 + tau_yy**2) - 2 * one_m_beta * v_y
+        f_tau_xy = PTT_coeff * tau_xy + Wi * upper_xy + G_coeff * tau_xy * (tau_xx + tau_yy) - one_m_beta * (u_y + v_x)
         
         return f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy
 
