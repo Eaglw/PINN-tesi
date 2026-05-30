@@ -53,12 +53,13 @@ class ViscoelasticPhysics(nn.Module):
         self.H_ref = H_ref
         
         if inverse_mode:
-            # Reparametrizzazione: salviamo softplus_inverse(guess) così che softplus(raw) = guess
-            self.mu_s = nn.Parameter(torch.tensor([_softplus_inverse(mu_s)], dtype=torch.float32))
-            self.mu_p = nn.Parameter(torch.tensor([_softplus_inverse(mu_p)], dtype=torch.float32))
-            self.lam = nn.Parameter(torch.tensor([_softplus_inverse(lam)], dtype=torch.float32))
-            self.eps = nn.Parameter(torch.tensor([_softplus_inverse(eps)], dtype=torch.float32))
-            self.alpha = nn.Parameter(torch.tensor([_softplus_inverse(alpha)], dtype=torch.float32))
+            # Reparametrizzazione: shifted softplus
+            # raw = softplus_inverse(guess - offset)
+            self.mu_s = nn.Parameter(torch.tensor([_softplus_inverse(max(mu_s - 1e-6, 1e-9))], dtype=torch.float32))
+            self.mu_p = nn.Parameter(torch.tensor([_softplus_inverse(max(mu_p - 1e-6, 1e-9))], dtype=torch.float32))
+            self.lam = nn.Parameter(torch.tensor([_softplus_inverse(max(lam - 1e-6, 1e-9))], dtype=torch.float32))
+            self.eps = nn.Parameter(torch.tensor([_softplus_inverse(max(eps - 1e-8, 1e-9))], dtype=torch.float32))
+            self.alpha = nn.Parameter(torch.tensor([_softplus_inverse(max(alpha - 1e-8, 1e-9))], dtype=torch.float32))
             self.real_mu_s = real_mu_s if real_mu_s is not None else mu_s
             self.real_mu_p = real_mu_p if real_mu_p is not None else mu_p
             self.real_lam = real_lam if real_lam is not None else lam
@@ -121,11 +122,11 @@ class ViscoelasticPhysics(nn.Module):
         """
         if self.inverse_mode:
             return {
-                'mu_s': torch.clamp(F.softplus(self.mu_s), min=1e-6),
-                'mu_p': torch.clamp(F.softplus(self.mu_p), min=1e-6),
-                'lam': torch.clamp(F.softplus(self.lam), min=1e-6),
-                'eps': torch.clamp(F.softplus(self.eps), min=1e-8),
-                'alpha': torch.clamp(F.softplus(self.alpha), min=1e-8),
+                'mu_s': 1e-6 + F.softplus(self.mu_s),
+                'mu_p': 1e-6 + F.softplus(self.mu_p),
+                'lam': 1e-6 + F.softplus(self.lam),
+                'eps': 1e-8 + F.softplus(self.eps),
+                'alpha': 1e-8 + F.softplus(self.alpha),
             }
         else:
             return {
@@ -166,7 +167,7 @@ class ViscoelasticPhysics(nn.Module):
         Calcola u, v e p a partire dalle reti neurali.
         """
         if not x.requires_grad:
-            x.requires_grad_(True)
+            x = x.clone().requires_grad_(True)
             
         out = model(x)
         psi = out[:, 0:1]
@@ -314,7 +315,7 @@ class ViscoelasticPhysics(nn.Module):
         sui punti di contorno (boundary points).
         """
         if not x_bc.requires_grad:
-            x_bc.requires_grad_(True) #check di sicurezza per calcolo gradienti
+            x_bc = x_bc.clone().requires_grad_(True) #check di sicurezza per calcolo gradienti
         
         u, v, p, tau = self.get_velocity(model, x_bc) #previsioni del modello
         
@@ -416,7 +417,8 @@ def generate_boundaries(Lx, Ly, u_max, p_exact, stress_exact_dict, Nx, Ny, devic
     if u_exact_grid is not None:
         u_inlet = u_exact_grid[:, 0].reshape(-1, 1).to(device)
     else:
-        u_inlet = u_max * [1-((y_inlet-(Ly/2))/(Ly_2))^2] # cambiato il profilo di inlet
+        Ly_2 = Ly / 2.0
+        u_inlet = u_max * (1.0 - ((y_inlet - Ly_2) / Ly_2) ** 2)
     v_inlet = get_zero(y_inlet)
     
     p_exact_grid = stress_exact_dict.get('p')

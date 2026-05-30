@@ -169,9 +169,15 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
     warmup_epochs_2 = half_epochs + int(epochs * warmup_ratio) if staged_training else 0
     
     def _rebuild_optimizer(steps_remaining):
-        t_params = [p for p in model.parameters() if p.requires_grad] + \
-                   [p for p in physics_problem.parameters() if p.requires_grad]
-        opt = torch.optim.Adam(t_params, lr=cfg.base_lr, eps=cfg.adam_eps)
+        net_params = [p for p in model.parameters() if p.requires_grad]
+        phys_params = [p for p in physics_problem.parameters() if p.requires_grad]
+        
+        param_groups = [
+            {'params': net_params, 'lr': cfg.base_lr},
+            {'params': phys_params, 'lr': cfg.base_lr * getattr(cfg, 'param_lr_factor', 0.1)}
+        ]
+        
+        opt = torch.optim.Adam(param_groups, eps=cfg.adam_eps)
         sch = _get_scheduler(opt, cfg.lr_strategy, steps_remaining if steps_remaining > 0 else 1)
         
         last_layer = []
@@ -179,9 +185,9 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
             if hasattr(net, 'fcs') and len(net.fcs) > 0:
                 last_layer.extend([p for p in net.fcs[-1].parameters() if p.requires_grad])
         if not last_layer:
-            last_layer = t_params
+            last_layer = net_params + phys_params
         
-        return opt, sch, last_layer, t_params
+        return opt, sch, last_layer, net_params + phys_params
     
     if staged_training:
         print(f"\n  [Staged Training] Fase 1 (Warmup): Cinematica e Reologia (psi+tau).")
@@ -236,7 +242,8 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
             x_bc=xy_bc_batch, y_bc=bc_targets_batch,
             physics_problem=physics_problem, x_physics=xy_phys_batch,
             lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
-            mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=current_active_bcs
+            mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=current_active_bcs,
+            force_data_loss=((epoch + 1) % 100 == 0)
         )
 
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
@@ -312,6 +319,12 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
                 else:
                     plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path, physics_points=None, val_label=cfg.val_label, show_points=False)
                 plot_files.append(plot_path)
+                
+                # Pulizia periodica della cache GPU per prevenire frammentazione e saturazione
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             
     pbar.close()
     return loss_history, plot_files, lambda_data, lambda_bc, target_lambda_physics, base_pde_weights
@@ -359,27 +372,34 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
 
     lbfgs_iter = [0]
     pbar_lbfgs = tqdm(total=cfg.max_lbfgs_iters, desc="Training VE (L-BFGS)", mininterval=2.0)
-    chunk_size = 500 if IS_1050TI else None
+    
+    # Imposta un chunk_size di default prudenziale (es. 2000) per evitare OOM su qualsiasi GPU
+    chunk_size = 500 if IS_1050TI else 2000
     
     def closure():
         optimizer_lbfgs.zero_grad()
         
-        if chunk_size is None: #se lowvram splitta il calcolo dei gradienti
+        # Calcoliamo data_loss solo ogni 50 iterazioni (quando la scriviamo nella history)
+        do_force_data = (lbfgs_iter[0] % 50 == 0)
+        
+        if chunk_size is None or (xy_physics_full is not None and xy_physics_full.shape[0] <= chunk_size):
             loss, loss_dict = compute_pinn_loss(
                 model, x_data=xy_int, y_data=obs_int,
                 x_bc=xy_bc, y_bc=bc_targets,
                 physics_problem=physics_problem, x_physics=xy_physics_full,
                 lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
-                mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=None
+                mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=None,
+                force_data_loss=do_force_data
             )
             loss.backward()
         else:
             loss, loss_dict = compute_chunked_gradients(
                 model, physics_problem, xy_int, obs_int, xy_bc, bc_targets, xy_physics_full, 
-                cfg.mode, cfg.variance_weights, lambda_data, lambda_bc, target_lambda_physics, chunk_size
+                cfg.mode, cfg.variance_weights, lambda_data, lambda_bc, target_lambda_physics, chunk_size,
+                force_data_loss=do_force_data
             )
         
-        if lbfgs_iter[0] % 20 == 0: #logging della loss
+        if lbfgs_iter[0] % 50 == 0: #logging della loss modificato a 50 iterazioni
             history_entry = loss_dict.copy()
             history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
             if getattr(physics_problem, 'inverse_mode', False):

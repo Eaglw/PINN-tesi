@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 
 def compute_chunked_gradients(model, physics_problem, xy_int, obs_int, xy_bc, bc_targets, xy_physics_full, 
-                              mode, variance_weights, lambda_data, lambda_bc, lambda_physics, chunk_size):
+                               mode, variance_weights, lambda_data, lambda_bc, lambda_physics, chunk_size,
+                               force_data_loss=False):
     """
     Gestisce l'accumulo dei gradienti a blocchi (chunking) per VRAM limitate.
     Isola la logica matematica dal loop di ottimizzazione principale.
@@ -24,22 +25,35 @@ def compute_chunked_gradients(model, physics_problem, xy_int, obs_int, xy_bc, bc
             y_data_c = obs_int[i : i + chunk_size]
             
             if lambda_data == 0:
-                with torch.no_grad():
+                if not force_data_loss:
+                    loss_c = torch.tensor(0.0, device=x_data_c.device, dtype=x_data_c.dtype)
+                else:
                     if mode in ('semi_inverse', 'comsol_full') and physics_problem is not None:
-                        u_pred_c, v_pred_c, _, _ = physics_problem.get_velocity(model, x_data_c)
-                        u_obs_c = y_data_c[:, 0:1]
-                        v_obs_c = y_data_c[:, 1:2]
-                        loss_u_c = torch.nn.functional.mse_loss(u_pred_c, u_obs_c, reduction='sum') / (N_data * scale_u)
-                        loss_v_c = torch.nn.functional.mse_loss(v_pred_c, v_obs_c, reduction='sum') / (N_data * scale_v)
-                        loss_c = 0.5 * (loss_u_c + loss_v_c)
-                        if mode == 'comsol_full' and y_data_c.shape[1] >= 6:
-                            out_c = model(x_data_c)
-                            loss_c = loss_c + torch.nn.functional.mse_loss(out_c[:, 1:2], y_data_c[:, 2:3], reduction='sum') / N_data
-                            loss_c = loss_c + torch.nn.functional.mse_loss(out_c[:, 2:5], y_data_c[:, 3:6], reduction='sum') / (N_data * 3)
+                        # Congeliamo temporaneamente i parametri della rete per evitare la creazione di grafi per i pesi
+                        saved_requires_grad = [p.requires_grad for p in model.parameters()]
+                        for p in model.parameters():
+                            p.requires_grad = False
+                        
+                        try:
+                            u_pred_c, v_pred_c, _, _ = physics_problem.get_velocity(model, x_data_c)
+                            u_obs_c = y_data_c[:, 0:1]
+                            v_obs_c = y_data_c[:, 1:2]
+                            loss_u_c = torch.nn.functional.mse_loss(u_pred_c, u_obs_c, reduction='sum') / (N_data * scale_u)
+                            loss_v_c = torch.nn.functional.mse_loss(v_pred_c, v_obs_c, reduction='sum') / (N_data * scale_v)
+                            loss_c = 0.5 * (loss_u_c + loss_v_c)
+                            if mode == 'comsol_full' and y_data_c.shape[1] >= 6:
+                                out_c = model(x_data_c)
+                                loss_c = loss_c + torch.nn.functional.mse_loss(out_c[:, 1:2], y_data_c[:, 2:3], reduction='sum') / N_data
+                                loss_c = loss_c + torch.nn.functional.mse_loss(out_c[:, 2:5], y_data_c[:, 3:6], reduction='sum') / (N_data * 3)
+                        finally:
+                            # Ripristiniamo lo stato dei parametri
+                            for p, req in zip(model.parameters(), saved_requires_grad):
+                                p.requires_grad = req
                     else:
-                        y_pred_c = model(x_data_c)
-                        num_features = obs_int.shape[1]
-                        loss_c = torch.nn.functional.mse_loss(y_pred_c, y_data_c, reduction='sum') / (N_data * num_features)
+                        with torch.no_grad():
+                            y_pred_c = model(x_data_c)
+                            num_features = obs_int.shape[1]
+                            loss_c = torch.nn.functional.mse_loss(y_pred_c, y_data_c, reduction='sum') / (N_data * num_features)
             else:
                 if mode in ('semi_inverse', 'comsol_full') and physics_problem is not None:
                     u_pred_c, v_pred_c, _, _ = physics_problem.get_velocity(model, x_data_c)

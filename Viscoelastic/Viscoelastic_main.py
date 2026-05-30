@@ -50,7 +50,7 @@ COMSOL_PARAMS = {
 }
 
 # 0=PurePhys, 1=Phys+Data, 2=SoloData
-GOALS_TO_RUN = [2, 1, 0]
+GOALS_TO_RUN = [1]
 
 GOAL_CONFIGS = {
     0: {'label': 'PurePhys',  'weights': {'bc': 1.0, 'physics': 1.0, 'data': 0.0}, 'mode': 'standard'},
@@ -60,13 +60,13 @@ GOAL_CONFIGS = {
 
 # --- Architecture (Grid Search) ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]] #VENet 8x128
-EPOCHS_OPTIONS = [80]
+EPOCHS_OPTIONS = [10000]
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']
 
 # --- L-BFGS ---
-MAX_LBFGS_ITERS = 2
+MAX_LBFGS_ITERS = 0.1*EPOCHS_OPTIONS[0]
 
 # --- Optimizer ---
 BASE_LR = 1e-3
@@ -94,8 +94,8 @@ VARIANCE_EPS = 1e-4  # Epsilon per varianze: 1.0 disabilita lo scaling aggressiv
 # --- Inverse Problem ---
 INVERSE_PROBLEM = True
 GUESS_MULTIPLIER = 0.8 # Moltiplicatore per i guess iniziali (es. 0.8 = 80% del valore vero)
-GUESS_MIN_EPS = 0.01   # Guess minimo se il valore vero è 0 (per PTT)
-GUESS_MIN_ALPHA = 0.01 # Guess minimo se il valore vero è 0 (per Giesekus)
+GUESS_MIN_EPS = 0.1   # Guess minimo se il valore vero è 0 (per PTT)
+GUESS_MIN_ALPHA = 0.1 # Guess minimo se il valore vero è 0 (per Giesekus)
 
 # --- Logging & Plotting ---
 # Riduciamo la frequenza per non intasare l'output se l'utente desidera
@@ -350,7 +350,10 @@ for dataset_filename in DATASET_OPTIONS:
             label = goal_cfg['label']
             mode_param = goal_cfg['mode']
             if is_unstruct:
-                mode_param = 'comsol_full'
+                if goal == 2:
+                    mode_param = 'comsol_full'
+                else:
+                    mode_param = 'semi_inverse'
             current_w = dict(goal_cfg['weights'])
 
             prefix = f"{goal}_{label}"
@@ -378,7 +381,7 @@ for dataset_filename in DATASET_OPTIONS:
             if mode_param == 'comsol_full':
                 pinn_data_internal_fresh = (xy_pinn_data, psip_pinn_data)
                 var_weights = VAR_WEIGHTS
-            elif goal == 1:
+            elif goal == 1 or mode_param == 'semi_inverse':
                 pinn_data_internal_fresh = (xy_pinn_data, uv_pinn_data)
                 var_weights = VAR_WEIGHTS
             else:
