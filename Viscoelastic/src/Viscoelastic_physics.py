@@ -137,6 +137,11 @@ class ViscoelasticPhysics(nn.Module):
                 'alpha': self.alpha,
             }
 
+    def get_logged_parameters(self):
+        """Restituisce un dizionario con i valori scalari (float) dei parametri fisici effettivi."""
+        eff = self._get_effective_params()
+        return {k: v.item() if hasattr(v, 'item') else float(v) for k, v in eff.items()}
+
     def _get_nondim_params(self):
         """Calcola i numeri adimensionali (Re, Wi, β, ε, α) dai parametri dimensionali correnti.
         
@@ -263,19 +268,21 @@ class ViscoelasticPhysics(nn.Module):
         upper_yy = (u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy)
         upper_xy = (u * tau_xy_x + v * tau_xy_y - u_x * tau_xy - u_y * tau_yy - tau_xx * v_x - tau_xy * v_y)
 
-        # PTT coefficient: f = 1 + ε·Wi/(1-β)·tr(τ)
-        PTT_coeff = 1.0 + eps * Wi / one_m_beta.clamp(min=1e-8) * (tau_xx + tau_yy)
+        # Moltiplichiamo tutta l'equazione costitutiva per (1-beta) per evitare singolarità se mu_p -> 0
+        # Originale: [1 + eps*Wi/(1-beta)*tr(tau)]*tau + Wi*upper + alpha*Wi/(1-beta)*(tau*tau) - 2*(1-beta)*D = 0
+        # Nuova: [(1-beta) + eps*Wi*tr(tau)]*tau + (1-beta)*Wi*upper + alpha*Wi*(tau*tau) - 2*(1-beta)^2 * D = 0
 
-        # Giesekus coefficient: α·Wi/(1-β)
-        G_coeff = alpha * Wi / one_m_beta.clamp(min=1e-8)
+        PTT_term = one_m_beta + eps * Wi * (tau_xx + tau_yy)
+        G_coeff_mod = alpha * Wi
+        Wi_mod = one_m_beta * Wi
+        D_coeff = 2.0 * (one_m_beta ** 2)
 
         # ═══════════════════════════════════════════════════
-        # Equazioni Costitutive adimensionali
-        # f·τ + Wi·∇̊τ + G·(τ·τ) - 2(1-β)·D = 0
+        # Equazioni Costitutive adimensionali (Moltiplicate per 1-beta)
         # ═══════════════════════════════════════════════════
-        f_tau_xx = PTT_coeff * tau_xx + Wi * upper_xx + G_coeff * (tau_xx**2 + tau_xy**2) - 2 * one_m_beta * u_x
-        f_tau_yy = PTT_coeff * tau_yy + Wi * upper_yy + G_coeff * (tau_xy**2 + tau_yy**2) - 2 * one_m_beta * v_y
-        f_tau_xy = PTT_coeff * tau_xy + Wi * upper_xy + G_coeff * tau_xy * (tau_xx + tau_yy) - one_m_beta * (u_y + v_x)
+        f_tau_xx = PTT_term * tau_xx + Wi_mod * upper_xx + G_coeff_mod * (tau_xx**2 + tau_xy**2) - D_coeff * u_x
+        f_tau_yy = PTT_term * tau_yy + Wi_mod * upper_yy + G_coeff_mod * (tau_xy**2 + tau_yy**2) - D_coeff * v_y
+        f_tau_xy = PTT_term * tau_xy + Wi_mod * upper_xy + G_coeff_mod * tau_xy * (tau_xx + tau_yy) - (one_m_beta ** 2) * (u_y + v_x)
         
         return f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy
 

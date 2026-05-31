@@ -473,3 +473,64 @@ def plot2D_viscoelastic_comparison(triang, fields_exact, model_results_multi,
         plt.close()
     else:
         plt.show()
+
+
+def generate_epoch_diagnostic_plot(model, physics_problem, xy_grid, T_exact_grid, triang, epoch, plots_dir, plot_every, val_label, plot_files):
+    """Genera e salva il plot diagnostico dell'epoca corrente, ripulendo la cache CUDA."""
+    model.eval()
+    with torch.set_grad_enabled(True): 
+        xy_grid_val = xy_grid.clone().detach().requires_grad_(True)
+        if hasattr(physics_problem, 'get_velocity'):
+            u_pred, _, _, _ = physics_problem.get_velocity(model, xy_grid_val)
+            T_pred_grid = u_pred.detach().cpu().view(-1)
+        else:
+            u_pred = model(xy_grid_val)[:, 0].detach().cpu()
+            T_pred_grid = u_pred.view(-1)
+        del xy_grid_val
+        
+    plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
+    plot2D_comparison(triang, T_exact_grid.cpu().view(-1), T_pred_grid, epoch+1, plot_path, physics_points=None, val_label=val_label, show_points=False)
+    plot_files.append(plot_path)
+    
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def generate_final_training_plots(final_dir, plots_dir, triang, T_exact_grid, T_final, p_final, out_final, stress_exact_grids, plot_files, epochs, val_label, internal_pts, boundary_pts, xy_physics_full):
+    """Genera i plot finali (singolo e multi-campo), crea la GIF ed elimina la cartella temporanea."""
+    import shutil
+    # --- PLOT COMPARATIVO PRINCIPALE ---
+    final_path = os.path.join(final_dir, 'VEfinal_result.png')
+    plot2D_final_result(triang, T_exact_grid.view(-1), T_final, epochs, save_path=final_path, 
+                        internal_points=internal_pts, boundary_points=boundary_pts, 
+                        physics_points=xy_physics_full, val_label=val_label)
+    
+    # --- PLOT MULTI-CAMPO VISCOELASTICO ---
+    if stress_exact_grids is not None:
+        fields_pred = {
+            'u': T_final, 
+            'p': p_final.detach().cpu().view(-1),
+            'tau_xx': out_final[:, 2].detach().cpu().view(-1),
+            'tau_xy': out_final[:, 3].detach().cpu().view(-1),
+            'tau_yy': out_final[:, 4].detach().cpu().view(-1),
+        }
+        fields_exact = {
+            'u': T_exact_grid.view(-1),
+            'p': stress_exact_grids.get('p', torch.zeros_like(T_exact_grid)).cpu().view(-1),
+            'tau_xx': stress_exact_grids.get('tau_xx', torch.zeros_like(T_exact_grid)).cpu().view(-1),
+            'tau_xy': stress_exact_grids.get('tau_xy', torch.zeros_like(T_exact_grid)).cpu().view(-1),
+            'tau_yy': stress_exact_grids.get('tau_yy', torch.zeros_like(T_exact_grid)).cpu().view(-1),
+        }
+        visco_final_path = os.path.join(final_dir, 'VE_viscoelastic_fields.png')
+        plot2D_viscoelastic_final(triang, fields_pred, fields_exact, epochs,
+                                  save_path=visco_final_path, internal_points=internal_pts, 
+                                  boundary_points=boundary_pts, physics_points=xy_physics_full)
+    
+    # --- GIF E PULIZIA ---
+    if plot_files:
+        gif_path = os.path.join(final_dir, 'VEtraining_evolution.gif')
+        save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
+    
+    shutil.rmtree(plots_dir, ignore_errors=True)

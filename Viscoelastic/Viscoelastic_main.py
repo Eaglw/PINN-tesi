@@ -17,14 +17,15 @@ os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 # Import funzioni esterne
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from func.logging_utils import compute_viscoelastic_metrics, update_results_csv
+from func.logging_utils import update_results_csv
 from func.graphic_func import plot2D_unified_comparison, plot_loss_comparison, plot2D_viscoelastic_comparison
 
 # Import locali Viscoelastic
 from Viscoelastic.src.Viscoelastic_PINN import (
     train_ViscoelasticPINN, TrainingConfig,
-    FCN, ViscoelasticCombinedModel, VelocityInferenceWrapper,
-    get_activation_name, format_layers_name
+    FCN, ViscoelasticCombinedModel,
+    get_activation_name, format_layers_name,
+    compute_viscoelastic_metrics
 )
 from Viscoelastic.src.Viscoelastic_physics import ViscoelasticPhysics
 
@@ -66,7 +67,7 @@ LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']
 
 # --- L-BFGS ---
-MAX_LBFGS_ITERS = 0.1*EPOCHS_OPTIONS[0]
+MAX_LBFGS_ITERS = int(0.1*EPOCHS_OPTIONS[0])
 
 # --- Optimizer ---
 BASE_LR = 1e-3
@@ -153,24 +154,19 @@ for dataset_filename in DATASET_OPTIONS:
     print(f'=== PROCESSING DATASET: {dataset_name_prefix.upper()} ===')
     print(f'=======================================================')
     
-    from Viscoelastic.dataset.load_comsol import load_comsol_csv, generate_boundaries_from_comsol
-    dataset = load_comsol_csv(DATASET_PATH, COMSOL_PARAMS, device=device)
+    from Viscoelastic.dataset.load_comsol import prepare_training_data
+    data_bundle = prepare_training_data(
+        DATASET_PATH, COMSOL_PARAMS, NUM_DATA_SUBSET,
+        initial_dtype, device, variance_eps=VARIANCE_EPS
+    )
     
-    # Cast dei campi al tipo richiesto
-    for key in ['coords', 'u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
-        if key in dataset:
-            dataset[key] = dataset[key].to(initial_dtype)
+    dataset = data_bundle['dataset']
+    xy_grid_flat = data_bundle['xy_grid_flat']
+    triang = data_bundle['triang']
+    validation_grid_u = data_bundle['validation_grid']
+    stress_exact_grids = data_bundle['stress_exact_grids']
+    VAR_WEIGHTS = data_bundle['var_weights']
     
-    params = dataset['params']
-    Lx, Ly = dataset['scales']['L'], dataset['scales']['H']
-    mu_s = params['mu_s']
-    mu_p = params['mu_p']
-    lam = params['lam']
-    eps = params.get('eps', 0.0)
-    alpha = params.get('alpha', 0.0)
-    u_max = dataset['scales']['U_ref']
-    
-    xy_grid_flat = dataset['coords']
     u_exact = dataset['u']
     v_exact = dataset['v']
     p_exact = dataset['p']
@@ -178,49 +174,21 @@ for dataset_filename in DATASET_OPTIONS:
     tau_xy_exact = dataset['tau_xy']
     tau_yy_exact = dataset['tau_yy']
     
-    import matplotlib.tri as tri
-    x_np = xy_grid_flat[:, 0].cpu().numpy()
-    y_np = xy_grid_flat[:, 1].cpu().numpy()
-    triang = tri.Triangulation(x_np, y_np)
+    xy_pinn_data = data_bundle['data_subsets']['xy']
+    psip_pinn_data = data_bundle['data_subsets']['psip']
+    uv_pinn_data = data_bundle['data_subsets']['uv']
     
-    validation_grid_u = (xy_grid_flat, u_exact, triang)
-    stress_exact_grids = {
-        'p': p_exact,
-        'tau_xx': tau_xx_exact,
-        'tau_xy': tau_xy_exact,
-        'tau_yy': tau_yy_exact
-    }
-        
+    xy_master_boundary = data_bundle['boundaries']['xy']
+    dir_master_boundary = data_bundle['boundaries']['dir']
+    neu_master_boundary = data_bundle['boundaries']['neu']
+    norm_master_boundary = data_bundle['boundaries']['norm']
 
-    # Varianze per normalizzazione (Goal 1 - ViscoelasticNet)
-    sigma2_u   = max(u_exact.var().item(), VARIANCE_EPS)
-    sigma2_v   = max(v_exact.var().item(), VARIANCE_EPS)
-    sigma2_p   = max(p_exact.var().item(), VARIANCE_EPS)
-    sigma2_txx = max(tau_xx_exact.var().item(), VARIANCE_EPS)
-    sigma2_txy = max(tau_xy_exact.var().item(), VARIANCE_EPS)
-    sigma2_tyy = max(tau_yy_exact.var().item(), VARIANCE_EPS)
-    print(f"Variances for normalization: u={sigma2_u:.2e}, v={sigma2_v:.2e}, p={sigma2_p:.2e}, txx={sigma2_txx:.2e}, txy={sigma2_txy:.2e}, tyy={sigma2_tyy:.2e}")
-
-    VAR_WEIGHTS = {'u': sigma2_u, 'v': sigma2_v, 'p': sigma2_p, 'txx': sigma2_txx, 'txy': sigma2_txy, 'tyy': sigma2_tyy}
-
-    # --- BOUNDARY CONDITIONS ---
-    xy_master_boundary, dir_master_boundary, neu_master_boundary, norm_master_boundary = generate_boundaries_from_comsol(dataset, device)
-
-    # --- Data Subset ---
-    torch.manual_seed(42)
-    idx = torch.randperm(xy_grid_flat.shape[0])[:NUM_DATA_SUBSET]
-    xy_pinn_data = xy_grid_flat[idx]
-    psip_pinn_data = torch.cat([u_exact[idx], v_exact[idx], p_exact[idx], tau_xx_exact[idx], tau_xy_exact[idx], tau_yy_exact[idx]], dim=1)
-    uv_pinn_data = torch.cat([u_exact[idx], v_exact[idx]], dim=1)
-
-    # GPU Pre-cast al dtype iniziale
-    xy_pinn_data = xy_pinn_data.to(initial_dtype)
-    psip_pinn_data = psip_pinn_data.to(initial_dtype)
-    uv_pinn_data = uv_pinn_data.to(initial_dtype)
-    xy_master_boundary = xy_master_boundary.to(initial_dtype)
-    dir_master_boundary = dir_master_boundary.to(initial_dtype)
-    neu_master_boundary = neu_master_boundary.to(initial_dtype)
-    norm_master_boundary = norm_master_boundary.to(initial_dtype)
+    params = dataset['params']
+    mu_s = params['mu_s']
+    mu_p = params['mu_p']
+    lam = params['lam']
+    eps = params.get('eps', 0.0)
+    alpha = params.get('alpha', 0.0)
 
 
     # ╔══════════════════════════════════════════════════╗
@@ -383,13 +351,8 @@ for dataset_filename in DATASET_OPTIONS:
                     stress_exact_grids=stress_exact_grids,
                 )
             
-                eff = phys_problem._get_effective_params()
-                cur_mu_s = eff['mu_s'].item()
-                cur_mu_p = eff['mu_p'].item()
-                cur_lam = eff['lam'].item()
-                cur_eps = eff['eps'].item()
-                cur_alpha = eff['alpha'].item()
-                print(f"  [Parametri Fisici Finali - {label}] mu_s: {cur_mu_s:.5f}, mu_p: {cur_mu_p:.5f}, lam: {cur_lam:.5f}, eps: {cur_eps:.5f}, alpha: {cur_alpha:.5f}")
+                eff = phys_problem.get_logged_parameters()
+                print(f"  [Parametri Fisici Finali - {label}] mu_s: {eff['mu_s']:.5f}, mu_p: {eff['mu_p']:.5f}, lam: {eff['lam']:.5f}, eps: {eff['eps']:.5f}, alpha: {eff['alpha']:.5f}")
             
                 # Metriche multi-campo
                 fields_exact_for_metrics = {

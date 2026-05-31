@@ -3,71 +3,7 @@ import csv
 import torch
 import numpy as np
 
-def compute_viscoelastic_metrics(model, physics_problem, xy_grid_flat, fields_exact_flat, Ny_dom=None, Nx_dom=None):
-    """
-    Calcola L2 Relative Error e Max Relative Error per ogni campo fisico
-    del modello viscoelastico: u, p, tau_xx, tau_xy, tau_yy.
-    
-    Args:
-        model: ViscoelasticCombinedModel trainato.
-        physics_problem: ViscoelasticPhysics instance (per ricavare u da psi).
-        xy_grid_flat: Tensor (N, 2) con i punti della griglia.
-        fields_exact_flat: Dict con tensori (Ny, Nx) per ogni campo:
-            {'u': ..., 'p': ..., 'tau_xx': ..., 'tau_xy': ..., 'tau_yy': ...}
-        Ny_dom, Nx_dom: Dimensioni della griglia.
-        
-    Returns:
-        Dict con coppie (l2_rel, max_rel) per ogni campo:
-            {'u': (l2, max), 'p': (l2, max), 'tau_xx': (l2, max), ...}
-    """
-    model.eval()
-    dtype = next(model.parameters()).dtype
-    x_input = xy_grid_flat.clone().to(dtype).requires_grad_(True)
-    
-    with torch.set_grad_enabled(True):
-        u_pred, v_pred, p_pred, tau_pred = physics_problem.get_velocity(model, x_input)
-        out = model(x_input)
-        tau_xx_pred = out[:, 2:3]
-        tau_xy_pred = out[:, 3:4]
-        tau_yy_pred = out[:, 4:5]
-    
-    preds = {
-        'u': u_pred.detach().cpu().view(-1),
-        'p': p_pred.detach().cpu().view(-1),
-        'tau_xx': tau_xx_pred.detach().cpu().view(-1),
-        'tau_xy': tau_xy_pred.detach().cpu().view(-1),
-        'tau_yy': tau_yy_pred.detach().cpu().view(-1),
-    }
-    
-    metrics = {}
-    for fname, pred_flat in preds.items():
-        exact_grid = fields_exact_flat.get(fname)
-        if exact_grid is None:
-            metrics[fname] = (0.0, 0.0)
-            continue
-        
-        true_flat = exact_grid.view(-1).cpu().to(pred_flat.dtype)
-        
-        # L2 Relative Error
-        l2_error = torch.norm(pred_flat - true_flat, 2)
-        l2_ref = torch.norm(true_flat, 2)
-        l2_rel = (l2_error / l2_ref).item() if l2_ref > 1e-10 else 0.0
-        
-        # Max Relative Error
-        abs_error = torch.abs(pred_flat - true_flat)
-        max_val = torch.max(torch.abs(true_flat)).item()
-        threshold = max(0.05 * max_val, 1e-8)
-        mask = torch.abs(true_flat) > threshold
-        rel_error = torch.zeros_like(true_flat)
-        if mask.sum() > 0:
-            rel_error[mask] = (abs_error[mask] / torch.abs(true_flat[mask])) * 100
-            max_rel = torch.max(rel_error).item()
-        else:
-            max_rel = 0.0
-        
-        metrics[fname] = (l2_rel, max_rel)
-    
-    return metrics
+
 
 def update_results_csv(file_path, data_dict):
     """

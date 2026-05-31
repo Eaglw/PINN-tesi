@@ -343,3 +343,92 @@ def generate_boundaries_from_comsol(dataset, device='cpu'):
     print(f"  Outlet:          {n_out}")
 
     return xy_boundary, dirichlet_boundary, neumann_boundary, normals_boundary
+
+
+def prepare_training_data(dataset_path, comsol_params, num_data_subset, initial_dtype, device, variance_eps=1e-5):
+    """
+    Esegue la preparazione completa dei dati COMSOL per il training:
+    - Caricamento e adimensionalizzazione
+    - Calcolo delle varianze per normalizzazione
+    - Estrazione di subset e condizioni al contorno
+    - Pre-cast al tipo numerico richiesto
+    """
+    dataset = load_comsol_csv(dataset_path, comsol_params, device=device)
+    
+    # Cast dei campi al tipo richiesto
+    for key in ['coords', 'u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
+        if key in dataset:
+            dataset[key] = dataset[key].to(initial_dtype)
+            
+    xy_grid_flat = dataset['coords']
+    u_exact = dataset['u']
+    v_exact = dataset['v']
+    p_exact = dataset['p']
+    tau_xx_exact = dataset['tau_xx']
+    tau_xy_exact = dataset['tau_xy']
+    tau_yy_exact = dataset['tau_yy']
+    
+    import matplotlib.tri as tri
+    x_np = xy_grid_flat[:, 0].cpu().numpy()
+    y_np = xy_grid_flat[:, 1].cpu().numpy()
+    triang = tri.Triangulation(x_np, y_np)
+    
+    validation_grid = (xy_grid_flat, u_exact, triang)
+    stress_exact_grids = {
+        'p': p_exact,
+        'tau_xx': tau_xx_exact,
+        'tau_xy': tau_xy_exact,
+        'tau_yy': tau_yy_exact
+    }
+    
+    # Varianze per normalizzazione
+    sigma2_u   = max(u_exact.var().item(), variance_eps)
+    sigma2_v   = max(v_exact.var().item(), variance_eps)
+    sigma2_p   = max(p_exact.var().item(), variance_eps)
+    sigma2_txx = max(tau_xx_exact.var().item(), variance_eps)
+    sigma2_txy = max(tau_xy_exact.var().item(), variance_eps)
+    sigma2_tyy = max(tau_yy_exact.var().item(), variance_eps)
+    
+    var_weights = {
+        'u': sigma2_u, 'v': sigma2_v, 'p': sigma2_p,
+        'txx': sigma2_txx, 'txy': sigma2_txy, 'tyy': sigma2_tyy
+    }
+    
+    # Boundary Conditions
+    xy_master_boundary, dir_master_boundary, neu_master_boundary, norm_master_boundary = generate_boundaries_from_comsol(dataset, device)
+    
+    # Data Subset
+    torch.manual_seed(42)
+    idx = torch.randperm(xy_grid_flat.shape[0])[:num_data_subset]
+    xy_pinn_data = xy_grid_flat[idx]
+    psip_pinn_data = torch.cat([u_exact[idx], v_exact[idx], p_exact[idx], tau_xx_exact[idx], tau_xy_exact[idx], tau_yy_exact[idx]], dim=1)
+    uv_pinn_data = torch.cat([u_exact[idx], v_exact[idx]], dim=1)
+    
+    # GPU Pre-cast
+    xy_pinn_data = xy_pinn_data.to(initial_dtype)
+    psip_pinn_data = psip_pinn_data.to(initial_dtype)
+    uv_pinn_data = uv_pinn_data.to(initial_dtype)
+    xy_master_boundary = xy_master_boundary.to(initial_dtype)
+    dir_master_boundary = dir_master_boundary.to(initial_dtype)
+    neu_master_boundary = neu_master_boundary.to(initial_dtype)
+    norm_master_boundary = norm_master_boundary.to(initial_dtype)
+    
+    return {
+        'dataset': dataset,
+        'xy_grid_flat': xy_grid_flat,
+        'triang': triang,
+        'validation_grid': validation_grid,
+        'stress_exact_grids': stress_exact_grids,
+        'var_weights': var_weights,
+        'data_subsets': {
+            'xy': xy_pinn_data,
+            'psip': psip_pinn_data,
+            'uv': uv_pinn_data
+        },
+        'boundaries': {
+            'xy': xy_master_boundary,
+            'dir': dir_master_boundary,
+            'neu': neu_master_boundary,
+            'norm': norm_master_boundary
+        }
+    }

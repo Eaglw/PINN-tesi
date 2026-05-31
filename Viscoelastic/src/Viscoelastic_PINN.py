@@ -10,9 +10,8 @@ from tqdm import tqdm
 
 # Import function for GIF and loss comparison
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-from func.graphic_func import save_gif_PIL, plot2D_comparison, plot2D_final_result, plot2D_viscoelastic_final
-from func.history_tracker import TrainingHistory, compute_pinn_loss
-from Viscoelastic.src.losses import compute_chunked_gradients
+from func.graphic_func import generate_epoch_diagnostic_plot, generate_final_training_plots
+from func.history_tracker import TrainingHistory
 from func.hardware_utils import IS_1050TI
 
 class FCN(nn.Module):
@@ -51,21 +50,6 @@ class ViscoelasticCombinedModel(nn.Module):
         p = self.model_p(x)
         tau = self.model_tau(x)
         return torch.cat([psi, p, tau], dim=1)
-
-class VelocityInferenceWrapper(nn.Module):
-    def __init__(self, model, phys_problem):
-        super().__init__()
-        self.model = model
-        self.phys_problem = phys_problem
-    def forward(self, x):
-        with torch.set_grad_enabled(True):
-            if not x.requires_grad: x.requires_grad_(True)
-            u, _, _, _ = self.phys_problem.get_velocity(self.model, x)
-        return u.detach()
-    def eval(self):
-        super().eval()
-        self.model.eval()
-        return self
 
 def set_model_trainable(model_combined, active_components=['psi', 'p', 'tau']):
     for p in model_combined.parameters():
@@ -274,40 +258,24 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
         
         if getattr(physics_problem, 'inverse_mode', False):
-            eff = physics_problem._get_effective_params()
+            eff = physics_problem.get_logged_parameters()
             history_entry.update({
-                'param_etas': eff['mu_s'].item(),
-                'param_etap': eff['mu_p'].item(),
-                'param_lam': eff['lam'].item(),
-                'param_epsilon': eff['eps'].item(),
-                'param_alpha': eff['alpha'].item()
+                'param_etas': eff['mu_s'],
+                'param_etap': eff['mu_p'],
+                'param_lam': eff['lam'],
+                'param_epsilon': eff['eps'],
+                'param_alpha': eff['alpha']
             })
         loss_history.update(epoch, history_entry, lr=current_lr)
 
         if (epoch + 1) % 100 == 0:
             pbar.set_postfix({'Loss': f"{loss.item():.2e}", 'LR': f"{optimizer.param_groups[0]['lr']:.1e}"})
-            #plotting 
+            # plotting
             if (epoch + 1) % cfg.plot_every == 0:
-                model.eval()
-                with torch.set_grad_enabled(True): 
-                    xy_grid_val = xy_grid.clone().detach().requires_grad_(True)
-                    if hasattr(physics_problem, 'get_velocity'):
-                        u_pred, _, _, _ = physics_problem.get_velocity(model, xy_grid_val)
-                        T_pred_grid = u_pred.detach().cpu().view(-1)
-                    else:
-                        u_pred = model(xy_grid_val)[:, 0].detach().cpu()
-                        T_pred_grid = u_pred.view(-1)
-                    del xy_grid_val
-                    
-                plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
-                plot2D_comparison(triang, T_exact_grid.cpu().view(-1), T_pred_grid, epoch+1, plot_path, physics_points=None, val_label=cfg.val_label, show_points=False)
-                plot_files.append(plot_path)
-                
-                # Pulizia periodica della cache GPU per prevenire frammentazione e saturazione
-                import gc
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                generate_epoch_diagnostic_plot(
+                    model, physics_problem, xy_grid, T_exact_grid, triang,
+                    epoch, plots_dir, cfg.plot_every, cfg.val_label, plot_files
+                )
             
     pbar.close()
     return loss_history, plot_files, lambda_data, lambda_bc, target_lambda_physics, base_pde_weights
@@ -365,34 +333,29 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
         # Calcoliamo data_loss solo ogni 50 iterazioni (quando la scriviamo nella history)
         do_force_data = (lbfgs_iter[0] % 50 == 0)
         
-        if chunk_size is None or (xy_physics_full is not None and xy_physics_full.shape[0] <= chunk_size):
-            loss, loss_dict = compute_pinn_loss(
-                model, x_data=xy_int, y_data=obs_int,
-                x_bc=xy_bc, y_bc=bc_targets,
-                physics_problem=physics_problem, x_physics=xy_physics_full,
-                lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
-                mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=None,
-                force_data_loss=do_force_data
-            )
+        loss, loss_dict = compute_pinn_loss(
+            model, x_data=xy_int, y_data=obs_int,
+            x_bc=xy_bc, y_bc=bc_targets,
+            physics_problem=physics_problem, x_physics=xy_physics_full,
+            lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
+            mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=None,
+            force_data_loss=do_force_data,
+            chunk_size=chunk_size
+        )
+        if chunk_size is None:
             loss.backward()
-        else:
-            loss, loss_dict = compute_chunked_gradients(
-                model, physics_problem, xy_int, obs_int, xy_bc, bc_targets, xy_physics_full, 
-                cfg.mode, cfg.variance_weights, lambda_data, lambda_bc, target_lambda_physics, chunk_size,
-                force_data_loss=do_force_data
-            )
         
         if lbfgs_iter[0] % 50 == 0: #logging della loss modificato a 50 iterazioni
             history_entry = loss_dict.copy()
             history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
             if getattr(physics_problem, 'inverse_mode', False):
-                eff = physics_problem._get_effective_params()
+                eff = physics_problem.get_logged_parameters()
                 history_entry.update({
-                    'param_etas': eff['mu_s'].item(),
-                    'param_etap': eff['mu_p'].item(),
-                    'param_lam': eff['lam'].item(),
-                    'param_epsilon': eff['eps'].item(),
-                    'param_alpha': eff['alpha'].item()
+                    'param_etas': eff['mu_s'],
+                    'param_etap': eff['mu_p'],
+                    'param_lam': eff['lam'],
+                    'param_epsilon': eff['eps'],
+                    'param_alpha': eff['alpha']
                 })
             loss_history.update(cfg.epochs + lbfgs_iter[0], history_entry, lr=1.0) #per continuare su stesso grafico di adam
             
@@ -452,39 +415,12 @@ def _generate_training_artifacts(model, physics_problem, validation_grid, stress
     else:
         xy_physics_full = None
 
-    # --- PLOT COMPARATIVO PRINCIPALE ---
-    final_path = os.path.join(final_dir, 'VEfinal_result.png')
-    plot2D_final_result(triang, T_exact_grid.view(-1), T_final, cfg.epochs, save_path=final_path, 
-                        internal_points=internal_pts, boundary_points=boundary_pts, 
-                        physics_points=xy_physics_full, val_label=cfg.val_label)
-    
-    # --- PLOT MULTI-CAMPO VISCOELASTICO ---
-    if hasattr(physics_problem, 'get_velocity') and stress_exact_grids is not None:
-        fields_pred = {
-            'u': T_final, 
-            'p': p_final.detach().cpu().view(-1),
-            'tau_xx': out_final[:, 2].detach().cpu().view(-1),
-            'tau_xy': out_final[:, 3].detach().cpu().view(-1),
-            'tau_yy': out_final[:, 4].detach().cpu().view(-1),
-        }
-        fields_exact = {
-            'u': T_exact_grid.view(-1),
-            'p': stress_exact_grids.get('p', torch.zeros_like(T_exact_grid)).cpu().view(-1),
-            'tau_xx': stress_exact_grids.get('tau_xx', torch.zeros_like(T_exact_grid)).cpu().view(-1),
-            'tau_xy': stress_exact_grids.get('tau_xy', torch.zeros_like(T_exact_grid)).cpu().view(-1),
-            'tau_yy': stress_exact_grids.get('tau_yy', torch.zeros_like(T_exact_grid)).cpu().view(-1),
-        }
-        visco_final_path = os.path.join(final_dir, 'VE_viscoelastic_fields.png')
-        plot2D_viscoelastic_final(triang, fields_pred, fields_exact, cfg.epochs,
-                                  save_path=visco_final_path, internal_points=internal_pts, 
-                                  boundary_points=boundary_pts, physics_points=xy_physics_full)
-    
-    # --- GIF E PULIZIA ---
-    if plot_files:
-        gif_path = os.path.join(final_dir, 'VEtraining_evolution.gif')
-        save_gif_PIL(gif_path, plot_files, fps=3, loop=1, delete_files=True)
-    
-    shutil.rmtree(plots_dir, ignore_errors=True)
+    # --- GENERAZIONE DEI PLOT FINALI E EVOLUZIONE ---
+    generate_final_training_plots(
+        final_dir, plots_dir, triang, T_exact_grid, T_final, p_final, out_final,
+        stress_exact_grids, plot_files, cfg.epochs, cfg.val_label,
+        internal_pts, boundary_pts, xy_physics_full
+    )
     
     # --- STORICO LOSS ---
     half_epochs = cfg.epochs // 2
@@ -553,3 +489,232 @@ def train_ViscoelasticPINN(
     )
 
     return loss_history
+
+
+def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, mode='standard', variance_weights=None, force_data_loss=False, chunk_size=None, **kwargs):
+    """
+    Computes the components of the PINN loss.
+    COMPONENTS IN 'loss_dict' ARE PURE RESIDUALS (UNWEIGHTED).
+    'total_loss' IS WEIGHTED.
+    Requires a physics_problem instance; uses semi_inverse or comsol_full mode.
+    If chunk_size is specified, performs gradient accumulation internally chunk-by-chunk.
+    """
+    # ═══════════════════════════════════════════════════
+    # Gestione chunking (accumulo dei gradienti a blocchi)
+    # ═══════════════════════════════════════════════════
+    if chunk_size is not None:
+        total_loss_val = 0.0
+        loss_dict_accum = {'data_loss': 0.0, 'bc_loss': 0.0, 'pde_loss': 0.0, 'total_loss': 0.0}
+        cur_device = next(model.parameters()).device
+        cur_dtype = next(model.parameters()).dtype
+
+        # 1. Chunking Data Loss
+        if x_data is not None and y_data is not None and x_data.numel() > 0:
+            N_data = x_data.shape[0]
+            for i in range(0, N_data, chunk_size):
+                x_c = x_data[i : i + chunk_size]
+                y_c = y_data[i : i + chunk_size]
+                c_loss, c_dict = compute_pinn_loss(
+                    model, x_data=x_c, y_data=y_c, x_bc=None, y_bc=None, x_physics=None,
+                    physics_problem=physics_problem, lambda_data=lambda_data, lambda_bc=0.0, lambda_physics=0.0,
+                    mode=mode, variance_weights=variance_weights, force_data_loss=force_data_loss,
+                    chunk_size=None, **kwargs
+                )
+                c_loss_scaled = c_loss * (x_c.shape[0] / N_data)
+                
+                c_data_val = c_dict.get('data_loss', 0.0)
+                c_data_val_item = c_data_val.item() if hasattr(c_data_val, 'item') else c_data_val
+                loss_dict_accum['data_loss'] += c_data_val_item * (x_c.shape[0] / N_data)
+                
+                if c_loss_scaled.requires_grad:
+                    c_loss_scaled.backward()
+
+            total_loss_val += lambda_data * loss_dict_accum['data_loss']
+
+        # 2. Boundary Loss (un-chunked)
+        if physics_problem is not None and x_bc is not None and y_bc is not None and x_bc.numel() > 0:
+            bc_loss_val, bc_dict = compute_pinn_loss(
+                model, x_data=None, y_data=None, x_bc=x_bc, y_bc=y_bc, x_physics=None,
+                physics_problem=physics_problem, lambda_data=0.0, lambda_bc=lambda_bc, lambda_physics=0.0,
+                mode=mode, variance_weights=variance_weights, force_data_loss=False,
+                chunk_size=None, **kwargs
+            )
+            bc_val = bc_dict.get('bc_loss', 0.0)
+            loss_dict_accum['bc_loss'] = bc_val.item() if hasattr(bc_val, 'item') else bc_val
+            
+            if bc_loss_val.requires_grad:
+                bc_loss_val.backward()
+            
+            total_loss_val += bc_loss_val.item() if hasattr(bc_loss_val, 'item') else bc_loss_val
+
+        # 3. Chunking PDE Loss
+        if physics_problem is not None and x_physics is not None and x_physics.numel() > 0:
+            N_phys = x_physics.shape[0]
+            for i in range(0, N_phys, chunk_size):
+                x_c = x_physics[i : i + chunk_size]
+                c_loss, c_dict = compute_pinn_loss(
+                    model, x_data=None, y_data=None, x_bc=None, y_bc=None, x_physics=x_c,
+                    physics_problem=physics_problem, lambda_data=0.0, lambda_bc=0.0, lambda_physics=lambda_physics,
+                    mode=mode, variance_weights=variance_weights, force_data_loss=False,
+                    chunk_size=None, **kwargs
+                )
+                c_loss_scaled = c_loss * (x_c.shape[0] / N_phys)
+                
+                c_pde_val = c_dict.get('pde_loss', 0.0)
+                c_pde_val_item = c_pde_val.item() if hasattr(c_pde_val, 'item') else c_pde_val
+                loss_dict_accum['pde_loss'] += c_pde_val_item * (x_c.shape[0] / N_phys)
+                
+                if c_loss_scaled.requires_grad:
+                    c_loss_scaled.backward()
+            
+            total_loss_val += lambda_physics * loss_dict_accum['pde_loss']
+
+        loss_dict_accum['total_loss'] = total_loss_val
+        return torch.tensor(total_loss_val, device=cur_device, dtype=cur_dtype), loss_dict_accum
+
+    # ═══════════════════════════════════════════════════
+    # Calcolo Loss Standard (senza chunking)
+    # ═══════════════════════════════════════════════════
+    loss_dict = {}
+    total_loss = 0.0
+    mse_loss = nn.MSELoss()
+    
+    # Normalizzazione per Goal 1 (ViscoelasticNet)
+    scale_u = 1.0
+    scale_v = 1.0
+    if mode == 'semi_inverse' and variance_weights is not None:
+        scale_u = variance_weights.get('u', 1.0)
+        scale_v = variance_weights.get('v', 1.0)
+    
+    # Determina se lambda_data è zero (evitando sync se è un tensore)
+    lambda_data_is_zero = kwargs.get('lambda_data_is_zero', None)
+    if lambda_data_is_zero is None:
+        if isinstance(lambda_data, torch.Tensor):
+            lambda_data_is_zero = False
+        else:
+            lambda_data_is_zero = (lambda_data == 0.0)
+
+    if x_data is not None and y_data is not None and x_data.numel() > 0:
+        if lambda_data_is_zero:
+            if not force_data_loss:
+                # Se la loss dei dati ha peso zero e non è esplicitamente richiesto il calcolo per diagnostica,
+                # restituiamo 0.0 per evitare il calcolo costoso e l'accumulo di VRAM dovuto ai grafi di autograd.
+                data_loss = torch.tensor(0.0, device=x_data.device, dtype=x_data.dtype)
+            else:
+                # Congeliamo temporaneamente i parametri della rete per evitare la creazione di grafi per i pesi
+                saved_requires_grad = [p.requires_grad for p in model.parameters()]
+                for p in model.parameters():
+                    p.requires_grad = False
+                
+                try:
+                    u_pred, v_pred, p_pred, tau_pred = physics_problem.get_velocity(model, x_data)
+                    u_obs = y_data[:, 0:1]
+                    v_obs = y_data[:, 1:2]
+                    loss_u = mse_loss(u_pred, u_obs) / scale_u
+                    loss_v = mse_loss(v_pred, v_obs) / scale_v
+                    data_loss = 0.5 * (loss_u + loss_v)
+                    if mode == 'comsol_full' and y_data.shape[1] >= 6:
+                        out = model(x_data)
+                        data_loss = data_loss + mse_loss(out[:, 1:2], y_data[:, 2:3])  # p
+                        data_loss = data_loss + mse_loss(out[:, 2:5], y_data[:, 3:6])  # tau
+                finally:
+                    # Ripristiniamo lo stato dei parametri
+                    for p, req in zip(model.parameters(), saved_requires_grad):
+                        p.requires_grad = req
+        else:
+            # y_data contiene [u_obs, v_obs] (semi_inverse) o [u,v,p,txx,txy,tyy] (comsol_full)
+            u_pred, v_pred, p_pred, tau_pred = physics_problem.get_velocity(model, x_data)
+            u_obs = y_data[:, 0:1]
+            v_obs = y_data[:, 1:2]
+            
+            loss_u = mse_loss(u_pred, u_obs) / scale_u
+            loss_v = mse_loss(v_pred, v_obs) / scale_v
+            
+            data_loss = 0.5 * (loss_u + loss_v)
+            
+            # In comsol_full, confrontiamo anche p e tau direttamente
+            if mode == 'comsol_full' and y_data.shape[1] >= 6:
+                out = model(x_data)
+                scale_p = variance_weights.get('p', 1.0) if variance_weights is not None else 1.0
+                scale_txx = variance_weights.get('txx', 1.0) if variance_weights is not None else 1.0
+                scale_txy = variance_weights.get('txy', 1.0) if variance_weights is not None else 1.0
+                scale_tyy = variance_weights.get('tyy', 1.0) if variance_weights is not None else 1.0
+                loss_p = mse_loss(out[:, 1:2], y_data[:, 2:3]) / scale_p
+                loss_txx = mse_loss(out[:, 2:3], y_data[:, 3:4]) / scale_txx
+                loss_txy = mse_loss(out[:, 3:4], y_data[:, 4:5]) / scale_txy
+                loss_tyy = mse_loss(out[:, 4:5], y_data[:, 5:6]) / scale_tyy
+                data_loss = data_loss + (loss_p + loss_txx + loss_txy + loss_tyy) / 4.0
+            
+        loss_dict['data_loss'] = data_loss
+        total_loss += lambda_data * data_loss
+
+    if physics_problem is not None and x_bc is not None and y_bc is not None and x_bc.numel() > 0:
+        # Passiamo variance_weights per normalizzare u, v, p, tau individualmente sia in semi_inverse che in PurePhys
+        v_weights = variance_weights
+        active_bcs = kwargs.get('active_bcs', None)
+        bc_loss_val = physics_problem.boundary_loss(model, x_bc, y_bc, variance_weights=v_weights, active_bcs=active_bcs)
+        loss_dict['bc_loss'] = bc_loss_val
+        total_loss += lambda_bc * bc_loss_val
+    
+    if physics_problem is not None and x_physics is not None:
+        pde_loss = physics_problem.residual(model, x_physics, variance_weights=variance_weights)
+        loss_dict['pde_loss'] = pde_loss
+        total_loss += lambda_physics * pde_loss
+        
+    loss_dict['total_loss'] = total_loss
+    return total_loss, loss_dict
+
+
+def compute_viscoelastic_metrics(model, physics_problem, xy_grid_flat, fields_exact_flat, Ny_dom=None, Nx_dom=None):
+    """
+    Calcola L2 Relative Error e Max Relative Error per ogni campo fisico
+    del modello viscoelastico: u, p, tau_xx, tau_xy, tau_yy.
+    """
+    model.eval()
+    dtype = next(model.parameters()).dtype
+    x_input = xy_grid_flat.clone().to(dtype).requires_grad_(True)
+    
+    with torch.set_grad_enabled(True):
+        u_pred, v_pred, p_pred, tau_pred = physics_problem.get_velocity(model, x_input)
+        out = model(x_input)
+        tau_xx_pred = out[:, 2:3]
+        tau_xy_pred = out[:, 3:4]
+        tau_yy_pred = out[:, 4:5]
+    
+    preds = {
+        'u': u_pred.detach().cpu().view(-1),
+        'p': p_pred.detach().cpu().view(-1),
+        'tau_xx': tau_xx_pred.detach().cpu().view(-1),
+        'tau_xy': tau_xy_pred.detach().cpu().view(-1),
+        'tau_yy': tau_yy_pred.detach().cpu().view(-1),
+    }
+    
+    metrics = {}
+    for fname, pred_flat in preds.items():
+        exact_grid = fields_exact_flat.get(fname)
+        if exact_grid is None:
+            metrics[fname] = (0.0, 0.0)
+            continue
+        
+        true_flat = exact_grid.view(-1).cpu().to(pred_flat.dtype)
+        
+        # L2 Relative Error
+        l2_error = torch.norm(pred_flat - true_flat, 2)
+        l2_ref = torch.norm(true_flat, 2)
+        l2_rel = (l2_error / l2_ref).item() if l2_ref > 1e-10 else 0.0
+        
+        # Max Relative Error
+        abs_error = torch.abs(pred_flat - true_flat)
+        max_val = torch.max(torch.abs(true_flat)).item()
+        threshold = max(0.05 * max_val, 1e-8)
+        mask = torch.abs(true_flat) > threshold
+        rel_error = torch.zeros_like(true_flat)
+        if mask.sum() > 0:
+            rel_error[mask] = (abs_error[mask] / torch.abs(true_flat[mask])) * 100
+            max_rel = torch.max(rel_error).item()
+        else:
+            max_rel = 0.0
+        
+        metrics[fname] = (l2_rel, max_rel)
+    
+    return metrics
