@@ -152,7 +152,14 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
     xy_int, obs_int = data_internal
     xy_bc, dir_bc, neu_bc, norm_bc = data_boundary
     bc_targets = (dir_bc, neu_bc, norm_bc)
-    xy_grid, T_exact_grid, triang = validation_grid
+    is_unstruct = (len(validation_grid) == 3)
+    if is_unstruct:
+        xy_grid, T_exact_grid, triang = validation_grid
+        Ny_dom, Nx_dom = None, None
+        X, Y = None, None
+    else:
+        xy_grid, T_exact_grid, X, Y = validation_grid
+        Ny_dom, Nx_dom = X.shape
     plot_files = []
     
     pbar = tqdm(range(epochs), desc=f"Training VE (Adam) ({cfg.lr_strategy})", mininterval=2.0)
@@ -293,14 +300,24 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
                     xy_grid_val = xy_grid.clone().detach().requires_grad_(True)
                     if hasattr(physics_problem, 'get_velocity'):
                         u_pred, _, _, _ = physics_problem.get_velocity(model, xy_grid_val)
-                        T_pred_grid = u_pred.detach().cpu().view(-1)
+                        if is_unstruct:
+                            T_pred_grid = u_pred.detach().cpu().view(-1)
+                        else:
+                            T_pred_grid = u_pred.detach().cpu().reshape(Ny_dom, Nx_dom)
                     else:
                         u_pred = model(xy_grid_val)[:, 0].detach().cpu()
-                        T_pred_grid = u_pred.view(-1)
+                        if is_unstruct:
+                            T_pred_grid = u_pred.view(-1)
+                        else:
+                            T_pred_grid = u_pred.reshape(Ny_dom, Nx_dom)
                     del xy_grid_val
                     
                 plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
-                plot2D_comparison(triang, T_exact_grid.cpu().view(-1), T_pred_grid, epoch+1, plot_path, physics_points=None, val_label=cfg.val_label, show_points=False)
+                if is_unstruct:
+                    from func.graphic_func import plot2D_comparison_unstruct
+                    plot2D_comparison_unstruct(triang, T_exact_grid.cpu().view(-1), T_pred_grid, epoch+1, plot_path, physics_points=None, val_label=cfg.val_label, show_points=False)
+                else:
+                    plot2D_comparison(X, Y, T_exact_grid, T_pred_grid, epoch+1, plot_path, physics_points=None, val_label=cfg.val_label, show_points=False)
                 plot_files.append(plot_path)
                 
                 # Pulizia periodica della cache GPU per prevenire frammentazione e saturazione
@@ -420,8 +437,17 @@ def _generate_training_artifacts(model, physics_problem, validation_grid, stress
                                  lambda_data, lambda_bc, target_lambda_physics, cfg):
     """Gestisce l'inferenza finale, il plotting, le GIF e il salvataggio dei log."""
     print("Training completato. Generazione plot finali e GIF...")
-    xy_grid, T_exact_grid, triang = validation_grid
-    T_exact_grid = T_exact_grid.cpu()
+    is_unstruct = (len(validation_grid) == 3)
+    if is_unstruct:
+        xy_grid, T_exact_grid, triang = validation_grid
+        T_exact_grid = T_exact_grid.cpu()
+        X, Y = None, None
+        Ny_dom, Nx_dom = None, None
+    else:
+        xy_grid, T_exact_grid, X, Y = validation_grid
+        X, Y = X.cpu(), Y.cpu()
+        T_exact_grid = T_exact_grid.cpu()
+        Ny_dom, Nx_dom = X.shape
     
     xy_int, _ = data_internal
     xy_bc, _, _, _ = data_boundary
@@ -436,11 +462,17 @@ def _generate_training_artifacts(model, physics_problem, validation_grid, stress
         if hasattr(physics_problem, 'get_velocity'):
             u_final, v_final, p_final, _ = physics_problem.get_velocity(model, xy_grid_val)
             out_final = model(xy_grid_val)
-            T_final = u_final.detach().cpu().view(-1)
+            if is_unstruct:
+                T_final = u_final.detach().cpu().view(-1)
+            else:
+                T_final = u_final.detach().cpu().reshape(Ny_dom, Nx_dom)
         else:
             out_final = model(xy_grid_val)
             u_pred = out_final[:, 0].detach().cpu()
-            T_final = u_pred.view(-1)
+            if is_unstruct:
+                T_final = u_pred.view(-1)
+            else:
+                T_final = u_pred.reshape(Ny_dom, Nx_dom)
             
         del xy_grid_val # Puliamo immediatamente la VRAM
         
@@ -454,30 +486,56 @@ def _generate_training_artifacts(model, physics_problem, validation_grid, stress
 
     # --- PLOT COMPARATIVO PRINCIPALE ---
     final_path = os.path.join(final_dir, 'VEfinal_result.png')
-    plot2D_final_result(triang, T_exact_grid.view(-1), T_final, cfg.epochs, save_path=final_path, 
-                        internal_points=internal_pts, boundary_points=boundary_pts, 
-                        physics_points=xy_physics_full, val_label=cfg.val_label)
+    if is_unstruct:
+        from func.graphic_func import plot2D_final_result_unstruct, plot2D_viscoelastic_final_unstruct
+        plot2D_final_result_unstruct(triang, T_exact_grid.view(-1), T_final, cfg.epochs, save_path=final_path, 
+                                     internal_points=internal_pts, boundary_points=boundary_pts, 
+                                     physics_points=xy_physics_full, val_label=cfg.val_label)
+    else:
+        plot2D_final_result(X, Y, T_exact_grid, T_final, cfg.epochs, save_path=final_path, 
+                            internal_points=internal_pts, boundary_points=boundary_pts, 
+                            physics_points=xy_physics_full, val_label=cfg.val_label)
     
     # --- PLOT MULTI-CAMPO VISCOELASTICO ---
     if hasattr(physics_problem, 'get_velocity') and stress_exact_grids is not None:
-        fields_pred = {
-            'u': T_final, 
-            'p': p_final.detach().cpu().view(-1),
-            'tau_xx': out_final[:, 2].detach().cpu().view(-1),
-            'tau_xy': out_final[:, 3].detach().cpu().view(-1),
-            'tau_yy': out_final[:, 4].detach().cpu().view(-1),
-        }
-        fields_exact = {
-            'u': T_exact_grid.view(-1),
-            'p': stress_exact_grids.get('p', torch.zeros_like(T_exact_grid)).cpu().view(-1),
-            'tau_xx': stress_exact_grids.get('tau_xx', torch.zeros_like(T_exact_grid)).cpu().view(-1),
-            'tau_xy': stress_exact_grids.get('tau_xy', torch.zeros_like(T_exact_grid)).cpu().view(-1),
-            'tau_yy': stress_exact_grids.get('tau_yy', torch.zeros_like(T_exact_grid)).cpu().view(-1),
-        }
-        visco_final_path = os.path.join(final_dir, 'VE_viscoelastic_fields.png')
-        plot2D_viscoelastic_final(triang, fields_pred, fields_exact, cfg.epochs,
-                                  save_path=visco_final_path, internal_points=internal_pts, 
-                                  boundary_points=boundary_pts, physics_points=xy_physics_full)
+        if is_unstruct:
+            fields_pred = {
+                'u': T_final, 
+                'p': p_final.detach().cpu().view(-1),
+                'tau_xx': out_final[:, 2].detach().cpu().view(-1),
+                'tau_xy': out_final[:, 3].detach().cpu().view(-1),
+                'tau_yy': out_final[:, 4].detach().cpu().view(-1),
+            }
+            fields_exact = {
+                'u': T_exact_grid.view(-1),
+                'p': stress_exact_grids.get('p', torch.zeros_like(T_exact_grid)).cpu().view(-1),
+                'tau_xx': stress_exact_grids.get('tau_xx', torch.zeros_like(T_exact_grid)).cpu().view(-1),
+                'tau_xy': stress_exact_grids.get('tau_xy', torch.zeros_like(T_exact_grid)).cpu().view(-1),
+                'tau_yy': stress_exact_grids.get('tau_yy', torch.zeros_like(T_exact_grid)).cpu().view(-1),
+            }
+            visco_final_path = os.path.join(final_dir, 'VE_viscoelastic_fields.png')
+            plot2D_viscoelastic_final_unstruct(triang, fields_pred, fields_exact, cfg.epochs,
+                                              save_path=visco_final_path, internal_points=internal_pts, 
+                                              boundary_points=boundary_pts, physics_points=xy_physics_full)
+        else:
+            fields_pred = {
+                'u': T_final, 
+                'p': p_final.detach().cpu().reshape(Ny_dom, Nx_dom),
+                'tau_xx': out_final[:, 2].detach().cpu().reshape(Ny_dom, Nx_dom),
+                'tau_xy': out_final[:, 3].detach().cpu().reshape(Ny_dom, Nx_dom),
+                'tau_yy': out_final[:, 4].detach().cpu().reshape(Ny_dom, Nx_dom),
+            }
+            fields_exact = {
+                'u': T_exact_grid,
+                'p': stress_exact_grids.get('p', torch.zeros_like(T_exact_grid)).cpu(),
+                'tau_xx': stress_exact_grids.get('tau_xx', torch.zeros_like(T_exact_grid)).cpu(),
+                'tau_xy': stress_exact_grids.get('tau_xy', torch.zeros_like(T_exact_grid)).cpu(),
+                'tau_yy': stress_exact_grids.get('tau_yy', torch.zeros_like(T_exact_grid)).cpu(),
+            }
+            visco_final_path = os.path.join(final_dir, 'VE_viscoelastic_fields.png')
+            plot2D_viscoelastic_final(X, Y, fields_pred, fields_exact, cfg.epochs,
+                                      save_path=visco_final_path, internal_points=internal_pts, 
+                                      boundary_points=boundary_pts, physics_points=xy_physics_full)
     
     # --- GIF E PULIZIA ---
     if plot_files:

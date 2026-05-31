@@ -327,12 +327,11 @@ class TrainingHistory:
         if show_plot: plt.show()
         plt.close()
 
-def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, mode='standard', variance_weights=None, force_data_loss=False, **kwargs):
+def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, physics_loss_fn=None, x_physics=None, ic_loss_fn=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, mode='standard', variance_weights=None, force_data_loss=False, **kwargs):
     """
     Computes the components of the PINN loss.
     COMPONENTS IN 'loss_dict' ARE PURE RESIDUALS (UNWEIGHTED).
     'total_loss' IS WEIGHTED.
-    Requires a physics_problem instance; uses semi_inverse or comsol_full mode.
     """
     loss_dict = {}
     total_loss = 0.0
@@ -360,49 +359,58 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
                 # restituiamo 0.0 per evitare il calcolo costoso e l'accumulo di VRAM dovuto ai grafi di autograd.
                 data_loss = torch.tensor(0.0, device=x_data.device, dtype=x_data.dtype)
             else:
-                # Congeliamo temporaneamente i parametri della rete per evitare la creazione di grafi per i pesi
-                saved_requires_grad = [p.requires_grad for p in model.parameters()]
-                for p in model.parameters():
-                    p.requires_grad = False
-                
-                try:
-                    u_pred, v_pred, p_pred, tau_pred = physics_problem.get_velocity(model, x_data)
-                    u_obs = y_data[:, 0:1]
-                    v_obs = y_data[:, 1:2]
-                    loss_u = mse_loss(u_pred, u_obs) / scale_u
-                    loss_v = mse_loss(v_pred, v_obs) / scale_v
-                    data_loss = 0.5 * (loss_u + loss_v)
-                    if mode == 'comsol_full' and y_data.shape[1] >= 6:
-                        out = model(x_data)
-                        data_loss = data_loss + mse_loss(out[:, 1:2], y_data[:, 2:3])  # p
-                        data_loss = data_loss + mse_loss(out[:, 2:5], y_data[:, 3:6])  # tau
-                finally:
-                    # Ripristiniamo lo stato dei parametri
-                    for p, req in zip(model.parameters(), saved_requires_grad):
-                        p.requires_grad = req
+                if mode in ('semi_inverse', 'comsol_full') and physics_problem is not None:
+                    # Congeliamo temporaneamente i parametri della rete per evitare la creazione di grafi per i pesi
+                    saved_requires_grad = [p.requires_grad for p in model.parameters()]
+                    for p in model.parameters():
+                        p.requires_grad = False
+                    
+                    try:
+                        u_pred, v_pred, p_pred, tau_pred = physics_problem.get_velocity(model, x_data)
+                        u_obs = y_data[:, 0:1]
+                        v_obs = y_data[:, 1:2]
+                        loss_u = mse_loss(u_pred, u_obs) / scale_u
+                        loss_v = mse_loss(v_pred, v_obs) / scale_v
+                        data_loss = 0.5 * (loss_u + loss_v)
+                        if mode == 'comsol_full' and y_data.shape[1] >= 6:
+                            out = model(x_data)
+                            data_loss = data_loss + mse_loss(out[:, 1:2], y_data[:, 2:3])  # p
+                            data_loss = data_loss + mse_loss(out[:, 2:5], y_data[:, 3:6])  # tau
+                    finally:
+                        # Ripristiniamo lo stato dei parametri
+                        for p, req in zip(model.parameters(), saved_requires_grad):
+                            p.requires_grad = req
+                else:
+                    with torch.no_grad():
+                        y_pred = model(x_data)
+                        data_loss = mse_loss(y_pred, y_data)
         else:
-            # y_data contiene [u_obs, v_obs] (semi_inverse) o [u,v,p,txx,txy,tyy] (comsol_full)
-            u_pred, v_pred, p_pred, tau_pred = physics_problem.get_velocity(model, x_data)
-            u_obs = y_data[:, 0:1]
-            v_obs = y_data[:, 1:2]
-            
-            loss_u = mse_loss(u_pred, u_obs) / scale_u
-            loss_v = mse_loss(v_pred, v_obs) / scale_v
-            
-            data_loss = 0.5 * (loss_u + loss_v)
-            
-            # In comsol_full, confrontiamo anche p e tau direttamente
-            if mode == 'comsol_full' and y_data.shape[1] >= 6:
-                out = model(x_data)
-                scale_p = variance_weights.get('p', 1.0) if variance_weights is not None else 1.0
-                scale_txx = variance_weights.get('txx', 1.0) if variance_weights is not None else 1.0
-                scale_txy = variance_weights.get('txy', 1.0) if variance_weights is not None else 1.0
-                scale_tyy = variance_weights.get('tyy', 1.0) if variance_weights is not None else 1.0
-                loss_p = mse_loss(out[:, 1:2], y_data[:, 2:3]) / scale_p
-                loss_txx = mse_loss(out[:, 2:3], y_data[:, 3:4]) / scale_txx
-                loss_txy = mse_loss(out[:, 3:4], y_data[:, 4:5]) / scale_txy
-                loss_tyy = mse_loss(out[:, 4:5], y_data[:, 5:6]) / scale_tyy
-                data_loss = data_loss + (loss_p + loss_txx + loss_txy + loss_tyy) / 4.0
+            if mode in ('semi_inverse', 'comsol_full') and physics_problem is not None:
+                # y_data contiene [u_obs, v_obs] (semi_inverse) o [u,v,p,txx,txy,tyy] (comsol_full)
+                u_pred, v_pred, p_pred, tau_pred = physics_problem.get_velocity(model, x_data)
+                u_obs = y_data[:, 0:1]
+                v_obs = y_data[:, 1:2]
+                
+                loss_u = mse_loss(u_pred, u_obs) / scale_u
+                loss_v = mse_loss(v_pred, v_obs) / scale_v
+                
+                data_loss = 0.5 * (loss_u + loss_v)
+                
+                # In comsol_full, confrontiamo anche p e tau direttamente
+                if mode == 'comsol_full' and y_data.shape[1] >= 6:
+                    out = model(x_data)
+                    scale_p = variance_weights.get('p', 1.0) if variance_weights is not None else 1.0
+                    scale_txx = variance_weights.get('txx', 1.0) if variance_weights is not None else 1.0
+                    scale_txy = variance_weights.get('txy', 1.0) if variance_weights is not None else 1.0
+                    scale_tyy = variance_weights.get('tyy', 1.0) if variance_weights is not None else 1.0
+                    loss_p = mse_loss(out[:, 1:2], y_data[:, 2:3]) / scale_p
+                    loss_txx = mse_loss(out[:, 2:3], y_data[:, 3:4]) / scale_txx
+                    loss_txy = mse_loss(out[:, 3:4], y_data[:, 4:5]) / scale_txy
+                    loss_tyy = mse_loss(out[:, 4:5], y_data[:, 5:6]) / scale_tyy
+                    data_loss = data_loss + (loss_p + loss_txx + loss_txy + loss_tyy) / 4.0
+            else:
+                y_pred = model(x_data)
+                data_loss = mse_loss(y_pred, y_data)
             
         loss_dict['data_loss'] = data_loss
         total_loss += lambda_data * data_loss
@@ -414,13 +422,30 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
         bc_loss_val = physics_problem.boundary_loss(model, x_bc, y_bc, variance_weights=v_weights, active_bcs=active_bcs)
         loss_dict['bc_loss'] = bc_loss_val
         total_loss += lambda_bc * bc_loss_val
+    elif x_bc is not None and y_bc is not None and x_bc.numel() > 0:
+        bc_loss_val = mse_loss(model(x_bc), y_bc)
+        loss_dict['bc_loss'] = bc_loss_val
+        total_loss += lambda_bc * bc_loss_val
     
     if physics_problem is not None and x_physics is not None:
         pde_loss = physics_problem.residual(model, x_physics, variance_weights=variance_weights)
         loss_dict['pde_loss'] = pde_loss
         total_loss += lambda_physics * pde_loss
+    elif physics_loss_fn is not None:
+        if x_physics is not None:
+            if not x_physics.requires_grad: x_physics.requires_grad_(True)
+            pde_loss = physics_loss_fn(model, x_physics, **kwargs)
+        else:
+            pde_loss = physics_loss_fn(model, **kwargs)
+            
+        loss_dict['pde_loss'] = pde_loss
+        total_loss += lambda_physics * pde_loss
+        
+    if ic_loss_fn is not None:
+        ic_loss = ic_loss_fn(model, **kwargs)
+        loss_dict['ic_loss'] = ic_loss
+        total_loss += ic_loss
         
     loss_dict['total_loss'] = total_loss
     return total_loss, loss_dict
-
 
