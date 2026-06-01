@@ -108,7 +108,7 @@ A third advantage is that it is the natural derivative behind the Oldroyd-B and 
 ---
 
 ### Back-links
-- [[ViscoelasticNet_Unified_Model]]
+- [[ViscoelasticNet_Full model]]
 - [[Oldroyd_B_Model]]
 - [[Giesekus_Viscosity_Model]]
 - [[Inverse_Problems]]
