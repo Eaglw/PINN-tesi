@@ -26,6 +26,10 @@ DEFAULT_BC_RULES = {
     'Outlet': {
         'dirichlet': {'p': 'csv'},
         'neumann': {'tau_xx': 0.0, 'tau_xy': 0.0, 'tau_yy': 0.0}
+    },
+    'Walls-dritte':{
+        'dirichlet': {'u': 0.0, 'v': 0.0},
+        'neumann': {'p': 0.0}
     }
 }
 
@@ -208,95 +212,244 @@ class ViscoelasticPhysics(nn.Module):
         return weights.get('momentum', 10.0) * loss_m + weights.get('constitutive', 1.0) * loss_c
 
     def boundary_loss(self, model, x_bc, target_bc, variance_weights=None, active_bcs=None, group_weights=None):
-        dir_target, neu_target, normals = target_bc
-        nx, ny = normals[:, 0:1], normals[:, 1:2]
-        
-        keys = ['u', 'v', 'p', 'txx', 'txy', 'tyy']
-        var_w = torch.ones((1, 6), device=x_bc.device)
-        if variance_weights:
-            for i, k in enumerate(keys): var_w[0, i] = variance_weights.get(k, 1.0)
+            """
+            Orchestratore della loss al contorno. Affetta i mega-tensori in base
+            ai gruppi fisici (es. Inlet, Walls) e delega il calcolo dell'errore.
+            """
+            # 1. Inizializzazione sicura dei dizionari (evita errori se l'utente passa None)
+            variance_weights = variance_weights or {}
+            group_weights = group_weights or {}
+            
+            # Unpacking pulito dei tensori target e delle normali
+            dir_target, neu_target, normals = target_bc
+            nx = normals[:, 0:1]
+            ny = normals[:, 1:2]
+            
+            # 2. Vettore dei pesi di varianza (bilanciamento tra unità di misura diverse)
+            keys = ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']
+            var_w = torch.ones((1, 6), device=x_bc.device)
+            for i, key in enumerate(keys):
+                var_w[0, i] = variance_weights.get(key, 1.0)
+                    
+            total_bc_loss = 0.0
+            per_group_losses = {}
+
+            # 3. Fallback di emergenza (se manca il metadata, processa tutto in un colpo solo)
+            if not hasattr(self, '_boundary_metadata') or not self._boundary_metadata:
+                if not x_bc.requires_grad: 
+                    x_bc = x_bc.clone().requires_grad_(True)
                 
-        total_bc_loss = 0.0
-        per_group_losses = {}
+                u, v, p, tau = self.get_velocity(model, x_bc)
+                pred_bc = torch.cat([u, v, p, tau], dim=1) 
+                raw_loss = self._compute_raw_bc_loss(pred_bc, x_bc, dir_target, neu_target, nx, ny, var_w, active_bcs, keys)
+                return raw_loss, {"loss_bc_all": raw_loss.item()}
 
-        if not hasattr(self, '_boundary_metadata') or not self._boundary_metadata:
-            if not x_bc.requires_grad: x_bc = x_bc.clone().requires_grad_(True)
-            u, v, p, tau = self.get_velocity(model, x_bc)
-            pred_bc = torch.cat([u, v, p, tau], dim=1) 
-            return self._compute_raw_bc_loss(pred_bc, x_bc, dir_target, neu_target, nx, ny, var_w, active_bcs, keys), {}
+            # 4. Ciclo di Slicing sui Gruppi Fisici
+            start_idx = 0
+            for group_name, num_points in self._boundary_metadata:
+                end_idx = start_idx + num_points
+                
+                # Peso di importanza del gruppo (es. forzare l'Inlet pesa 10, il Wall pesa 1)
+                g_weight = group_weights.get(group_name, 1.0)
+                
+                # --- AFFETTAMENTO (SLICING) DEI TENSORI ---
+                # Estraiamo SOLO i dati geometrici e target di questo specifico contorno.
+                dir_slice = dir_target[start_idx:end_idx]
+                neu_slice = neu_target[start_idx:end_idx]
+                nx_slice = nx[start_idx:end_idx]
+                ny_slice = ny[start_idx:end_idx]
+                
+                # Creiamo un nuovo nodo nel grafo computazionale isolato per questo gruppo
+                x_slice = x_bc[start_idx:end_idx].clone().requires_grad_(True)
+                
+                # --- FORWARD PASS LOCALE ---
+                # Interroghiamo la rete neurale fornendole SOLO le coordinate di questo gruppo
+                u_g, v_g, p_g, tau_g = self.get_velocity(model, x_slice)
+                pred_slice = torch.cat([u_g, v_g, p_g, tau_g], dim=1)
+                
+                # --- CALCOLO MATEMATICO DELL'ERRORE ---
+                g_loss = self._compute_raw_bc_loss(
+                    pred=pred_slice, 
+                    x=x_slice, 
+                    dir_t=dir_slice, 
+                    neu_t=neu_slice, 
+                    nx=nx_slice, 
+                    ny=ny_slice, 
+                    var_w=var_w, 
+                    active_bcs=active_bcs, 
+                    keys=keys
+                )
+                
+                # --- AGGIORNAMENTO TOTALI ---
+                per_group_losses[f"loss_bc_{group_name}"] = g_loss.item()
+                total_bc_loss += g_weight * g_loss
+                
+                # Avanzamento del puntatore per il prossimo gruppo
+                start_idx = end_idx
 
-        start_idx = 0
-        for g_name, M in self._boundary_metadata:
-            end_idx = start_idx + M
-            g_weight = group_weights.get(g_name, 1.0) if group_weights else 1.0
-            
-            # Estraiamo le coordinate locali per questo gruppo e abilitiamo i gradienti
-            x_group = x_bc[start_idx:end_idx].clone().requires_grad_(True)
-            
-            # Forward pass locale specifico per il gruppo
-            u_g, v_g, p_g, tau_g = self.get_velocity(model, x_group)
-            pred_g = torch.cat([u_g, v_g, p_g, tau_g], dim=1)
-            
-            g_loss = self._compute_raw_bc_loss(pred_g, x_group, 
-                                              dir_target[start_idx:end_idx], neu_target[start_idx:end_idx], 
-                                              nx[start_idx:end_idx], ny[start_idx:end_idx], 
-                                              var_w, active_bcs, keys)
-            
-            per_group_losses[f"loss_bc_{g_name}"] = g_loss.item()
-            total_bc_loss += g_weight * g_loss
-            start_idx = end_idx
-
-        return total_bc_loss, per_group_losses
+            return total_bc_loss, per_group_losses
 
     def _compute_raw_bc_loss(self, pred, x, dir_t, neu_t, nx, ny, var_w, active_bcs, keys):
-        loss = 0.0
-        for i in range(6):
-            if active_bcs and keys[i] not in active_bcs: continue
-            # Dirichlet
-            mask_d = (~torch.isnan(dir_t[:, i:i+1])).float()
-            if mask_d.sum() > 0:
-                diff = pred[:, i:i+1] - torch.nan_to_num(dir_t[:, i:i+1], nan=0.0)
-                loss += (mask_d * (diff**2) / var_w[0, i]).sum() / mask_d.sum().clamp_min(1.0)
-            # Neumann
-            mask_n = (~torch.isnan(neu_t[:, i:i+1])).float()
-            if mask_n.sum() > 0:
-                p_i = pred[:, i:i+1]
-                g_p = torch.autograd.grad(p_i.sum(), x, create_graph=True, retain_graph=True)[0]
-                diff_n = (g_p[:, 0:1]*nx + g_p[:, 1:2]*ny) - torch.nan_to_num(neu_t[:, i:i+1], nan=0.0)
-                loss += (mask_n * (diff_n**2) / var_w[0, i]).sum() / mask_n.sum().clamp_min(1.0)
-        return loss
+            """
+            Calcola l'errore quadratico medio (MSE) sui bordi.
+            
+            Args:
+                pred: Tensore delle predizioni [u, v, p, tau_xx, tau_xy, tau_yy]
+                x: Coordinate spaziali (richiede gradienti per Neumann)
+                dir_t, neu_t: Tensori target per Dirichlet e Neumann (con NaN nei punti liberi)
+                nx, ny: Componenti del vettore normale uscente al contorno
+                var_w: Pesi di varianza per bilanciare le loss delle diverse variabili
+                active_bcs: (Opzionale) Lista dei campi da forzare
+                keys: Nomi delle variabili corrispondenti agli indici 0-5
+            """
+            total_loss = 0.0
+
+            for i, var_name in enumerate(keys):
+                # 1. Filtro variabili attive
+                if active_bcs and var_name not in active_bcs:
+                    continue
+
+                var_weight = var_w[0, i]
+                pred_val = pred[:, i:i+1]  # Estraiamo la singola variabile (es. solo 'u')
+
+                # ==============================================================================
+                # A. CONDIZIONI DI DIRICHLET (Valore Imposto, es. u = 0 al muro)
+                # ==============================================================================
+                target_d = dir_t[:, i:i+1]
+                mask_d = (~torch.isnan(target_d)).float()
+                valid_points_d = mask_d.sum()
+
+                if valid_points_d > 0:
+                    # Dobbiamo pulire il target sostituendo i NaN con 0 PRIMA di sottrarre.
+                    clean_target_d = torch.nan_to_num(target_d, nan=0.0)
+                    
+                    diff_d = pred_val - clean_target_d
+                    squared_error_d = (diff_d ** 2) / var_weight
+                    
+                    # Moltiplichiamo per la maschera (azzera gli errori fittizi) e facciamo la media
+                    loss_d = (mask_d * squared_error_d).sum() / valid_points_d
+                    total_loss += loss_d
+
+                # ==============================================================================
+                # B. CONDIZIONI DI NEUMANN (Flusso Imposto, es. derivata normale nulla)
+                # ==============================================================================
+                target_n = neu_t[:, i:i+1]
+                mask_n = (~torch.isnan(target_n)).float()
+                valid_points_n = mask_n.sum()
+
+                if valid_points_n > 0:
+                    # 1. Calcolo del gradiente spaziale: ∇f = (∂f/∂x, ∂f/∂y)
+                    # create_graph=True è essenziale perché questo gradiente farà parte della Loss, 
+                    # e durante la backpropagation servirà calcolare il gradiente di questo gradiente.
+                    grad_pred = torch.autograd.grad(pred_val.sum(), x, create_graph=True, retain_graph=True)[0]
+                    
+                    grad_x = grad_pred[:, 0:1]
+                    grad_y = grad_pred[:, 1:2]
+                    
+                    # 2. Derivata Direzionale: ∇f · n = (∂f/∂x)*nx + (∂f/∂y)*ny
+                    directional_derivative = (grad_x * nx) + (grad_y * ny)
+                    
+                    # 3. Calcolo dell'errore (stessa logica anti-NaN usata per Dirichlet)
+                    clean_target_n = torch.nan_to_num(target_n, nan=0.0)
+                    
+                    diff_n = directional_derivative - clean_target_n
+                    squared_error_n = (diff_n ** 2) / var_weight
+                    
+                    loss_n = (mask_n * squared_error_n).sum() / valid_points_n
+                    total_loss += loss_n
+
+            return total_loss
 
     def apply_boundary_conditions(self, boundary_groups):
         bc_rules = self.bc_rules
         FIELD_TO_COL = {'u': 0, 'v': 1, 'p': 2, 'tau_xx': 3, 'tau_xy': 4, 'tau_yy': 5}
-        target_device, target_dtype = self.mu_s.device, self.mu_s.dtype
-        xy_f, dir_f, neu_f, norm_f = [], [], [], []
-        self._boundary_metadata = []
-
-        print("\n" + "="*60 + f"\n{'BC AUDIT REPORT':^60}\n" + "-"*60)
-        print(f"{'Group':<20} | {'Points':<8} | {'Rules'}")
         
-        for g_key, group in boundary_groups.items():
-            r_key = next((rk for rk in bc_rules if rk.lower() in g_key.lower() or g_key.lower() in rk.lower()), None)
-            if not r_key: continue
+        # Pre-assegnazione di device e tipo per garantire coerenza con il modello
+        target_device = self.mu_s.device
+        target_dtype = self.mu_s.dtype
+        
+        # Liste che conterranno i tensori parziali prima dell'unione finale
+        all_xy, all_dirichlet, all_neumann, all_normals = [], [], [], []
+        self._boundary_metadata = []
+        
+        # Lista per tracciare i bordi orfani
+        unmatched_groups = []
+
+        # Intestazione Report
+        print("\n" + "="*70)
+        print(f"{'BC AUDIT REPORT':^70}")
+        print("-" * 70)
+        print(f"{'Group Name':<25} | {'Points':<8} | {'Active Rules'}")
+        
+        for group_name, group_data in boundary_groups.items():
+            # 1. MATCHING RIGOROSO (Strict Match)
+            # Il nome esportato dalla mesh deve coincidere perfettamente con la chiave nel dizionario
+            if group_name not in bc_rules:
+                unmatched_groups.append(group_name)
+                continue
+                
+            # 2. Inizializzazione tensori per il gruppo corrente
+            num_points = group_data['indices'].numel()
+            rules = bc_rules[group_name]
             
-            M = group['indices'].numel()
-            rules = bc_rules[r_key]
-            active = [f"{t[0].upper()}:{','.join(rules[t].keys())}" for t in ['dirichlet', 'neumann'] if rules.get(t)]
-            print(f"{g_key:<20} | {M:<8} | {' '.join(active)}")
+            # Creiamo tensori riempiti di NaN
+            dirichlet_tensor = torch.full((num_points, 6), float('nan'), device=target_device, dtype=target_dtype)
+            neumann_tensor = torch.full((num_points, 6), float('nan'), device=target_device, dtype=target_dtype)
 
-            d_g = torch.full((M, 6), float('nan'), device=target_device, dtype=target_dtype)
-            n_g = torch.full((M, 6), float('nan'), device=target_device, dtype=target_dtype)
+            # 3. Formattazione log per la console
+            active_rules_str = []
+            for bc_type in ['dirichlet', 'neumann']:
+                if rules.get(bc_type):
+                    fields_str = ','.join(rules[bc_type].keys())
+                    active_rules_str.append(f"{bc_type[0].upper()}:{fields_str}")
+            print(f"{group_name:<25} | {num_points:<8} | {' '.join(active_rules_str)}")
 
-            for t, target_tensor in [('dirichlet', d_g), ('neumann', n_g)]:
-                for field, val in rules.get(t, {}).items():
-                    if field in FIELD_TO_COL:
-                        target_tensor[:, FIELD_TO_COL[field]] = group['fields'][field].to(target_device, target_dtype).view(-1) if val == 'csv' else float(val)
+            # 4. Popolamento dei tensori con i valori target
+            condition_types = [('dirichlet', dirichlet_tensor), ('neumann', neumann_tensor)]
+            
+            for cond_type, target_tensor in condition_types:
+                type_rules = rules.get(cond_type, {})
+                
+                for field, value in type_rules.items():
+                    if field not in FIELD_TO_COL:
+                        continue
+                        
+                    col_idx = FIELD_TO_COL[field]
+                    
+                    if value == 'csv':
+                        # Condizione variabile da dati pre-calcolati (es. profilo Inlet velocità)
+                        field_data = group_data['fields'][field].to(target_device, target_dtype).view(-1)
+                        target_tensor[:, col_idx] = field_data
+                    else:
+                        # Condizione costante (es. no-slip ai muri)
+                        target_tensor[:, col_idx] = float(value)
 
-            xy_f.append(group['xy'].to(target_device, target_dtype))
-            norm_f.append(group['norm'].to(target_device, target_dtype))
-            dir_f.append(d_g); neu_f.append(n_g)
-            self._boundary_metadata.append((g_key, M))
+            # 5. Salvataggio in lista dei dati elaborati
+            all_xy.append(group_data['xy'].to(target_device, target_dtype))
+            all_normals.append(group_data['norm'].to(target_device, target_dtype))
+            all_dirichlet.append(dirichlet_tensor)
+            all_neumann.append(neumann_tensor)
+            
+            self._boundary_metadata.append((group_name, num_points))
 
-        print("="*60 + "\n")
-        return torch.cat(xy_f, 0), torch.cat(dir_f, 0), torch.cat(neu_f, 0), torch.cat(norm_f, 0)
+        print("="*70)
+        
+        # --- SISTEMA DI ALLERTA BORDIN NON MATCHATI ---
+        if unmatched_groups:
+            print("\n" + "!"*70)
+            print(f"{' WARNING: UNMATCHED BOUNDARY GROUPS ':^70}")
+            print("!" * 70)
+            print("I seguenti gruppi sono presenti nella mesh, ma NON hanno una regola")
+            print("corrispondente nel dizionario 'bc_rules'. Verranno ignorati:")
+            for ug in unmatched_groups:
+                print(f"  -> {ug}")
+            print("Se questo e' intenzionale, ignora il messaggio. Altrimenti controlla la nomenclatura")
+            print("!"*70 + "\n")
+
+        # 6. Concatenazione finale
+        return (
+            torch.cat(all_xy, dim=0),
+            torch.cat(all_dirichlet, dim=0),
+            torch.cat(all_neumann, dim=0),
+            torch.cat(all_normals, dim=0)
+        )

@@ -59,6 +59,12 @@ $$
 #### Optimization of Residual Equations
 To reduce computational overhead, common scalar divisions like $\frac{\lambda}{\eta_p}$ are pre-calculated once as `lam_over_etap`. Additionally, during **Phase 1** of the staged training when the momentum loss weight is zero, the calculation of Navier-Stokes second-order derivatives is bypassed to save GPU time and VRAM.
 
+Further, under the stream function formulation ($\psi$), evaluating the second spatial derivative $v_{yy}$ is optimized using Schwarz's theorem (since cross-derivatives commute for smooth and continuous fields):
+$$ v_{yy} = \frac{\partial^2 v}{\partial y^2} = -\frac{\partial^3 \psi}{\partial x \partial y^2} = -u_{yx} $$
+Thus, the code directly assigns `v_yy = -u_yx`, preventing PyTorch from constructing an entire branch of third-order derivatives in the autograd graph, which dramatically limits VRAM consumption (see [[VRAM_Optimization]] for details).
+
+For the full dimensional analysis and mathematical derivation of the scaled Navier-Stokes and PTT-Giesekus residuals shown below, see [[Nondimensionalization]].
+
 ```python
 # Extract effective physical parameters
 mu_s_eff = torch.abs(self.mu_s)

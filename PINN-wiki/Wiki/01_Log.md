@@ -320,3 +320,8 @@
 ## [2026-06-01] update_wiki | Aggiunta procedura estrazione boundary COMSOL
 - Creata la pagina di metodo [[COMSOL_Boundary_Extraction]] per documentare la procedura di definizione e assegnazione dei nomi ai vari boundary (inlet, outlet, walls) in COMSOL tramite Selezioni Esplicite (nodo *Explicit* sotto *Definitions*).
 - Aggiornato l'indice generale [[00_Index]].
+
+## [2026-06-01] update_wiki | Inserimento analisi dimensionale e ottimizzazione di Schwarz
+- Aggiornata la pagina Topic [[Nondimensionalization]] con l'analisi dimensionale dettagliata e il riscalamento viscoso (Viscous Scaling) delle equazioni di Navier-Stokes e del modello costitutivo PTT-Giesekus.
+- Aggiornata la pagina Method [[VRAM_Optimization]] inserendo l'ottimizzazione basata sul Teorema di Schwarz per il calcolo di $v_{yy} = -u_{yx}$, riducendo il branching del grafo di autograd per le derivate di terzo ordine.
+- Aggiornata la pagina Method [[ViscoelasticNet_Full model]] per referenziare l'analisi dimensionale e descrivere l'ottimizzazione del calcolo delle derivate.

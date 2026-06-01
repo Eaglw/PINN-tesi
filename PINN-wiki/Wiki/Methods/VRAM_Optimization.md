@@ -29,8 +29,22 @@ To achieve true full-batch L-BFGS convergence in FP64 without exceeding memory l
 Following L-BFGS completion, logging the final loss value previously required a full-batch evaluation outside the closure, triggering an immediate OOM.
 - **Optimization**: `last_loss_val` and `last_loss_dict` containers track the exact loss scalar and dictionary during the final L-BFGS closure evaluation. The post-training check directly retrieves these cached values, bypassing graph construction entirely.
 
+### 6. Schwarz's Theorem for Derivative Reduction (Kinematic VRAM Mitigation)
+In the stream function formulation ($\psi$), evaluating second-order spatial derivatives of velocity fields (e.g., $v_{yy}$) typically requires PyTorch to construct third-order partial derivative paths in the computational autograd graph when `create_graph=True` is enabled for double-backward.
+- **Optimization**: By utilizing Schwarz's theorem on the equality of mixed partial derivatives (since the stream function $\psi$ is mathematically smooth and continuous):
+  $$ u_{yx} = \frac{\partial^2 u}{\partial y \partial x} = \frac{\partial^3 \psi}{\partial y^2 \partial x} $$
+  $$ v_{yy} = \frac{\partial^2 v}{\partial y^2} = \frac{\partial^2}{\partial y^2} \left( -\frac{\partial \psi}{\partial x} \right) = -\frac{\partial^3 \psi}{\partial x \partial y^2} $$
+  Therefore, $v_{yy} = -u_{yx}$.
+- **Impact**: Instead of computing `v_yy` via an independent autograd pass on `v_y`, the codebase utilizes:
+  ```python
+  v_yy = -u_yx
+  ```
+  This algebraic substitution prevents PyTorch from building a massive branch of the computational graph during backpropagation, resulting in a substantial reduction in peak VRAM consumption on the GPU and preventing memory exhaustion during backpropagation.
+
 ## References
 - [[Dynamic_Weighting]]: Learning Rate Annealing methodology.
 - [[Staged_Precision_Strategy]]: Transitioning from FP32 Adam to FP64 L-BFGS.
 - [[GPU_Optimization]]: Complementary performance and synchronization tuning.
 - [[Viscoelastic_Training]]: Main experiment guide for viscoelastic fluid flows.
+- [[Nondimensionalization]]: Topic covering scaling and equations derivation.
+
