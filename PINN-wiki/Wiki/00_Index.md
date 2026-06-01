@@ -65,6 +65,8 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Loss_History_Tracking]]: Convergence and gradient visualization
 - [[GPU_Optimization]]: Eliminating CPU/GPU synchronization overhead
 - [[VRAM_Optimization]]: Memory management and OOM prevention
+- [[COMSOL_Boundary_Extraction]]: Boundary definition and naming via Explicit Selections in COMSOL
+
 
 
 ## Physical Systems
