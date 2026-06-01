@@ -11,50 +11,49 @@ def _softplus_inverse(x):
     return float(torch.log(torch.exp(torch.tensor(x, dtype=torch.float64)) - 1.0).item())
 
 
+# ==============================================================================
+# STRUTTURA E FUNZIONAMENTO DELLE CONDIZIONI AL CONTORNO (BC)
+# ==============================================================================
+DEFAULT_BC_RULES = {
+    'Inlet': {
+        'dirichlet': {'u': 'csv', 'v': 'csv', 'p': 'csv', 'tau_xx': 'csv', 'tau_xy': 'csv', 'tau_yy': 'csv'},
+        'neumann': {}
+    },
+    'Walls': {
+        'dirichlet': {'u': 0.0, 'v': 0.0},
+        'neumann': {'p': 0.0}
+    },
+    'Outlet': {
+        'dirichlet': {'p': 'csv'},
+        'neumann': {'tau_xx': 0.0, 'tau_xy': 0.0, 'tau_yy': 0.0}
+    }
+}
+
+
 class ViscoelasticPhysics(nn.Module):
     def __init__(self, mu_s=0.005, mu_p=0.005, lam=1.0, eps=0.0, alpha=0.0, rho=1.0,
                  U_ref=1.0, H_ref=1.0,
                  pde_weights=None, inverse_mode=False,
-                 real_mu_s=None, real_mu_p=None, real_lam=None, real_eps=None, real_alpha=None):
+                 real_mu_s=None, real_mu_p=None, real_lam=None, real_eps=None, real_alpha=None,
+                 bc_rules=None):
         """
-        Modulo per calcolare i residui fisici in forma ADIMENSIONALE.
+        Modulo per calcolare i residui fisici in forma ADIMENSIONALE con RISCALAMENTO VARIABILI.
         
-        Le PDE sono scritte in termini di Re, Wi, β calcolati on-the-fly
-        dai parametri dimensionali (mu_s, mu_p, lam) e dalle scale di riferimento
-        (U_ref, H_ref).
-        
-        NOTA FISICA — Scelta della Stream Function:
-            L'equazione di continuità (∇·u = 0) è automaticamente soddisfatta
-            dall'uso della stream function: u = ∂ψ/∂y, v = -∂ψ/∂x.
-            Perciò NON è inclusa esplicitamente tra i residui.
-        
-        Forma adimensionale:
-            Momentum: Re(u·∇u) + ∇p - β∇²u - ∇·τ = 0
-            Costitutiva: f·τ + Wi·∇̊τ + α·Wi/(1-β)·(τ·τ) - 2(1-β)·D = 0
-                dove f = 1 + ε·Wi/(1-β)·tr(τ) (PTT)
-        
-        Args:
-            mu_s: Viscosità del solvente [Pa·s] (o guess iniziale per inverse problem)
-            mu_p: Viscosità polimerica [Pa·s] (o guess iniziale per inverse problem)
-            lam: Tempo di rilassamento [s] (o guess iniziale per inverse problem)
-            eps: Parametro di mobilità PTT (o guess iniziale)
-            alpha: Parametro di mobilità Giesekus (o guess iniziale)
-            rho: Densità del fluido [kg/m³].
-            U_ref: Velocità di riferimento per adimensionalizzazione [m/s].
-            H_ref: Lunghezza di riferimento (altezza canale) [m].
-            pde_weights: Dict con pesi per le componenti PDE.
-                Default: {'momentum': 10.0, 'constitutive': 1.0}
-            inverse_mode: Se True, i parametri mu_s, mu_p, lam diventano addestrabili.
-            real_*: Valori reali usati per il plotting e la verifica in modalità inversa.
+        LOGICA DI RESCALING:
+            Per evitare problemi numerici quando (1-beta) è molto piccolo, la rete neurale
+            non predice lo stress fisico tau, ma lo stress riscalato tau_tilde:
+                tau = (1 - beta) * tau_tilde
+            In questo modo, le equazioni costitutive diventano di ordine O(1) e non richiedono
+            moltiplicatori enormi che destabilizzano il gradiente.
         """
         super().__init__()
         self.inverse_mode = inverse_mode
         self.U_ref = U_ref
         self.H_ref = H_ref
+        self.bc_rules = bc_rules or DEFAULT_BC_RULES
+        self._boundary_metadata = None
         
         if inverse_mode:
-            # Reparametrizzazione: shifted softplus
-            # raw = softplus_inverse(guess - offset)
             self.mu_s = nn.Parameter(torch.tensor([_softplus_inverse(max(mu_s - 1e-6, 1e-9))], dtype=torch.float32))
             self.mu_p = nn.Parameter(torch.tensor([_softplus_inverse(max(mu_p - 1e-6, 1e-9))], dtype=torch.float32))
             self.lam = nn.Parameter(torch.tensor([_softplus_inverse(max(lam - 1e-6, 1e-9))], dtype=torch.float32))
@@ -83,17 +82,12 @@ class ViscoelasticPhysics(nn.Module):
 
     @classmethod
     def from_dataset(cls, dataset, device='cpu', **kwargs):
-        """
-        Costruisce il modulo fisico estraendo i parametri esatti dal dataset.
-        Supporta sia il formato .pt legacy sia il formato COMSOL con 'scales'.
-        Forza inverse_mode=False perché è pensato per il forward problem.
-        """
         if isinstance(dataset, dict) and 'params' in dataset:
             params = dataset['params']
         elif hasattr(dataset, 'params'):
             params = dataset.params
         else:
-            raise ValueError("Il dataset fornito non contiene i parametri (chiave 'params' o attributo 'params').")
+            raise ValueError("Dataset parameters not found.")
             
         mu_s = params.get('mu_s', 0.005)
         mu_p = params.get('mu_p', 0.005)
@@ -101,25 +95,12 @@ class ViscoelasticPhysics(nn.Module):
         eps = params.get('eps', 0.0)
         alpha = params.get('alpha', 0.0)
         rho = params.get('rho', 1.0)
-        
-        # Estrai scale di riferimento per adimensionalizzazione (COMSOL format)
         scales = dataset.get('scales', {})
-        U_ref = scales.get('U_ref', 1.0)
-        H_ref = scales.get('H', 1.0)
-        
-        return cls(
-            mu_s=mu_s, mu_p=mu_p, lam=lam, eps=eps, alpha=alpha, rho=rho,
-            U_ref=U_ref, H_ref=H_ref,
-            inverse_mode=False,
-            real_mu_s=mu_s, real_mu_p=mu_p, real_lam=lam, real_eps=eps, real_alpha=alpha,
-            **kwargs
-        ).to(device)
+        return cls(mu_s=mu_s, mu_p=mu_p, lam=lam, eps=eps, alpha=alpha, rho=rho,
+                   U_ref=scales.get('U_ref', 1.0), H_ref=scales.get('H', 1.0),
+                   inverse_mode=False, **kwargs).to(device)
 
     def _get_effective_params(self):
-        """Restituisce i parametri fisici effettivi usati nelle equazioni.
-        In forward mode: valori diretti (buffer).
-        In inverse mode: softplus(raw) con clamp di sicurezza post-softplus.
-        """
         if self.inverse_mode:
             return {
                 'mu_s': 1e-6 + F.softplus(self.mu_s),
@@ -128,265 +109,187 @@ class ViscoelasticPhysics(nn.Module):
                 'eps': 1e-8 + F.softplus(self.eps),
                 'alpha': 1e-8 + F.softplus(self.alpha),
             }
-        else:
-            return {
-                'mu_s': self.mu_s,
-                'mu_p': self.mu_p,
-                'lam': self.lam,
-                'eps': self.eps,
-                'alpha': self.alpha,
-            }
+        return {'mu_s': self.mu_s, 'mu_p': self.mu_p, 'lam': self.lam, 'eps': self.eps, 'alpha': self.alpha}
 
     def get_logged_parameters(self):
-        """Restituisce un dizionario con i valori scalari (float) dei parametri fisici effettivi."""
         eff = self._get_effective_params()
         return {k: v.item() if hasattr(v, 'item') else float(v) for k, v in eff.items()}
 
     def _get_nondim_params(self):
-        """Calcola i numeri adimensionali (Re, Wi, β, ε, α) dai parametri dimensionali correnti.
-        
-        Re = ρ·U_ref·H_ref / (μ_s + μ_p)
-        Wi = λ·U_ref / H_ref
-        β  = μ_s / (μ_s + μ_p)
-        ε e α sono già adimensionali.
-        """
         eff = self._get_effective_params()
-        mu_s_eff = eff['mu_s']
-        mu_p_eff = eff['mu_p']
-        mu_tot = mu_s_eff + mu_p_eff
-        
-        Re = self.rho * self.U_ref * self.H_ref / mu_tot
-        Wi = eff['lam'] * self.U_ref / self.H_ref
-        beta = mu_s_eff / mu_tot
-        
+        mu_tot = eff['mu_s'] + eff['mu_p']
         return {
-            'Re': Re,
-            'Wi': Wi,
-            'beta': beta,
+            'Re': self.rho * self.U_ref * self.H_ref / mu_tot,
+            'Wi': eff['lam'] * self.U_ref / self.H_ref,
+            'beta': eff['mu_s'] / mu_tot,
             'eps': eff['eps'],
             'alpha': eff['alpha'],
         }
 
     def get_velocity(self, model, x):
-        """
-        Calcola u, v e p a partire dalle reti neurali.
-        """
-        if not x.requires_grad:
-            x = x.clone().requires_grad_(True)
-            
+        """Restituisce u, v, p e lo stress FISICO tau (già de-riscalato)."""
+        if not x.requires_grad: x = x.clone().requires_grad_(True)
         out = model(x)
-        psi = out[:, 0:1]
-        p = out[:, 1:2]
-        tau = out[:, 2:5]
-        
-        # Derivate spaziali per ottenere u, v da psi
+        psi, p, tau_tilde = out[:, 0:1], out[:, 1:2], out[:, 2:5]
         grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=True)[0]
-        psi_x = grad_psi[:, 0:1]
-        psi_y = grad_psi[:, 1:2]
+        u, v = grad_psi[:, 1:2], -grad_psi[:, 0:1]
         
-        u = psi_y
-        v = -psi_x
-        
+        # De-riscalamento per ottenere lo stress fisico tau
+        beta = self._get_nondim_params()['beta']
+        tau = (1.0 - beta) * tau_tilde
         return u, v, p, tau
 
     def compute_residuals(self, model, x):
-        """
-        Calcola i residui delle PDE in FORMA ADIMENSIONALE.
+        """Calcola i residui PDE operando sulle variabili riscalate (tilde)."""
+        # 1. Recupero parametri e output rete (riscalati)
+        nd = self._get_nondim_params()
+        Re, Wi, beta, eps, alpha = nd['Re'], nd['Wi'], nd['beta'], nd['eps'], nd['alpha']
+        one_m_beta = 1.0 - beta
         
-        Momentum:  Re(u·∇u) + ∇p - β∇²u - ∇·τ = 0
-        Costitutiva (Oldroyd-B + PTT + Giesekus):
-            f·τ + Wi·∇̊τ + α·Wi/(1-β)·(τ·τ) - 2(1-β)·D = 0
-            dove f = 1 + ε·Wi/(1-β)·tr(τ) (PTT coefficient)
+        out = model(x)
+        psi, p, tau_tilde = out[:, 0:1], out[:, 1:2], out[:, 2:5]
+        tt_xx, tt_xy, tt_yy = tau_tilde[:, 0:1], tau_tilde[:, 1:2], tau_tilde[:, 2:3]
         
-        I numeri adimensionali (Re, Wi, β) sono calcolati on-the-fly
-        dai parametri dimensionali correnti tramite _get_nondim_params().
+        # 2. Cinematica da Stream Function
+        grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=True)[0]
+        u, v = grad_psi[:, 1:2], -grad_psi[:, 0:1]
         
-        Ottimizzazioni autograd invariate:
-        - Riusa get_velocity() per evitare duplicazione del forward pass + grad(psi)
-        - Sfrutta v_y = -u_x (equazione di continuità) per risparmiare 1 chiamata autograd
-        - Sfrutta v_yy = -u_yx (teorema di Schwarz) per risparmiare 1 chiamata autograd
-        Totale: 10 chiamate autograd anziché 12.
-        """
-        u, v, p, tau = self.get_velocity(model, x)
-        tau_xx = tau[:, 0:1]
-        tau_xy = tau[:, 1:2]
-        tau_yy = tau[:, 2:3]
-        
-        # Derivate prime di u, v, p
         grad_u = torch.autograd.grad(u.sum(), x, create_graph=True)[0]
         u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
-        
         grad_v = torch.autograd.grad(v.sum(), x, create_graph=True)[0]
-        v_x = grad_v[:, 0:1]
-        v_y = -u_x  # Equazione di continuità: u_x + v_y = 0
+        v_x, v_y = grad_v[:, 0:1], -u_x
         
+        # 3. Derivate Seconde e Pressione
         grad_p = torch.autograd.grad(p.sum(), x, create_graph=True)[0]
         p_x, p_y = grad_p[:, 0:1], grad_p[:, 1:2]
-        
-        # Derivate seconde di u, v
-        grad_u_x = torch.autograd.grad(u_x.sum(), x, create_graph=True)[0]
-        u_xx = grad_u_x[:, 0:1]
-        
-        grad_u_y = torch.autograd.grad(u_y.sum(), x, create_graph=True)[0]
-        u_yx = grad_u_y[:, 0:1]
-        u_yy = grad_u_y[:, 1:2]
-        
-        grad_v_x = torch.autograd.grad(v_x.sum(), x, create_graph=True)[0]
-        v_xx = grad_v_x[:, 0:1]
-        
-        # v_yy = -u_yx per il teorema di Schwarz
+        u_xx = torch.autograd.grad(u_x.sum(), x, create_graph=True)[0][:, 0:1]
+        u_yx = torch.autograd.grad(u_y.sum(), x, create_graph=True)[0][:, 0:1]
+        u_yy = torch.autograd.grad(u_y.sum(), x, create_graph=True)[0][:, 1:2]
+        v_xx = torch.autograd.grad(v_x.sum(), x, create_graph=True)[0][:, 0:1]
         v_yy = -u_yx
         
-        # Derivate prime di tau
-        grad_tau_xx = torch.autograd.grad(tau_xx.sum(), x, create_graph=True)[0]
-        tau_xx_x, tau_xx_y = grad_tau_xx[:, 0:1], grad_tau_xx[:, 1:2]
-        grad_tau_xy = torch.autograd.grad(tau_xy.sum(), x, create_graph=True)[0]
-        tau_xy_x, tau_xy_y = grad_tau_xy[:, 0:1], grad_tau_xy[:, 1:2]
-        grad_tau_yy = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0]
-        tau_yy_x, tau_yy_y = grad_tau_yy[:, 0:1], grad_tau_yy[:, 1:2]
+        # 4. Derivate Stress Riscalato (tilde)
+        g_txx = torch.autograd.grad(tt_xx.sum(), x, create_graph=True)[0]
+        g_txy = torch.autograd.grad(tt_xy.sum(), x, create_graph=True)[0]
+        g_tyy = torch.autograd.grad(tt_yy.sum(), x, create_graph=True)[0]
+        tt_xx_x, tt_xx_y = g_txx[:, 0:1], g_txx[:, 1:2]
+        tt_xy_x, tt_xy_y = g_txy[:, 0:1], g_txy[:, 1:2]
+        tt_yy_x, tt_yy_y = g_tyy[:, 0:1], g_tyy[:, 1:2]
         
-        # Parametri adimensionali calcolati on-the-fly
-        nd = self._get_nondim_params()
-        Re    = nd['Re']
-        Wi    = nd['Wi']
-        beta  = nd['beta']
-        eps   = nd['eps']
-        alpha = nd['alpha']
-        one_m_beta = 1.0 - beta  # (1-β) = μ_p/μ_tot
+        # 5. Momentum (Navier-Stokes) - Lo stress entra come (1-beta)*div(tau_tilde)
+        f_u = Re * (u * u_x + v * u_y) + p_x - beta * (u_xx + u_yy) - one_m_beta * (tt_xx_x + tt_xy_y)
+        f_v = Re * (u * v_x + v * v_y) + p_y - beta * (v_xx + v_yy) - one_m_beta * (tt_xy_x + tt_yy_y)
+
+        # 6. Costitutiva Riscalata (Tutti i termini sono O(1))
+        # f = 1 + eps*Wi*tr(tau_tilde)
+        f_PTT = 1.0 + eps * Wi * (tt_xx + tt_yy)
         
-        # ═══════════════════════════════════════════════════
-        # Momentum (Navier-Stokes adimensionale)
-        # Re(u·∇u) + ∇p - β∇²u - ∇·τ = 0
-        # ═══════════════════════════════════════════════════
-        f_u = Re * (u * u_x + v * u_y) + p_x - beta * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
-        f_v = Re * (u * v_x + v * v_y) + p_y - beta * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
+        upper_xx = (u * tt_xx_x + v * tt_xx_y - 2 * u_x * tt_xx - 2 * u_y * tt_xy)
+        upper_yy = (u * tt_yy_x + v * tt_yy_y - 2 * v_x * tt_xy - 2 * v_y * tt_yy)
+        upper_xy = (u * tt_xy_x + v * tt_xy_y - u_x * tt_xy - u_y * tt_yy - tt_xx * v_x - tt_xy * v_y)
 
-        # ═══════════════════════════════════════════════════
-        # Upper-Convected Derivative (stessa struttura, ora pesata da Wi)
-        # ═══════════════════════════════════════════════════
-        upper_xx = (u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy)
-        upper_yy = (u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy)
-        upper_xy = (u * tau_xy_x + v * tau_xy_y - u_x * tau_xy - u_y * tau_yy - tau_xx * v_x - tau_xy * v_y)
-
-        # Moltiplichiamo tutta l'equazione costitutiva per (1-beta) per evitare singolarità se mu_p -> 0
-        # Originale: [1 + eps*Wi/(1-beta)*tr(tau)]*tau + Wi*upper + alpha*Wi/(1-beta)*(tau*tau) - 2*(1-beta)*D = 0
-        # Nuova: [(1-beta) + eps*Wi*tr(tau)]*tau + (1-beta)*Wi*upper + alpha*Wi*(tau*tau) - 2*(1-beta)^2 * D = 0
-
-        PTT_term = one_m_beta + eps * Wi * (tau_xx + tau_yy)
-        G_coeff_mod = alpha * Wi
-        Wi_mod = one_m_beta * Wi
-        D_coeff = 2.0 * (one_m_beta ** 2)
-
-        # ═══════════════════════════════════════════════════
-        # Equazioni Costitutive adimensionali (Moltiplicate per 1-beta)
-        # ═══════════════════════════════════════════════════
-        f_tau_xx = PTT_term * tau_xx + Wi_mod * upper_xx + G_coeff_mod * (tau_xx**2 + tau_xy**2) - D_coeff * u_x
-        f_tau_yy = PTT_term * tau_yy + Wi_mod * upper_yy + G_coeff_mod * (tau_xy**2 + tau_yy**2) - D_coeff * v_y
-        f_tau_xy = PTT_term * tau_xy + Wi_mod * upper_xy + G_coeff_mod * tau_xy * (tau_xx + tau_yy) - (one_m_beta ** 2) * (u_y + v_x)
+        f_txx = f_PTT * tt_xx + Wi * upper_xx + alpha * Wi * (tt_xx**2 + tt_xy**2) - 2.0 * u_x
+        f_tyy = f_PTT * tt_yy + Wi * upper_yy + alpha * Wi * (tt_xy**2 + tt_yy**2) - 2.0 * v_y
+        f_txy = f_PTT * tt_xy + Wi * upper_xy + alpha * Wi * tt_xy * (tt_xx + tt_yy) - (u_y + v_x)
         
-        return f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy
+        return f_u, f_v, f_txx, f_tyy, f_txy
 
     def residual(self, model, x, pde_weights=None, variance_weights=None):
-        """
-        Calcola la somma pesata delle Loss sui residui delle PDE.
-        """
-        weights = pde_weights if pde_weights is not None else self.pde_weights #Pesa di default se non passati diversamente
-        w_m = weights.get('momentum', 10.0)
-        w_c = weights.get('constitutive', 1.0)
-
-        vw = variance_weights if variance_weights is not None else {} #Pesi delle singole componenti ad 1 se non passati diversamente
-        v_u = vw.get('u', 1.0)
-        v_v = vw.get('v', 1.0)
-        v_txx = vw.get('txx', 1.0)
-        v_tyy = vw.get('tyy', 1.0)
-        v_txy = vw.get('txy', 1.0)
+        weights = pde_weights or self.pde_weights
+        vw = variance_weights or {}
         
-        f_u, f_v, f_tau_xx, f_tau_yy, f_tau_xy = self.compute_residuals(model, x) #calcolo residui da sopra
+        f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(model, x)
                 
-        # Loss Momentum (Navier-Stokes) possiamo usare mean invece che nn.MSEloss perchè vogliamo la loss=0
-        loss_u = (f_u ** 2 / max(v_u, 1e-8)).mean()
-        loss_v = (f_v ** 2 / max(v_v, 1e-8)).mean()
-        loss_m = loss_u + loss_v
-        
-        # Loss Costitutiva (Oldroyd-B)
-        loss_txx = (f_tau_xx ** 2 / max(v_txx, 1e-8)).mean()
-        loss_tyy = (f_tau_yy ** 2 / max(v_tyy, 1e-8)).mean()
-        loss_txy = (f_tau_xy ** 2 / max(v_txy, 1e-8)).mean()
-        loss_c = loss_txx + loss_tyy + loss_txy
+        loss_m = (f_u**2 / max(vw.get('u', 1.0), 1e-8)).mean() + (f_v**2 / max(vw.get('v', 1.0), 1e-8)).mean()
+        loss_c = (f_txx**2 / max(vw.get('txx_nd', 1.0), 1e-8)).mean() + \
+                 (f_tyy**2 / max(vw.get('tyy_nd', 1.0), 1e-8)).mean() + \
+                 (f_txy**2 / max(vw.get('txy_nd', 1.0), 1e-8)).mean()
 
-        return w_m * loss_m + w_c * loss_c
+        return weights.get('momentum', 10.0) * loss_m + weights.get('constitutive', 1.0) * loss_c
 
-    def boundary_loss(self, model, x_bc, target_bc, variance_weights=None, active_bcs=None):
-        """
-        Calcola la funzione di costo (Loss) basata sull'Errore Quadratico Medio (MSE) 
-        sui punti di contorno (boundary points).
-        """
-        if not x_bc.requires_grad:
-            x_bc = x_bc.clone().requires_grad_(True) #check di sicurezza per calcolo gradienti
+    def boundary_loss(self, model, x_bc, target_bc, variance_weights=None, active_bcs=None, group_weights=None):
+        if not x_bc.requires_grad: x_bc = x_bc.clone().requires_grad_(True)
         
-        u, v, p, tau = self.get_velocity(model, x_bc) #previsioni del modello
+        # Predizioni de-riscalate per il confronto con i target fisici del CSV
+        u, v, p, tau = self.get_velocity(model, x_bc)
+        pred_bc = torch.cat([u, v, p, tau], dim=1) 
+        dir_target, neu_target, normals = target_bc
+        nx, ny = normals[:, 0:1], normals[:, 1:2]
         
-        pred_bc = torch.cat([u, v, p, tau], dim=1) #Tensore Npunti x 6 [u, v, p, tau_xx, tau_xy, tau_yy]
-        device = pred_bc.device
-        
-        dir_target, neu_target, normals = target_bc #split target
-        nx, ny = normals[:, 0:1], normals[:, 1:2] #vettori normali
-        keys = ['u', 'v', 'p', 'txx', 'txy', 'tyy'] # ordine variabili
-        
-        var_w = torch.ones((1, 6), device=device)
-        active_mask = torch.ones((1, 6), dtype=torch.bool, device=device) #ottimizzazione per broadcasting per solo le bc attive o non nulle
-        
-        if variance_weights is not None: #normalizzazione dei contributi sulla varianza
-            for i, k in enumerate(keys):
-                var_w[0, i] = variance_weights.get(k, 1.0) 
+        keys = ['u', 'v', 'p', 'txx', 'txy', 'tyy']
+        var_w = torch.ones((1, 6), device=pred_bc.device)
+        if variance_weights:
+            for i, k in enumerate(keys): var_w[0, i] = variance_weights.get(k, 1.0)
                 
-        if active_bcs is not None: #impostiamo quali bc sono attive
-            for i, k in enumerate(keys):
-                active_mask[0, i] = (k in active_bcs) 
-
         total_bc_loss = 0.0
+        per_group_losses = {}
 
-        # --- 3. LOSS DI DIRICHLET ---
+        if not hasattr(self, '_boundary_metadata') or not self._boundary_metadata:
+            return self._compute_raw_bc_loss(pred_bc, x_bc, dir_target, neu_target, nx, ny, var_w, active_bcs, keys), {}
+
+        start_idx = 0
+        for g_name, M in self._boundary_metadata:
+            end_idx = start_idx + M
+            g_weight = group_weights.get(g_name, 1.0) if group_weights else 1.0
+            g_loss = self._compute_raw_bc_loss(pred_bc[start_idx:end_idx], x_bc[start_idx:end_idx], 
+                                              dir_target[start_idx:end_idx], neu_target[start_idx:end_idx], 
+                                              nx[start_idx:end_idx], ny[start_idx:end_idx], 
+                                              var_w, active_bcs, keys)
+            per_group_losses[f"loss_bc_{g_name}"] = g_loss.item()
+            total_bc_loss += g_weight * g_loss
+            start_idx = end_idx
+
+        return total_bc_loss, per_group_losses
+
+    def _compute_raw_bc_loss(self, pred, x, dir_t, neu_t, nx, ny, var_w, active_bcs, keys):
+        loss = 0.0
         for i in range(6):
-            valid_dir_i = (~torch.isnan(dir_target[:, i:i+1])) & active_mask[:, i:i+1]
-            mask_i = valid_dir_i.float()
-            if mask_i.sum() > 0:
-                diff_i = pred_bc[:, i:i+1] - torch.nan_to_num(dir_target[:, i:i+1], nan=0.0)
-                sq_diff_i = (diff_i ** 2) / var_w[0, i]
-                total_bc_loss += (sq_diff_i * mask_i).sum() / mask_i.sum().clamp_min(1.0)
+            if active_bcs and keys[i] not in active_bcs: continue
+            # Dirichlet
+            mask_d = (~torch.isnan(dir_t[:, i:i+1])).float()
+            if mask_d.sum() > 0:
+                diff = pred[:, i:i+1] - torch.nan_to_num(dir_t[:, i:i+1], nan=0.0)
+                loss += (mask_d * (diff**2) / var_w[0, i]).sum() / mask_d.sum().clamp_min(1.0)
+            # Neumann
+            mask_n = (~torch.isnan(neu_t[:, i:i+1])).float()
+            if mask_n.sum() > 0:
+                p_i = pred[:, i:i+1]
+                g_p = torch.autograd.grad(p_i.sum(), x, create_graph=True, retain_graph=True)[0]
+                diff_n = (g_p[:, 0:1]*nx + g_p[:, 1:2]*ny) - torch.nan_to_num(neu_t[:, i:i+1], nan=0.0)
+                loss += (mask_n * (diff_n**2) / var_w[0, i]).sum() / mask_n.sum().clamp_min(1.0)
+        return loss
 
-        # --- 4. LOSS DI NEUMANN ---
-        # Cache per sapere quali colonne hanno condizioni al contorno di Neumann (non-NaN)
-        # in modo da evitare la sincronizzazione GPU-CPU ripetuta (incompatibile con torch.compile).
-        if not hasattr(self, '_neu_active_mask_cache'):
-            self._neu_active_mask_cache = {}
+    def apply_boundary_conditions(self, boundary_groups):
+        bc_rules = self.bc_rules
+        FIELD_TO_COL = {'u': 0, 'v': 1, 'p': 2, 'tau_xx': 3, 'tau_xy': 4, 'tau_yy': 5}
+        target_device, target_dtype = self.mu_s.device, self.mu_s.dtype
+        xy_f, dir_f, neu_f, norm_f = [], [], [], []
+        self._boundary_metadata = []
+
+        print("\n" + "="*60 + f"\n{'BC AUDIT REPORT':^60}\n" + "-"*60)
+        print(f"{'Group':<20} | {'Points':<8} | {'Rules'}")
         
-        neu_cache_key = id(neu_target)
-        if neu_cache_key not in self._neu_active_mask_cache:
-            self._neu_active_mask_cache[neu_cache_key] = [
-                bool((~torch.isnan(neu_target[:, j])).any().item())
-                for j in range(6)
-            ]
-        
-        has_neu_data = self._neu_active_mask_cache[neu_cache_key]
+        for g_key, group in boundary_groups.items():
+            r_key = next((rk for rk in bc_rules if rk.lower() in g_key.lower() or g_key.lower() in rk.lower()), None)
+            if not r_key: continue
+            
+            M = group['indices'].numel()
+            rules = bc_rules[r_key]
+            active = [f"{t[0].upper()}:{','.join(rules[t].keys())}" for t in ['dirichlet', 'neumann'] if rules.get(t)]
+            print(f"{g_key:<20} | {M:<8} | {' '.join(active)}")
 
-        for i in range(6):
-            if not has_neu_data[i]:
-                continue
-            if active_bcs is not None and keys[i] not in active_bcs:
-                continue
-                
-            pred_i = pred_bc[:, i:i+1]
-            grad_pred = torch.autograd.grad(pred_i.sum(), x_bc, create_graph=True)[0] #grad i-esima variabile
-            
-            normal_deriv = grad_pred[:, 0:1] * nx + grad_pred[:, 1:2] * ny # calcolo della derivata
-            
-            diff_neu = normal_deriv - torch.nan_to_num(neu_target[:, i:i+1], nan=0.0) # differenza + sistituiamo i NaN
-            
-            sq_diff_neu = (diff_neu ** 2) / var_w[0, i] #quadrato pesato
-            
-            valid_neu_i = (~torch.isnan(neu_target[:, i:i+1])) & active_mask[:, i:i+1]
-            mask_i = valid_neu_i.float()
-            total_bc_loss += (sq_diff_neu * mask_i).sum() / mask_i.sum().clamp_min(1.0) #operazioni per sommare solo i valori corretti
+            d_g = torch.full((M, 6), float('nan'), device=target_device, dtype=target_dtype)
+            n_g = torch.full((M, 6), float('nan'), device=target_device, dtype=target_dtype)
 
-        return total_bc_loss
+            for t, target_tensor in [('dirichlet', d_g), ('neumann', n_g)]:
+                for field, val in rules.get(t, {}).items():
+                    if field in FIELD_TO_COL:
+                        target_tensor[:, FIELD_TO_COL[field]] = group['fields'][field].to(target_device, target_dtype).view(-1) if val == 'csv' else float(val)
+
+            xy_f.append(group['xy'].to(target_device, target_dtype))
+            norm_f.append(group['norm'].to(target_device, target_dtype))
+            dir_f.append(d_g); neu_f.append(n_g)
+            self._boundary_metadata.append((g_key, M))
+
+        print("="*60 + "\n")
+        return torch.cat(xy_f, 0), torch.cat(dir_f, 0), torch.cat(neu_f, 0), torch.cat(norm_f, 0)

@@ -91,6 +91,7 @@ class TrainingConfig:
     dynamic_weighting: bool = True
     update_weights_every: int = 100
     loss_weights: dict = field(default_factory=lambda: {'data': 1.0, 'bc': 1.0, 'physics': 1.0})
+    group_weights: dict = field(default_factory=lambda: {'Inlet': 1.0, 'Walls': 1.0, 'Outlet': 1.0})
     mode: str = 'standard'
     variance_weights: dict = None
     log_gradients_every: int = 500
@@ -220,7 +221,8 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
             physics_problem=physics_problem, x_physics=xy_phys_batch,
             lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
             mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=current_active_bcs,
-            force_data_loss=((epoch + 1) % 100 == 0)
+            force_data_loss=((epoch + 1) % 100 == 0),
+            group_weights=cfg.group_weights
         )
 
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
@@ -235,7 +237,7 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
                     if m_n_ph > 1e-12: 
                         ratio = min(max_norm_bc / m_n_ph, 100.0)
                         target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * ratio * lambda_bc
-                #scalo il peso dei dati interni
+                # scalo il peso dei dati interni
                 if lambda_data > 0 and 'data_loss' in loss_dict and isinstance(loss_dict['data_loss'], torch.Tensor) and loss_dict['data_loss'].requires_grad:
                     grads_dt = torch.autograd.grad(loss_dict['data_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
                     m_n_dt = max([g.norm(2) for g in grads_dt if g is not None]).item() if any(g is not None for g in grads_dt) else 0.0
@@ -340,7 +342,8 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
             lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
             mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=None,
             force_data_loss=do_force_data,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            group_weights=cfg.group_weights
         )
         if chunk_size is None:
             loss.backward()
@@ -491,7 +494,7 @@ def train_ViscoelasticPINN(
     return loss_history
 
 
-def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, mode='standard', variance_weights=None, force_data_loss=False, chunk_size=None, **kwargs):
+def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, mode='standard', variance_weights=None, force_data_loss=False, chunk_size=None, group_weights=None, **kwargs):
     """
     Computes the components of the PINN loss.
     COMPONENTS IN 'loss_dict' ARE PURE RESIDUALS (UNWEIGHTED).
@@ -518,7 +521,7 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
                     model, x_data=x_c, y_data=y_c, x_bc=None, y_bc=None, x_physics=None,
                     physics_problem=physics_problem, lambda_data=lambda_data, lambda_bc=0.0, lambda_physics=0.0,
                     mode=mode, variance_weights=variance_weights, force_data_loss=force_data_loss,
-                    chunk_size=None, **kwargs
+                    chunk_size=None, group_weights=group_weights, **kwargs
                 )
                 c_loss_scaled = c_loss * (x_c.shape[0] / N_data)
                 
@@ -537,11 +540,16 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
                 model, x_data=None, y_data=None, x_bc=x_bc, y_bc=y_bc, x_physics=None,
                 physics_problem=physics_problem, lambda_data=0.0, lambda_bc=lambda_bc, lambda_physics=0.0,
                 mode=mode, variance_weights=variance_weights, force_data_loss=False,
-                chunk_size=None, **kwargs
+                chunk_size=None, group_weights=group_weights, **kwargs
             )
             bc_val = bc_dict.get('bc_loss', 0.0)
             loss_dict_accum['bc_loss'] = bc_val.item() if hasattr(bc_val, 'item') else bc_val
             
+            # Recupero loss specifiche per gruppo se presenti
+            for k, v in bc_dict.items():
+                if k.startswith('loss_bc_'):
+                    loss_dict_accum[k] = v.item() if hasattr(v, 'item') else v
+
             if bc_loss_val.requires_grad:
                 bc_loss_val.backward()
             
@@ -556,7 +564,7 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
                     model, x_data=None, y_data=None, x_bc=None, y_bc=None, x_physics=x_c,
                     physics_problem=physics_problem, lambda_data=0.0, lambda_bc=0.0, lambda_physics=lambda_physics,
                     mode=mode, variance_weights=variance_weights, force_data_loss=False,
-                    chunk_size=None, **kwargs
+                    chunk_size=None, group_weights=group_weights, **kwargs
                 )
                 c_loss_scaled = c_loss * (x_c.shape[0] / N_phys)
                 
@@ -652,8 +660,12 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
         # Passiamo variance_weights per normalizzare u, v, p, tau individualmente sia in semi_inverse che in PurePhys
         v_weights = variance_weights
         active_bcs = kwargs.get('active_bcs', None)
-        bc_loss_val = physics_problem.boundary_loss(model, x_bc, y_bc, variance_weights=v_weights, active_bcs=active_bcs)
+        bc_loss_val, per_group_losses = physics_problem.boundary_loss(
+            model, x_bc, y_bc, variance_weights=v_weights, 
+            active_bcs=active_bcs, group_weights=group_weights
+        )
         loss_dict['bc_loss'] = bc_loss_val
+        loss_dict.update(per_group_losses)
         total_loss += lambda_bc * bc_loss_val
     
     if physics_problem is not None and x_physics is not None:

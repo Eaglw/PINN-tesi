@@ -11,6 +11,7 @@ models/
 *.gif
 *.png
 .DS_Store
+*.mph.lock
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
