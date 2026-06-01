@@ -208,16 +208,11 @@ class ViscoelasticPhysics(nn.Module):
         return weights.get('momentum', 10.0) * loss_m + weights.get('constitutive', 1.0) * loss_c
 
     def boundary_loss(self, model, x_bc, target_bc, variance_weights=None, active_bcs=None, group_weights=None):
-        if not x_bc.requires_grad: x_bc = x_bc.clone().requires_grad_(True)
-        
-        # Predizioni de-riscalate per il confronto con i target fisici del CSV
-        u, v, p, tau = self.get_velocity(model, x_bc)
-        pred_bc = torch.cat([u, v, p, tau], dim=1) 
         dir_target, neu_target, normals = target_bc
         nx, ny = normals[:, 0:1], normals[:, 1:2]
         
         keys = ['u', 'v', 'p', 'txx', 'txy', 'tyy']
-        var_w = torch.ones((1, 6), device=pred_bc.device)
+        var_w = torch.ones((1, 6), device=x_bc.device)
         if variance_weights:
             for i, k in enumerate(keys): var_w[0, i] = variance_weights.get(k, 1.0)
                 
@@ -225,16 +220,28 @@ class ViscoelasticPhysics(nn.Module):
         per_group_losses = {}
 
         if not hasattr(self, '_boundary_metadata') or not self._boundary_metadata:
+            if not x_bc.requires_grad: x_bc = x_bc.clone().requires_grad_(True)
+            u, v, p, tau = self.get_velocity(model, x_bc)
+            pred_bc = torch.cat([u, v, p, tau], dim=1) 
             return self._compute_raw_bc_loss(pred_bc, x_bc, dir_target, neu_target, nx, ny, var_w, active_bcs, keys), {}
 
         start_idx = 0
         for g_name, M in self._boundary_metadata:
             end_idx = start_idx + M
             g_weight = group_weights.get(g_name, 1.0) if group_weights else 1.0
-            g_loss = self._compute_raw_bc_loss(pred_bc[start_idx:end_idx], x_bc[start_idx:end_idx], 
+            
+            # Estraiamo le coordinate locali per questo gruppo e abilitiamo i gradienti
+            x_group = x_bc[start_idx:end_idx].clone().requires_grad_(True)
+            
+            # Forward pass locale specifico per il gruppo
+            u_g, v_g, p_g, tau_g = self.get_velocity(model, x_group)
+            pred_g = torch.cat([u_g, v_g, p_g, tau_g], dim=1)
+            
+            g_loss = self._compute_raw_bc_loss(pred_g, x_group, 
                                               dir_target[start_idx:end_idx], neu_target[start_idx:end_idx], 
                                               nx[start_idx:end_idx], ny[start_idx:end_idx], 
                                               var_w, active_bcs, keys)
+            
             per_group_losses[f"loss_bc_{g_name}"] = g_loss.item()
             total_bc_loss += g_weight * g_loss
             start_idx = end_idx

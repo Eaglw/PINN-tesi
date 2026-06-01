@@ -107,6 +107,50 @@ def _sample_minibatch(xy, targets, batch_size, device):
         return xy[idx], tuple(t[idx] for t in targets)
     return xy[idx], targets[idx]
 
+def _sample_boundary_groups(xy_bc, target_bc, boundary_metadata, batch_size, device):
+    if batch_size is None or boundary_metadata is None or len(boundary_metadata) == 0:
+        return xy_bc, target_bc, boundary_metadata
+        
+    dir_target, neu_target, normals = target_bc
+    sampled_xy = []
+    sampled_dir = []
+    sampled_neu = []
+    sampled_norm = []
+    new_metadata = []
+    
+    start_idx = 0
+    total_original = sum(M for _, M in boundary_metadata)
+    
+    for g_name, M in boundary_metadata:
+        end_idx = start_idx + M
+        if total_original > 0:
+            g_batch_size = max(1, int(round(M * batch_size / total_original)))
+            g_batch_size = min(M, g_batch_size)
+        else:
+            g_batch_size = M
+            
+        if g_batch_size < M:
+            idx = torch.randperm(M, device=device)[:g_batch_size]
+            sampled_xy.append(xy_bc[start_idx:end_idx][idx])
+            sampled_dir.append(dir_target[start_idx:end_idx][idx])
+            sampled_neu.append(neu_target[start_idx:end_idx][idx])
+            sampled_norm.append(normals[start_idx:end_idx][idx])
+            new_metadata.append((g_name, g_batch_size))
+        else:
+            sampled_xy.append(xy_bc[start_idx:end_idx])
+            sampled_dir.append(dir_target[start_idx:end_idx])
+            sampled_neu.append(neu_target[start_idx:end_idx])
+            sampled_norm.append(normals[start_idx:end_idx])
+            new_metadata.append((g_name, M))
+            
+        start_idx = end_idx
+        
+    return (
+        torch.cat(sampled_xy, dim=0),
+        (torch.cat(sampled_dir, dim=0), torch.cat(sampled_neu, dim=0), torch.cat(sampled_norm, dim=0)),
+        new_metadata
+    )
+
 def _get_scheduler(optimizer, strategy, total_steps):
     if strategy == 'step_decay':
         return torch.optim.lr_scheduler.StepLR(optimizer, step_size=int(total_steps * 0.25), gamma=0.5)
@@ -189,7 +233,16 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         optimizer.zero_grad(set_to_none=True)
         
         xb, yb = _sample_minibatch(xy_int, obs_int, cfg.minibatch_internal, _device)
-        xbc, ybc = _sample_minibatch(xy_bc, bc_targets, cfg.minibatch_boundary, _device)
+        
+        # Campionamento proporzionale e contiguo per gruppi geometrici del contorno
+        xbc, ybc, epoch_metadata = _sample_boundary_groups(
+            xy_bc, bc_targets, physics_problem._boundary_metadata, 
+            cfg.minibatch_boundary, _device
+        )
+        
+        orig_metadata = physics_problem._boundary_metadata
+        physics_problem._boundary_metadata = epoch_metadata
+        
         xph = xb.clone().requires_grad_(True) if lambda_data > 0 else _sample_minibatch(collocation_points, None, cfg.minibatch_internal, _device)[0].clone().requires_grad_(True)
 
         loss, loss_dict = compute_pinn_loss(
@@ -198,6 +251,8 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
             mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=current_active_bcs,
             group_weights=cfg.group_weights
         )
+        
+        physics_problem._boundary_metadata = orig_metadata
 
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
             if lambda_bc > 0 and 'bc_loss' in loss_dict and loss_dict['bc_loss'].requires_grad:
@@ -283,7 +338,7 @@ def train_ViscoelasticPINN(model, config, data_internal, data_boundary, validati
     with torch.set_grad_enabled(True):
         xg, Te, triang = validation_grid
         u_f, v_f, p_f, tau_f = physics_problem.get_velocity(model, xg.clone().requires_grad_(True))
-        generate_final_training_plots(final_dir, plots_dir, triang, Te.cpu(), u_f.detach().cpu().view(-1), p_f, model(xg), stress_exact_grids, plot_files, config.epochs, config.val_label)
+        generate_final_training_plots(final_dir, plots_dir, triang, Te.cpu(), u_f.detach().cpu().view(-1), p_f, model(xg), stress_exact_grids, plot_files, config.epochs, config.val_label, data_internal[0], data_boundary[0], collocation_points)
     
     loss_history.plot_losses(adam_epochs=config.epochs, save_path=os.path.join(final_dir, 'VE_loss_history.png'), experiment_name=config.experiment_name, smoothing_alpha=0.95)
     return loss_history
