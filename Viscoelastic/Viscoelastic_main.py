@@ -32,11 +32,11 @@ from Viscoelastic.src.Viscoelastic_physics import ViscoelasticPhysics
 
 # --- 2. GRID SEARCH SPACE ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]]  # VENet 8x128
-EPOCHS_OPTIONS = [1000]
-MAX_LBFGS_ITERS = 0  #Se None, usa il 10% di epoche Adam.
+EPOCHS_OPTIONS = [10000]
+MAX_LBFGS_ITERS = None #Se None, usa il 10% di epoche Adam.
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
-WEIGHTING_OPTIONS = ['static']
+WEIGHTING_OPTIONS = ['dynamic']
 
 
 # --- 3. FIXED CONFIGURATIONS & HYPERPARAMETERS ---
@@ -75,8 +75,8 @@ STAGED_TRAINING = True
 MINIBATCH_INTERNAL = 2048*2
 MINIBATCH_BOUNDARY = 256*2
 
-STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}
-STATIC_WEIGHT_STR = "BC=1-PHYS=10-DATA=100"
+STATIC_WEIGHTS = {'bc': 10.0, 'physics': 10.0, 'data': 1.0}
+STATIC_WEIGHT_STR = "BC=10-PHYS=10-DATA=1"
 DYNAMIC_WEIGHT_STR = "Dynamic-Annealing"
 
 PDE_WEIGHTS = {'momentum': 10.0, 'constitutive': 1.0}

@@ -167,17 +167,25 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         if cfg.dynamic_weighting and (epoch + 1) % cfg.update_weights_every == 0:
             if lambda_bc > 0 and 'bc_loss' in loss_dict and loss_dict['bc_loss'].requires_grad:
                 g_bc = torch.autograd.grad(loss_dict['bc_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
-                norm_bc = max([g.norm(2) for g in g_bc if g is not None]).item() if any(g is not None for g in g_bc) else 0.0
+                valid_g_bc = [g.norm(2) for g in g_bc if g is not None]
+                norm_bc = (sum(valid_g_bc) / len(valid_g_bc)).item() if valid_g_bc else 0.0
+                loss_dict['grad_bc'] = norm_bc
+                
                 if target_lambda_physics > 0 and 'pde_loss' in loss_dict and loss_dict['pde_loss'].requires_grad:
                     g_ph = torch.autograd.grad(loss_dict['pde_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
-                    m_ph = max([g.norm(2) for g in g_ph if g is not None]).item() if any(g is not None for g in g_ph) else 0.0
+                    valid_g_ph = [g.norm(2) for g in g_ph if g is not None]
+                    m_ph = (sum(valid_g_ph) / len(valid_g_ph)).item() if valid_g_ph else 0.0
+                    loss_dict['grad_pde'] = m_ph
                     if m_ph > 1e-12:
                         ratio_ph = min(norm_bc / m_ph, 100.0)
                         target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * ratio_ph * lambda_bc
                         target_lambda_physics = min(target_lambda_physics, 500.0)
+                        
                 if lambda_data > 0 and 'data_loss' in loss_dict and loss_dict['data_loss'].requires_grad:
                     g_dt = torch.autograd.grad(loss_dict['data_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
-                    m_dt = max([g.norm(2) for g in g_dt if g is not None]).item() if any(g is not None for g in g_dt) else 0.0
+                    valid_g_dt = [g.norm(2) for g in g_dt if g is not None]
+                    m_dt = (sum(valid_g_dt) / len(valid_g_dt)).item() if valid_g_dt else 0.0
+                    loss_dict['grad_data'] = m_dt
                     if m_dt > 1e-12:
                         ratio_dt = min(norm_bc / m_dt, 100.0)
                         lambda_data = alpha_dynamic * lambda_data + (1-alpha_dynamic) * ratio_dt * lambda_bc
@@ -207,7 +215,10 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         loss_history.update(epoch, history_entry, lr=optimizer.param_groups[0]['lr'])
 
         if (epoch + 1) % 100 == 0:
-            pbar.set_postfix({'Loss': f"{loss.item():.2e}"})
+            pbar.set_postfix({
+                'Loss': f"{loss.item():.2e}",
+                'LR': f"{optimizer.param_groups[0]['lr']:.2e}"
+            })
             if (epoch + 1) % cfg.plot_every == 0:
                 generate_epoch_diagnostic_plot(model, physics_problem, xy_grid, T_exact_grid, triang, epoch, plots_dir, cfg.plot_every, cfg.val_label, plot_files)
     pbar.close()
@@ -357,7 +368,7 @@ def train_ViscoelasticPINN(model, config, data_internal, data_boundary, validati
     os.makedirs(plots_dir, exist_ok=True); os.makedirs(final_dir, exist_ok=True)
     loss_history = TrainingHistory()
     loss_history, plot_files, ld, lbc, lp, bpw = _run_adam_phase(model, physics_problem, config, data_internal, data_boundary, validation_grid, collocation_points, loss_history, plots_dir)
-    loss_history = _run_lbfgs_phase(model, physics_problem, config, data_internal, data_boundary, collocation_points, loss_history, ld, lbc, lp, bpw)
+    #loss_history = _run_lbfgs_phase(model, physics_problem, config, data_internal, data_boundary, collocation_points, loss_history, ld, lbc, lp, bpw)
     
     print("Training completato. Generazione artifacts...")
     model.eval()
@@ -367,6 +378,7 @@ def train_ViscoelasticPINN(model, config, data_internal, data_boundary, validati
         generate_final_training_plots(final_dir, plots_dir, triang, Te.cpu(), u_f.detach().cpu().view(-1), p_f, tau_f, stress_exact_grids, plot_files, config.epochs, config.val_label, data_internal[0], data_boundary[0], collocation_points)
     
     loss_history.plot_losses(adam_epochs=config.epochs, save_path=os.path.join(final_dir, 'VE_loss_history.png'), experiment_name=config.experiment_name, smoothing_alpha=0.95)
+    loss_history.plot_gradients(save_path=os.path.join(final_dir, 'VE_gradients_history.png'), experiment_name=config.experiment_name)
     return loss_history
 
 def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, mode='standard', variance_weights=None, force_data_loss=False, group_weights=None, **kwargs):

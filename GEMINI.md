@@ -1,107 +1,75 @@
-# PINN Tesi Project
+# PINN Tesi Project - Gemini Instructions
 
-This project focuses on the research and application of Physics-Informed Neural Networks (PINNs) to solve differential equations modeling physical systems. It supports both direct problems (finding the solution) and inverse problems (parameter identification).
+This project focuses on the research and application of Physics-Informed Neural Networks (PINNs) to solve viscoelastic fluid flows. It supports both direct problems (solving velocity, pressure, and stress fields) and inverse problems (identifying physical parameters like viscosities, relaxation time, and model parameters).
 
 ## Project Structure
 
-- **`PINNs_maurizio.py`**: Main script for the Damped Harmonic Oscillator problem.
-- **`Harmonic oscillator PINN.ipynb`**: Jupyter notebook for the Harmonic Oscillator.
-- **`IrreversibleCSTR/`**: Module for the Irreversible Continuous Stirred-Tank Reactor problem.
-    - `IrreversibleCSTR_main.py`: Entry point for CSTR experiments.
-    - `IrreversibleCSTR_inverse.py`: Focused on the inverse problem (parameter estimation).
-- **`Heat2D/`**: Module for 2D Heat Transfer (Laplace equation).
-    - `Heat2D_main.py`: Main script for 2D Heat experiments.
-    - `Heat2D_prova.py`: Experimental/testing script for 2D Heat.
-- **`Newtonian/`**: Module for Navier-Stokes equations and Newtonian fluids.
-- **`PINN-wiki/`**: Knowledge management layer, consolidated research documentation, and technical journals (Obsidian Vault).
-    - `GEMINI.md`: Specific protocols for wiki maintenance (Ingestion, LIST, etc.).
-
+- **`Viscoelastic/`**: Core module containing the viscoelastic fluid PINN implementation.
+    - `Viscoelastic_main.py`: Entry point for running experiments (grid searches, forward, semi-inverse, or inverse solvers).
+    - `results.csv`: Log file tracking performance metrics and physical parameters across runs.
+    - `experiments_weighted/`: Output directory for generated logs, model checkpoints, and plots.
+    - `src/`: Main source files:
+        - `models.py`: Defines the Neural Network architectures (FCN and `ViscoelasticCombinedModel` which coordinates separate networks for $\psi$, $p$, and $\tau$).
+        - `config.py`: Training parameters (`TrainingConfig`), learning rate schedulers, and network/parameter freezing helpers.
+        - `Viscoelastic_physics.py`: Adimensional PDE physics constraints (momentum equations, constitutive equations for Oldroyd-B, PTT, Giesekus), and boundary condition rules.
+        - `load_comsol.py`: Data loader and processing for COMSOL datasets.
+        - `trainer.py`: Implementation of the staged optimization loop (Adam phase followed by L-BFGS refinement).
+- **`COMSOL/`**: Storage folder for COMSOL reference datasets (e.g., `Oldroyd.csv`).
 - **`func/`**: Shared utility functions.
-    - `graphic_func.py`: Plotting and GIF generation.
-    - `history_tracker.py`: Loss history tracking and visualization.
-- **`models/`**: Directory for saving trained models.
-- **`plots/`** & **`Results/`**: Directories where generated plots and training artifacts are saved.
+    - `graphic_func.py`: Matplotlib plotting scripts for 2D visualizations, error maps, and comparisons.
+    - `history_tracker.py`: Tracks and plots loss terms and parameter trajectories.
+- **`models/`**: Directory for saving trained model states.
+- **`plots/`**: Location for quick or general plots.
 
 ## Setup & Installation
 
 ### Virtual Environment
-It is highly recommended to use a virtual environment.
-- **MacOS/Linux**: Use the environment name `tesi` or `.venv`.
-    ```bash
-    python3 -m venv tesi
-    source tesi/bin/activate
-    ```
-- **Windows**: Use `venv`.
-    ```bash
-    python -m venv venv
-    .\venv\Scripts\activate
-    ```
+Use the standard virtual environment on Windows:
+```powershell
+python -m venv venv
+.\venv\Scripts\activate
+```
 
 ### Dependencies
-Install the required Python packages:
-```bash
-pip install -r requirements.txt
+Install dependencies from the workspace root:
+```powershell
+.\venv\Scripts\pip install -r requirements.txt
 ```
-Key dependencies: `torch`, `numpy`, `matplotlib`, `tqdm`, `Pillow`.
+Key libraries: `torch`, `numpy`, `matplotlib`, `tqdm`, `pandas`.
 
 ## Running the Experiments
 
-### 1. Damped Harmonic Oscillator
-Run the main script to train the PINN for the harmonic oscillator:
-```bash
-python PINNs_maurizio.py
-```
-Or explore the notebook:
-```bash
-jupyter notebook "Harmonic oscillator PINN.ipynb"
-```
-
-### 2. Irreversible CSTR
-Run the CSTR simulation/inversion:
-```bash
-python IrreversibleCSTR/IrreversibleCSTR_main.py
-```
-
-### 3. 2D Heat Transfer
-Run the 2D Heat transfer simulation:
-```bash
-python Heat2D/Heat2D_main.py
+### Viscoelastic PINN Solver
+Run the main grid search or configuration training:
+```powershell
+.\venv\Scripts\python Viscoelastic/Viscoelastic_main.py
 ```
 
 ## Development Conventions
 
 ### 1. Precision & Numerical Stability
 - **Staged Precision Strategy**: 
-    - Fase 1: Esplorazione veloce con **Adam @ FP32** (sfrutta TF32 su GPU Ampere).
-    - Fase 2: Raffinamento fisico con **L-BFGS @ FP64** per precisione "scientific grade".
-- **Default Type**: `torch.set_default_dtype(torch.float64)` è lo standard per la fase di raffinamento e inferenza finale.
+    - Fase 1: Fast exploration with **Adam @ FP32** (leverages TF32 on Ampere GPUs).
+    - Fase 2: Physical refinement with **L-BFGS @ FP64** for scientific-grade precision.
+- **Default Type**: `torch.set_default_dtype(torch.float64)` is used during L-BFGS and final inference.
 
-### 2. Architecture Standards
-- **Tapered Layers**: Utilizzo di architetture a imbuto (es. `[120, 100, 80, 60, 40, 20]`) per condensare le feature.
-- **Activations**: 
-    - **SiLU (Swish)**: Preferita per PDE di secondo ordine grazie alla regolarità della derivata seconda.
-    - **LAA (Learnable Adaptive Activations)**: Implementazione di parametri scalabili per catturare gradienti ripidi.
+### 2. Architecture & Physics Standards
+- **Stream-Function Formulation**: The network predicts the stream function $\psi$ instead of velocity components $u$ and $v$ directly, automatically satisfying the incompressibility constraint:
+  $$u = \frac{\partial \psi}{\partial y}, \quad v = -\frac{\partial \psi}{\partial x}$$
+- **Separate Network Heads**:
+  - `model_psi` predicts stream function $\psi$ (dimension: 1 output).
+  - `model_p` predicts pressure $p$ (dimension: 1 output).
+  - `model_tau` predicts extra-stress tensor components $\tau = (\tau_{xx}, \tau_{xy}, \tau_{yy})$ (dimension: 3 outputs).
+- **Constitutive Models**: Supports Oldroyd-B, PTT (Phan-Thien-Tanner), and Giesekus formulations through Weissenberg ($Wi$), Reynolds ($Re$), viscosity ratio ($\beta$), and model parameters ($\epsilon, \alpha$).
 
-### 3. Sampling & Training
-- **Sobol sequences**: Utilizzo di campionamento quasi-Monte Carlo per una copertura uniforme del dominio.
-- **SAR (Spatially Adaptive Refinement)**: Aggiunta dinamica di punti nelle zone con alto residuo PDE.
-
-### 4. Visualization & Output
-- **Visualizzazione**: Funzioni centralizzate in `func/graphic_func.py`.
-- **Output**: Controllo e creazione automatica di `Results/` e `plots/`.
-- **Device**: Utilizzo di `cuda` con fallback su `cpu`.
-
-## Knowledge Management & Wiki
-
-All'interno della cartella `PINN-wiki/` è presente un **Obsidian Vault** dedicato alla gestione della conoscenza e della letteratura. Questo vault contiene un proprio file `GEMINI.md` che descrive:
-- **Protocolli di Ingestion**: Come aggiungere nuovi paper e script alla wiki.
-- **Procedure di Maintenance**: Come eseguire il comando **LIST** (health check) per verificare l'integrità dei link e dell'indice.
-- **Struttura della Conoscenza**: Organizzazione in Literature, Topics, Methods e Systems.
-
-Si raccomanda di seguire rigorosamente le procedure descritte nel `PINN-wiki/GEMINI.md` per mantenere la wiki coerente e utile nel tempo.
-
+### 3. Staged Training Strategy (ViscoelasticNet Framework)
+To ensure optimization stability, training is split into distinct stages:
+1. **Phase 1 (Adam)**: Train only $\psi$ (velocity fields) and stress tensor $\tau$, while pressure $p$ is frozen.
+2. **Phase 2 (Adam)**: Train $\psi$ and pressure $p$, keeping stress parameters adjusted or frozen depending on settings.
+3. **Phase 3 (L-BFGS)**: Fine-tune the entire combined model jointly with FP64 precision.
 
 ## Note aggiunte
 Prima di implementare o modificare effettivamente qualsiasi codice (escluse le letture, analisi del repo o prove innocue), spiegami sempre cosa stai cercando di fare. 
 Se sei su windows non usare && per dare più comandi in uno, usa il modo corretto o runna singolarmente i comandi.
 Su Windows, esegui SEMPRE i comandi python e pip facendo riferimento all'interprete del virtual environment (es. `.\venv\Scripts\python` o `.\venv\Scripts\pip`), senza dare per scontato che l'eseguibile globale sia presente nel PATH.
+Per quanto riguarda l'analisi della repo, non modificare la struttura di staged training presente (con prima fase Adam solo psi e tau, poi psi e p, e fine L-BFGS con tutto acceso). Non proporre modifiche a questa struttura perché si desidera aderire rigorosamente al framework di viscoelasticnet.

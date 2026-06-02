@@ -59,7 +59,7 @@ def _to_numpy_1d(arr):
 
 
 def plot2D_comparison(triang, field_exact_1d, field_pred_1d, epoch, save_path,
-                      physics_points=None, val_label='Value', show_points=False):
+                      val_label='Value'):
     """Genera grafici: Predizione, Errore Assoluto, Errore Relativo su mesh non strutturata.
     Usa tricontourf su un oggetto Triangulation.
 
@@ -69,16 +69,14 @@ def plot2D_comparison(triang, field_exact_1d, field_pred_1d, epoch, save_path,
         field_pred_1d: 1-D tensor/array with predicted field values at mesh nodes.
         epoch: Current epoch number (used in title).
         save_path: Path to save the figure (None → plt.show()).
-        physics_points: Optional (N,2) tensor/array of physics collocation points.
         val_label: Label for the colorbar of the solution plot.
-        show_points: If True, overlay physics points on the prediction subplot.
     """
     pred_np = _to_numpy_1d(field_pred_1d)
     exact_np = _to_numpy_1d(field_exact_1d)
 
     abs_error = np.abs(pred_np - exact_np)
 
-    # Relative error with dynamic masking (same logic as structured version)
+    # Relative error with dynamic masking
     rel_error = np.zeros_like(exact_np)
     max_val = np.max(np.abs(exact_np))
     threshold = max(0.05 * max_val, 1e-8)
@@ -96,19 +94,6 @@ def plot2D_comparison(triang, field_exact_1d, field_pred_1d, epoch, save_path,
     ax.set_xlabel('x')
     ax.set_ylabel('y')
     ax.set_aspect('equal', adjustable='box')
-
-    if show_points and physics_points is not None:
-        xy_phys = _to_numpy_1d(physics_points).reshape(-1, 2) if not isinstance(physics_points, np.ndarray) else np.asarray(physics_points)
-        if hasattr(physics_points, 'detach'):
-            xy_phys = physics_points.detach().cpu().numpy()
-        else:
-            xy_phys = np.asarray(physics_points)
-        if len(xy_phys) > 2000:
-            idx = np.random.choice(len(xy_phys), 2000, replace=False)
-            xy_phys = xy_phys[idx]
-        ax.scatter(xy_phys[:, 0], xy_phys[:, 1], s=1, facecolor='white',
-                   edgecolor='none', marker='o', alpha=0.2, label='Punti Fisica')
-        ax.legend(loc='upper right', fontsize='x-small', framealpha=0.5)
 
     # 2. Absolute error
     ax = axes[1]
@@ -137,8 +122,7 @@ def plot2D_comparison(triang, field_exact_1d, field_pred_1d, epoch, save_path,
 
 
 def plot2D_final_result(triang, field_exact_1d, field_pred_1d, epoch, save_path,
-                        internal_points=None, boundary_points=None,
-                        physics_points=None, val_label='Value'):
+                        internal_points=None, boundary_points=None, val_label='Value'):
     """Plot finale su mesh non strutturata: Soluzione + punti sovrapposti, Errore Relativo.
     Usa tricontourf su un oggetto Triangulation.
 
@@ -150,7 +134,6 @@ def plot2D_final_result(triang, field_exact_1d, field_pred_1d, epoch, save_path,
         save_path: Path to save the figure (None → plt.show()).
         internal_points: Optional (N,2) tensor/array of internal data points.
         boundary_points: Optional (N,2) tensor/array of boundary points.
-        physics_points: Optional (N,2) tensor/array of physics collocation points.
         val_label: Label for the colorbar.
     """
     pred_np = _to_numpy_1d(field_pred_1d)
@@ -177,28 +160,21 @@ def plot2D_final_result(triang, field_exact_1d, field_pred_1d, epoch, save_path,
     ax.set_aspect('equal', adjustable='box')
 
     # Overlay Points
-    if physics_points is not None:
-        xy_phys = physics_points.detach().cpu().numpy() if hasattr(physics_points, 'detach') else np.asarray(physics_points)
-        s_phys = max(0.05, 1000.0 / len(xy_phys)) if len(xy_phys) > 1000 else 1.0
-        alpha_phys = max(0.05, min(0.2, 500.0 / len(xy_phys))) if len(xy_phys) > 1000 else 0.2
-        ax.scatter(xy_phys[:, 0], xy_phys[:, 1], s=s_phys, facecolor='white',
-                   edgecolor='none', marker='o', alpha=alpha_phys, label='Physics Points')
-
     if internal_points is not None:
         xy_int = internal_points.detach().cpu().numpy() if hasattr(internal_points, 'detach') else np.asarray(internal_points)
-        s_int = max(0.1, 2000.0 / len(xy_int)) if len(xy_int) > 500 else 8.0
-        alpha_int = max(0.1, min(0.6, 1500.0 / len(xy_int))) if len(xy_int) > 500 else 0.6
+        s_int = max(2.0, 3000.0 / len(xy_int)) if len(xy_int) > 1000 else 4.0
+        alpha_int = 0.8
         ax.scatter(xy_int[:, 0], xy_int[:, 1], s=s_int, c='cyan', marker='o',
                    alpha=alpha_int, edgecolor='none', label='Internal Points')
 
     if boundary_points is not None:
         xy_bc = boundary_points.detach().cpu().numpy() if hasattr(boundary_points, 'detach') else np.asarray(boundary_points)
-        s_bc = max(0.2, 1000.0 / len(xy_bc)) if len(xy_bc) > 200 else 12.0
-        alpha_bc = max(0.2, min(0.7, 500.0 / len(xy_bc))) if len(xy_bc) > 200 else 0.7
+        s_bc = max(3.5, 1500.0 / len(xy_bc)) if len(xy_bc) > 300 else 7.0
+        alpha_bc = 0.9
         ax.scatter(xy_bc[:, 0], xy_bc[:, 1], s=s_bc, c='red', marker='s',
                    alpha=alpha_bc, edgecolor='none', label='Boundary Points')
 
-    if physics_points is not None or internal_points is not None or boundary_points is not None:
+    if internal_points is not None or boundary_points is not None:
         ax.legend(loc='upper right', framealpha=0.9, fontsize='small')
 
     # 2. Relative Error
@@ -221,8 +197,7 @@ def plot2D_final_result(triang, field_exact_1d, field_pred_1d, epoch, save_path,
 
 
 def plot2D_viscoelastic_final(triang, fields_pred, fields_exact, epoch, save_path,
-                              internal_points=None, boundary_points=None,
-                              physics_points=None):
+                              physics_points=None, internal_points=None, boundary_points=None):
     """Plot multi-campo finale per il caso viscoelastico su mesh non strutturata.
     Genera una griglia n_fields × 3: Predizione | Soluzione Esatta | Errore Relativo.
     Usa tricontourf su un oggetto Triangulation.
@@ -233,9 +208,6 @@ def plot2D_viscoelastic_final(triang, fields_pred, fields_exact, epoch, save_pat
         fields_exact: Dict with the same keys.
         epoch: Current epoch number.
         save_path: Path to save the figure (None → plt.show()).
-        internal_points: Optional (N,2) tensor/array of internal data points.
-        boundary_points: Optional (N,2) tensor/array of boundary points.
-        physics_points: Optional (N,2) tensor/array of physics collocation points.
     """
     field_names = ['u', 'p', 'tau_xx', 'tau_xy', 'tau_yy']
     field_labels = ['u (Velocity)', 'p (Pressure)', 'τ_xx', 'τ_xy', 'τ_yy']
@@ -272,23 +244,7 @@ def plot2D_viscoelastic_final(triang, fields_pred, fields_exact, epoch, save_pat
 
         # Overlay points only on the first row
         if i == 0:
-            if physics_points is not None:
-                xy_p = physics_points.detach().cpu().numpy() if hasattr(physics_points, 'detach') else np.asarray(physics_points)
-                if len(xy_p) > 2000:
-                    xy_p = xy_p[np.random.choice(len(xy_p), 2000, replace=False)]
-                ax.scatter(xy_p[:, 0], xy_p[:, 1], s=1, facecolor='white',
-                           edgecolor='none', marker='o', alpha=0.2, label='Physics')
-            if internal_points is not None:
-                xy_i = internal_points.detach().cpu().numpy() if hasattr(internal_points, 'detach') else np.asarray(internal_points)
-                if len(xy_i) > 3000:
-                    xy_i = xy_i[np.random.choice(len(xy_i), 3000, replace=False)]
-                ax.scatter(xy_i[:, 0], xy_i[:, 1], s=6, c='cyan', marker='o',
-                           alpha=0.5, edgecolor='none', label='Data')
-            if boundary_points is not None:
-                xy_b = boundary_points.detach().cpu().numpy() if hasattr(boundary_points, 'detach') else np.asarray(boundary_points)
-                ax.scatter(xy_b[:, 0], xy_b[:, 1], s=10, c='red', marker='s',
-                           alpha=0.6, edgecolor='none', label='BC')
-            ax.legend(loc='upper right', fontsize='x-small', framealpha=0.6)
+            pass # Removed points to keep the plot clean as requested
 
         # Col 1: Exact solution
         ax = axes[i, 1]
@@ -491,7 +447,7 @@ def generate_epoch_diagnostic_plot(model, physics_problem, xy_grid, T_exact_grid
         del xy_grid_val
         
     plot_path = os.path.join(plots_dir, f'epoch_{epoch+1}.png')
-    plot2D_comparison(triang, T_exact_grid.cpu().view(-1), T_pred_grid, epoch+1, plot_path, physics_points=None, val_label=val_label, show_points=False)
+    plot2D_comparison(triang, T_exact_grid.cpu().view(-1), T_pred_grid, epoch+1, plot_path, val_label=val_label)
     plot_files.append(plot_path)
     
     import gc
@@ -500,14 +456,13 @@ def generate_epoch_diagnostic_plot(model, physics_problem, xy_grid, T_exact_grid
         torch.cuda.empty_cache()
 
 
-def generate_final_training_plots(final_dir, plots_dir, triang, T_exact_grid, T_final, p_final, tau_final, stress_exact_grids, plot_files, epochs, val_label, internal_pts, boundary_pts, xy_physics_full):
+def generate_final_training_plots(final_dir, plots_dir, triang, T_exact_grid, T_final, p_final, tau_final, stress_exact_grids, plot_files, epochs, val_label, internal_pts, boundary_pts, physics_pts=None):
     """Genera i plot finali (singolo e multi-campo), crea la GIF ed elimina la cartella temporanea."""
     import shutil
     # --- PLOT COMPARATIVO PRINCIPALE ---
     final_path = os.path.join(final_dir, 'VEfinal_result.png')
     plot2D_final_result(triang, T_exact_grid.view(-1), T_final, epochs, save_path=final_path, 
-                        internal_points=internal_pts, boundary_points=boundary_pts, 
-                        physics_points=xy_physics_full, val_label=val_label)
+                        internal_points=internal_pts, boundary_points=boundary_pts, val_label=val_label)
     
     # --- PLOT MULTI-CAMPO VISCOELASTICO ---
     if stress_exact_grids is not None:
@@ -526,9 +481,8 @@ def generate_final_training_plots(final_dir, plots_dir, triang, T_exact_grid, T_
             'tau_yy': stress_exact_grids.get('tau_yy', torch.zeros_like(T_exact_grid)).cpu().view(-1),
         }
         visco_final_path = os.path.join(final_dir, 'VE_viscoelastic_fields.png')
-        plot2D_viscoelastic_final(triang, fields_pred, fields_exact, epochs,
-                                  save_path=visco_final_path, internal_points=None, 
-                                  boundary_points=None, physics_points=None)
+        plot2D_viscoelastic_final(triang, fields_pred, fields_exact, epochs, save_path=visco_final_path,
+                                  physics_points=physics_pts, internal_points=internal_pts, boundary_points=boundary_pts)
     
     # --- GIF E PULIZIA ---
     if plot_files:
