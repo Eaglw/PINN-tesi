@@ -90,8 +90,9 @@ class TrainingHistory:
         rows = ['core']
         if bc_keys:
             rows.append('bc_comp')
-        if param_keys:
-            rows.append('params')
+        # Rimossa l'evoluzione dei parametri fisici dal grafico delle loss per evitare ridondanze.
+        # if param_keys:
+        #     rows.append('params')
             
         num_rows = len(rows)
         num_cols = 2 if has_lbfgs else 1

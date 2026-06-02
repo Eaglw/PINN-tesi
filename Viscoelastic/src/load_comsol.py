@@ -695,21 +695,16 @@ def prepare_training_data(dataset_path, comsol_params, num_data_subset, initial_
     sigma2_v   = max(v_exact.var().item(), variance_eps)
     sigma2_p   = max(p_exact.var().item(), variance_eps)
     
-    # Calcolo varianze per lo stress RISCALATO (tilde = tau / (1-beta))
-    beta_val = dataset['nondim_params']['beta']
-    one_m_beta = max(1.0 - beta_val, 1e-6)
-    sigma2_txx_tilde = max((tau_xx_exact / one_m_beta).var().item(), variance_eps)
-    sigma2_txy_tilde = max((tau_xy_exact / one_m_beta).var().item(), variance_eps)
-    sigma2_tyy_tilde = max((tau_yy_exact / one_m_beta).var().item(), variance_eps)
+    # Calcolo varianze reali per lo stress
+    sigma2_txx = max(tau_xx_exact.var().item(), variance_eps)
+    sigma2_txy = max(tau_xy_exact.var().item(), variance_eps)
+    sigma2_tyy = max(tau_yy_exact.var().item(), variance_eps)
     
     var_weights = {
-        'u': sigma2_u, 'v': sigma2_v, 'p': sigma2_p,
-        'tau_xx': sigma2_txx_tilde * (one_m_beta**2), # varianza fisica per BC
-        'tau_xy': sigma2_txy_tilde * (one_m_beta**2),
-        'tau_yy': sigma2_tyy_tilde * (one_m_beta**2),
-        'txx_nd': sigma2_txx_tilde, # varianza riscalata per residui PDE
-        'txy_nd': sigma2_txy_tilde,
-        'tyy_nd': sigma2_tyy_tilde
+        'u': 1.0, 'v': 1.0, 'p': 1.0,
+        'tau_xx': 1.0,
+        'tau_xy': 1.0,
+        'tau_yy': 1.0,
     }
     
     # Boundary Conditions: estraiamo solo i gruppi geometrici

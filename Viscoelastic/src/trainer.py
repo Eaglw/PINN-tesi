@@ -70,7 +70,7 @@ def _sample_boundary_groups(xy_bc, target_bc, boundary_metadata, batch_size, dev
 def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, validation_grid, collocation_points, loss_history, plots_dir):
     _device = next(model.parameters()).device
     epochs = cfg.epochs
-    half_epochs = epochs // 2
+    half_epochs = epochs+1
     staged_training = cfg.staged_training
     lambda_data = cfg.loss_weights.get('data', 1.0)
     lambda_bc = cfg.loss_weights.get('bc', 1.0)
@@ -118,6 +118,11 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         if staged_training and epoch == warmup_epochs_1:
             set_physics_trainable(physics_problem, ['mu_p', 'lam', 'eps', 'alpha'])
             optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(half_epochs - warmup_epochs_1)
+            if cfg.dynamic_weighting:
+                lambda_data = cfg.loss_weights.get('data', 1.0)
+                lambda_bc = cfg.loss_weights.get('bc', 1.0)
+                target_lambda_physics = cfg.loss_weights.get('physics', 1.0)
+                print(f"  [Dynamic Weights] Reset a fine warmup (epoca {epoch}): data={lambda_data:.2f}, bc={lambda_bc:.2f}, phys={target_lambda_physics:.2f}")
         if staged_training and epoch == half_epochs:
             print(f"\n  [Staged Training] Fase 2: Dinamica (psi+p).")
             set_model_trainable(model, ['psi', 'p'])
@@ -166,11 +171,17 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
                 if target_lambda_physics > 0 and 'pde_loss' in loss_dict and loss_dict['pde_loss'].requires_grad:
                     g_ph = torch.autograd.grad(loss_dict['pde_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
                     m_ph = max([g.norm(2) for g in g_ph if g is not None]).item() if any(g is not None for g in g_ph) else 0.0
-                    if m_ph > 1e-12: target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * (norm_bc / m_ph) * lambda_bc
+                    if m_ph > 1e-12:
+                        ratio_ph = min(norm_bc / m_ph, 100.0)
+                        target_lambda_physics = alpha_dynamic * target_lambda_physics + (1-alpha_dynamic) * ratio_ph * lambda_bc
+                        target_lambda_physics = min(target_lambda_physics, 500.0)
                 if lambda_data > 0 and 'data_loss' in loss_dict and loss_dict['data_loss'].requires_grad:
                     g_dt = torch.autograd.grad(loss_dict['data_loss'], _last_layer_trainable, retain_graph=True, allow_unused=True)
                     m_dt = max([g.norm(2) for g in g_dt if g is not None]).item() if any(g is not None for g in g_dt) else 0.0
-                    if m_dt > 1e-12: lambda_data = alpha_dynamic * lambda_data + (1-alpha_dynamic) * (norm_bc / m_dt) * lambda_bc
+                    if m_dt > 1e-12:
+                        ratio_dt = min(norm_bc / m_dt, 100.0)
+                        lambda_data = alpha_dynamic * lambda_data + (1-alpha_dynamic) * ratio_dt * lambda_bc
+                        lambda_data = min(lambda_data, 500.0)
 
         loss.backward(inputs=trainable_params)
         torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
@@ -179,6 +190,13 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
             if phys_params_clip:
                 torch.nn.utils.clip_grad_norm_(phys_params_clip, cfg.param_clip_norm)
         optimizer.step()
+        if getattr(physics_problem, 'inverse_mode', False):
+            with torch.no_grad():
+                physics_problem.eps.clamp_(min=0.0)
+                physics_problem.alpha.clamp_(min=0.0)
+                physics_problem.mu_s.clamp_(min=1e-6)
+                physics_problem.mu_p.clamp_(min=1e-6)
+                physics_problem.lam.clamp_(min=1e-6)
         if cfg.lr_strategy in ['step_decay', 'cosine']: scheduler.step()
 
         history_entry = {k: (v.item() if isinstance(v, torch.Tensor) else v) for k, v in loss_dict.items()}
@@ -203,6 +221,7 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
     
     print("\n  [Staged Training] Fase 3: Raffinamento L-BFGS.")
     set_model_trainable(model, ['psi', 'p', 'tau'])
+    set_physics_trainable(physics_problem, ['mu_s', 'mu_p', 'lam'])
     physics_problem.pde_weights = base_pde_weights
     
     if cfg.precision_mode == 'staged':
@@ -322,6 +341,13 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
         return torch.tensor(total_loss_val, device=dev, dtype=dtype, requires_grad=True)
 
     optimizer_lbfgs.step(closure)
+    if getattr(physics_problem, 'inverse_mode', False):
+        with torch.no_grad():
+            physics_problem.eps.clamp_(min=0.0)
+            physics_problem.alpha.clamp_(min=0.0)
+            physics_problem.mu_s.clamp_(min=1e-6)
+            physics_problem.mu_p.clamp_(min=1e-6)
+            physics_problem.lam.clamp_(min=1e-6)
     pbar.close()
     if cfg.precision_mode == 'staged':
         torch.set_default_dtype(_dtype); model.to(_dtype); physics_problem.to(_dtype)
@@ -347,7 +373,19 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
     loss_dict, total_loss = {}, 0.0
     if x_data is not None and x_data.numel() > 0:
         up, vp, pp, tp = physics_problem.get_velocity(model, x_data)
-        data_loss = 0.5 * (nn.MSELoss()(up, y_data[:,0:1])/variance_weights.get('u',1.0) + nn.MSELoss()(vp, y_data[:,1:2])/variance_weights.get('v',1.0))
+        
+        loss_u = nn.MSELoss()(up, y_data[:,0:1]) / variance_weights.get('u', 1.0)
+        loss_v = nn.MSELoss()(vp, y_data[:,1:2]) / variance_weights.get('v', 1.0)
+        data_loss = 0.5 * (loss_u + loss_v)
+        
+        # Se abbiamo tutti i 6 campi (es. Goal 2: SoloData / comsol_full)
+        if y_data.shape[1] >= 6:
+            loss_p = nn.MSELoss()(pp, y_data[:,2:3]) / variance_weights.get('p', 1.0)
+            loss_txx = nn.MSELoss()(tp[:,0:1], y_data[:,3:4]) / variance_weights.get('tau_xx', 1.0)
+            loss_txy = nn.MSELoss()(tp[:,1:2], y_data[:,4:5]) / variance_weights.get('tau_xy', 1.0)
+            loss_tyy = nn.MSELoss()(tp[:,2:3], y_data[:,5:6]) / variance_weights.get('tau_yy', 1.0)
+            data_loss = (loss_u + loss_v + loss_p + loss_txx + loss_txy + loss_tyy) / 6.0
+            
         loss_dict['data_loss'] = data_loss
         total_loss += lambda_data * data_loss
     

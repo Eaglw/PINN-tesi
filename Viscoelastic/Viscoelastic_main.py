@@ -32,8 +32,8 @@ from Viscoelastic.src.Viscoelastic_physics import ViscoelasticPhysics
 
 # --- 2. GRID SEARCH SPACE ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]]  # VENet 8x128
-EPOCHS_OPTIONS = [10000]
-MAX_LBFGS_ITERS = None  #Se None, usa il 10% di epoche Adam.
+EPOCHS_OPTIONS = [6000]
+MAX_LBFGS_ITERS = 0  #Se None, usa il 10% di epoche Adam.
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']
@@ -43,7 +43,7 @@ WEIGHTING_OPTIONS = ['dynamic']
 PRECISION_MODE = 'staged'           # 'full_32' | 'staged' | 'full_64'
 SEED = 123
 #DATASET_OPTIONS = ['Oldroyd.csv','Oldroyd_res.csv']
-DATASET_OPTIONS = ['Oldroyd_res.csv']
+DATASET_OPTIONS = ['Oldroyd.csv']
 
 COMSOL_PARAMS = {
     'mu_s': 0.005,   # Viscosità solvente [Pa·s]
@@ -72,8 +72,8 @@ BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 STAGED_TRAINING = True
 
-MINIBATCH_INTERNAL = 2048
-MINIBATCH_BOUNDARY = 256
+MINIBATCH_INTERNAL = 2048*16
+MINIBATCH_BOUNDARY = 256*2
 
 STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}
 STATIC_WEIGHT_STR = "BC=1-PHYS=10-DATA=100"

@@ -21,7 +21,7 @@ DEFAULT_BC_RULES = {
     },
     'Walls': {
         'dirichlet': {'u': 0.0, 'v': 0.0},
-        'neumann': {'p': 0.0}
+        #'neumann': {'p': 0.0}
     },
     'Outlet': {
         'dirichlet': {'p': 'csv'}
@@ -29,7 +29,7 @@ DEFAULT_BC_RULES = {
     },
     'Walls-dritte':{
         'dirichlet': {'u': 0.0, 'v': 0.0},
-        'neumann': {'p': 0.0}
+        #'neumann': {'p': 0.0}
     }
 }
 
@@ -41,14 +41,11 @@ class ViscoelasticPhysics(nn.Module):
                  real_mu_s=None, real_mu_p=None, real_lam=None, real_eps=None, real_alpha=None,
                  bc_rules=None):
         """
-        Modulo per calcolare i residui fisici in forma ADIMENSIONALE con RISCALAMENTO VARIABILI.
+        Modulo per calcolare i residui fisici in forma ADIMENSIONALE.
         
-        LOGICA DI RESCALING:
-            Per evitare problemi numerici quando (1-beta) è molto piccolo, la rete neurale
-            non predice lo stress fisico tau, ma lo stress riscalato tau_tilde:
-                tau = (1 - beta) * tau_tilde
-            In questo modo, le equazioni costitutive diventano di ordine O(1) e non richiedono
-            moltiplicatori enormi che destabilizzano il gradiente.
+        La rete neurale prevede direttamente il tensore degli sforzi adimensionale tau.
+        Il parametro (1-beta) = mu_p / mu_tot appare esplicitamente nelle equazioni
+        costitutive per bilanciare il contributo polimerico e la viscosità del solvente.
         """
         super().__init__()
         self.inverse_mode = inverse_mode
@@ -113,38 +110,37 @@ class ViscoelasticPhysics(nn.Module):
 
     def _get_nondim_params(self):
         eff = self._get_effective_params()
-        mu_tot = eff['mu_s'] + eff['mu_p']
+        # Per evitare disallineamenti di scala con il dataset (che è adimensionalizzato usando i valori reali),
+        # usiamo real_mu_s + real_mu_p come riferimento costante.
+        real_mu_tot = self.real_mu_s + self.real_mu_p
         return {
-            'Re': self.rho * self.U_ref * self.H_ref / mu_tot,
+            'Re': self.rho * self.U_ref * self.H_ref / real_mu_tot,
             'Wi': eff['lam'] * self.U_ref / self.H_ref,
-            'beta': eff['mu_s'] / mu_tot,
+            'beta': eff['mu_s'] / real_mu_tot,
             'eps': eff['eps'],
             'alpha': eff['alpha'],
+            'beta_poly': eff['mu_p'] / real_mu_tot,
         }
 
     def get_velocity(self, model, x):
-        """Restituisce u, v, p e lo stress FISICO tau (già de-riscalato)."""
+        """Restituisce u, v, p e lo stress adimensionale tau."""
         if not x.requires_grad: x = x.clone().requires_grad_(True)
         out = model(x)
-        psi, p, tau_tilde = out[:, 0:1], out[:, 1:2], out[:, 2:5]
+        psi, p, tau = out[:, 0:1], out[:, 1:2], out[:, 2:5]
         grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=True)[0]
         u, v = grad_psi[:, 1:2], -grad_psi[:, 0:1]
-        
-        # De-riscalamento per ottenere lo stress fisico tau
-        beta = self._get_nondim_params()['beta']
-        tau = (1.0 - beta) * tau_tilde
         return u, v, p, tau
 
     def compute_residuals(self, model, x):
-        """Calcola i residui PDE operando sulle variabili riscalate (tilde)."""
-        # 1. Recupero parametri e output rete (riscalati)
+        """Calcola i residui PDE adimensionali operando direttamente su tau."""
+        # 1. Recupero parametri e output rete
         nd = self._get_nondim_params()
         Re, Wi, beta, eps, alpha = nd['Re'], nd['Wi'], nd['beta'], nd['eps'], nd['alpha']
-        one_m_beta = 1.0 - beta
+        beta_poly = nd['beta_poly']
         
         out = model(x)
-        psi, p, tau_tilde = out[:, 0:1], out[:, 1:2], out[:, 2:5]
-        tt_xx, tt_xy, tt_yy = tau_tilde[:, 0:1], tau_tilde[:, 1:2], tau_tilde[:, 2:3]
+        psi, p, tau = out[:, 0:1], out[:, 1:2], out[:, 2:5]
+        tau_xx, tau_xy, tau_yy = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
         
         # 2. Cinematica da Stream Function
         grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=True)[0]
@@ -164,29 +160,29 @@ class ViscoelasticPhysics(nn.Module):
         v_xx = torch.autograd.grad(v_x.sum(), x, create_graph=True)[0][:, 0:1]
         v_yy = -u_yx
         
-        # 4. Derivate Stress Riscalato (tilde)
-        g_txx = torch.autograd.grad(tt_xx.sum(), x, create_graph=True)[0]
-        g_txy = torch.autograd.grad(tt_xy.sum(), x, create_graph=True)[0]
-        g_tyy = torch.autograd.grad(tt_yy.sum(), x, create_graph=True)[0]
-        tt_xx_x, tt_xx_y = g_txx[:, 0:1], g_txx[:, 1:2]
-        tt_xy_x, tt_xy_y = g_txy[:, 0:1], g_txy[:, 1:2]
-        tt_yy_x, tt_yy_y = g_tyy[:, 0:1], g_tyy[:, 1:2]
+        # 4. Derivate Stress
+        g_txx = torch.autograd.grad(tau_xx.sum(), x, create_graph=True)[0]
+        g_txy = torch.autograd.grad(tau_xy.sum(), x, create_graph=True)[0]
+        g_tyy = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0]
+        tau_xx_x, tau_xx_y = g_txx[:, 0:1], g_txx[:, 1:2]
+        tau_xy_x, tau_xy_y = g_txy[:, 0:1], g_txy[:, 1:2]
+        tau_yy_x, tau_yy_y = g_tyy[:, 0:1], g_tyy[:, 1:2]
         
-        # 5. Momentum (Navier-Stokes) - Lo stress entra come (1-beta)*div(tau_tilde)
-        f_u = Re * (u * u_x + v * u_y) + p_x - beta * (u_xx + u_yy) - one_m_beta * (tt_xx_x + tt_xy_y)
-        f_v = Re * (u * v_x + v * v_y) + p_y - beta * (v_xx + v_yy) - one_m_beta * (tt_xy_x + tt_yy_y)
+        # 5. Momentum (Navier-Stokes)
+        f_u = Re * (u * u_x + v * u_y) + p_x - beta * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
+        f_v = Re * (u * v_x + v * v_y) + p_y - beta * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
 
-        # 6. Costitutiva Riscalata (Tutti i termini sono O(1))
-        # f = 1 + eps*Wi*tr(tau_tilde)
-        f_PTT = 1.0 + eps * Wi * (tt_xx + tt_yy)
+        # 6. Costitutive (Oldroyd-B / PTT / Giesekus)
+        # Il parametro beta_poly bilancia lo scaling fisico dello sforzo polimerico
+        f_PTT = 1.0 + (eps * Wi / beta_poly) * (tau_xx + tau_yy)
         
-        upper_xx = (u * tt_xx_x + v * tt_xx_y - 2 * u_x * tt_xx - 2 * u_y * tt_xy)
-        upper_yy = (u * tt_yy_x + v * tt_yy_y - 2 * v_x * tt_xy - 2 * v_y * tt_yy)
-        upper_xy = (u * tt_xy_x + v * tt_xy_y - u_x * tt_xy - u_y * tt_yy - tt_xx * v_x - tt_xy * v_y)
+        upper_xx = (u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy)
+        upper_yy = (u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy)
+        upper_xy = (u * tau_xy_x + v * tau_xy_y - u_x * tau_xy - u_y * tau_yy - tau_xx * v_x - tau_xy * v_y)
 
-        f_txx = f_PTT * tt_xx + Wi * upper_xx + alpha * Wi * (tt_xx**2 + tt_xy**2) - 2.0 * u_x
-        f_tyy = f_PTT * tt_yy + Wi * upper_yy + alpha * Wi * (tt_xy**2 + tt_yy**2) - 2.0 * v_y
-        f_txy = f_PTT * tt_xy + Wi * upper_xy + alpha * Wi * tt_xy * (tt_xx + tt_yy) - (u_y + v_x)
+        f_txx = f_PTT * tau_xx + Wi * upper_xx + (alpha * Wi / beta_poly) * (tau_xx**2 + tau_xy**2) - 2.0 * beta_poly * u_x
+        f_tyy = f_PTT * tau_yy + Wi * upper_yy + (alpha * Wi / beta_poly) * (tau_xy**2 + tau_yy**2) - 2.0 * beta_poly * v_y
+        f_txy = f_PTT * tau_xy + Wi * upper_xy + (alpha * Wi / beta_poly) * tau_xy * (tau_xx + tau_yy) - beta_poly * (u_y + v_x)
         
         return f_u, f_v, f_txx, f_tyy, f_txy
 
@@ -196,10 +192,10 @@ class ViscoelasticPhysics(nn.Module):
         
         f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(model, x)
                 
-        loss_m = ((f_u**2 + f_v**2) / max(vw.get('u', 1.0), 1e-8)).mean()
-        loss_c = (f_txx**2 / max(vw.get('txx_nd', 1.0), 1e-8)).mean() + \
-                 (f_tyy**2 / max(vw.get('tyy_nd', 1.0), 1e-8)).mean() + \
-                 (f_txy**2 / max(vw.get('txy_nd', 1.0), 1e-8)).mean()
+        loss_m = (f_u**2 + f_v**2).mean()
+        loss_c = (f_txx**2 / max(vw.get('tau_xx', 1.0), 1e-8)).mean() + \
+                 (f_tyy**2 / max(vw.get('tau_yy', 1.0), 1e-8)).mean() + \
+                 (f_txy**2 / max(vw.get('tau_xy', 1.0), 1e-8)).mean()
 
         return weights.get('momentum', 10.0) * loss_m + weights.get('constitutive', 1.0) * loss_c
 
