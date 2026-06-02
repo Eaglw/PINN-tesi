@@ -62,9 +62,13 @@ def load_comsol_csv(csv_path, params, device='cpu'):
     tau_yy_raw = data_np[:, 7]
 
     # --- 2. Scale di riferimento ---
-    H = float(y_raw.max())
-    L = float(x_raw.max())
-    U_ref = float(u_raw.max())
+    y_min, y_max = float(y_raw.min()), float(y_raw.max())
+    x_min, x_max = float(x_raw.min()), float(x_raw.max())
+    H = y_max - y_min if (y_max - y_min) > 1e-9 else 1.0
+    L = x_max - x_min if (x_max - x_min) > 1e-9 else 1.0
+    U_ref = float(np.abs(u_raw).max())
+    if U_ref < 1e-9:
+        U_ref = 1.0
 
     mu_s = params['mu_s']
     mu_p = params['mu_p']
@@ -77,9 +81,9 @@ def load_comsol_csv(csv_path, params, device='cpu'):
     p_ref = mu_tot * U_ref / H      # Scala viscosa di pressione
     tau_ref = mu_tot * U_ref / H    # Stessa scala per gli sforzi
 
-    # --- 3. Adimensionalizzazione ---
-    x_nd = x_raw / H
-    y_nd = y_raw / H
+    # --- 3. Adimensionalizzazione (spostando l'origine a (0,0) per coerenza) ---
+    x_nd = (x_raw - x_min) / H
+    y_nd = (y_raw - y_min) / H
     u_nd = u_raw / U_ref
     v_nd = v_raw / U_ref
     p_nd = p_raw / p_ref
@@ -96,18 +100,18 @@ def load_comsol_csv(csv_path, params, device='cpu'):
     tau_xy_t = torch.tensor(tau_xy_nd, dtype=torch.float32, device=device).reshape(-1, 1)
     tau_yy_t = torch.tensor(tau_yy_nd, dtype=torch.float32, device=device).reshape(-1, 1)
 
-    # --- 4. Identificazione nodi boundary ---
-    tol = 1e-8
+    # --- 4. Identificazione nodi boundary (basata su intervalli assoluti) ---
+    tol = 1e-6
     L_nd = L / H  # Lunghezza adimensionale del canale
     H_nd = 1.0    # Altezza adimensionale (H/H = 1)
 
     # Indici candidati per inlet e outlet (prioritari sugli spigoli)
-    inlet_mask = x_raw < tol
-    outlet_mask = np.abs(x_raw - L) < tol
+    inlet_mask = np.abs(x_raw - x_min) < tol
+    outlet_mask = np.abs(x_raw - x_max) < tol
 
     # Bottom e top: escludono inlet e outlet per evitare duplicati
-    bottom_mask = (y_raw < tol) & (~inlet_mask) & (~outlet_mask)
-    top_mask = (np.abs(y_raw - H) < tol) & (~inlet_mask) & (~outlet_mask)
+    bottom_mask = (np.abs(y_raw - y_min) < tol) & (~inlet_mask) & (~outlet_mask)
+    top_mask = (np.abs(y_raw - y_max) < tol) & (~inlet_mask) & (~outlet_mask)
 
     # Internal: tutto il resto
     boundary_mask = inlet_mask | outlet_mask | bottom_mask | top_mask
@@ -419,7 +423,7 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
         print(f"  [INFO] Selezioni generate geometricamente: Inlet={inlet_edges}, Outlet={outlet_edges}, Walls={walls_edges}")
 
 
-    # --- 2. CALCOLO TOPOLOGICO DELLE NORMALI ESTERNE ---
+    # --- 2. PREPARAZIONE PER IL CALCOLO DELLE NORMALI ESTERNE ---
     # Costruiamo una mappa nodo -> triangoli adiacenti per velocizzare la ricerca
     node_to_triangles = {}
     for t_idx, tri in enumerate(tri_elements):
@@ -428,68 +432,17 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
                 node_to_triangles[n_id] = []
             node_to_triangles[n_id].append(t_idx)
 
-    # Vettore normali accumulate per ciascun nodo
-    node_normals_accum = np.zeros((num_vertices, 2))
-
-    for edg, edge_id in zip(edg_elements, edg_entity_indices):
-        ga, gb, gmid = edg[0], edg[1], edg[2]
-        
-        # Trova il triangolo adiacente che contiene sia ga sia gb
-        adj_tri_idx = None
-        if ga in node_to_triangles and gb in node_to_triangles:
-            common = set(node_to_triangles[ga]).intersection(node_to_triangles[gb])
-            if common:
-                adj_tri_idx = list(common)[0]
-                
-        if adj_tri_idx is None:
-            continue
-            
-        tri = tri_elements[adj_tri_idx]
-        # Trova il terzo vertice del triangolo (vertice opposto al segmento di bordo)
-        g_opp = None
-        for n_id in tri:
-            if n_id != ga and n_id != gb:
-                g_opp = n_id
-                break
-                
-        if g_opp is None:
-            continue
-            
-        p_a = vertices_raw[ga]
-        p_b = vertices_raw[gb]
-        p_opp = vertices_raw[g_opp]
-        
-        tangent = p_b - p_a
-        length = np.linalg.norm(tangent)
-        if length > 0:
-            tangent_unit = tangent / length
-            p_mid = 0.5 * (p_a + p_b)
-            to_internal = p_opp - p_mid
-            
-            # Normale candidata (ortogonale alla tangente)
-            n_candidate = np.array([tangent_unit[1], -tangent_unit[0]])
-            # Deve puntare verso l'esterno del triangolo (opposta a to_internal)
-            if np.dot(n_candidate, to_internal) > 0:
-                n_candidate = -n_candidate
-                
-            # Accumula la normale sui tre nodi del segmento
-            for g in [ga, gb, gmid]:
-                node_normals_accum[g] += n_candidate
-
-    # Calcola le normali medie normalizzate
-    node_normals = np.zeros((num_vertices, 2))
-    for i in range(num_vertices):
-        norm_accum = node_normals_accum[i]
-        mag = np.linalg.norm(norm_accum)
-        if mag > 0:
-            node_normals[i] = norm_accum / mag
-
     # --- 3. ACCOPPIAMENTO GEOMETRICO CON I NODI DEL CSV ---
     coords_np = dataset['coords'].cpu().numpy()
     H = dataset['scales']['H']
     
-    # Coordinate adimensionali del file mphtxt
-    vertices_nd = vertices_raw / H
+    # Coordinate adimensionali del file mphtxt (con shift robusto basato sui minimi della mesh)
+    x_min_mesh = vertices_raw[:, 0].min()
+    y_min_mesh = vertices_raw[:, 1].min()
+    vertices_nd = np.stack([
+        (vertices_raw[:, 0] - x_min_mesh) / H,
+        (vertices_raw[:, 1] - y_min_mesh) / H
+    ], axis=1)
     
     # [PUNTO B] Calcolo tolleranza adattiva: metà della distanza minima tra i nodi del CSV
     from scipy.spatial import cKDTree
@@ -506,21 +459,64 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
             edge_to_mphtxt_nodes[edge_id] = set()
         edge_to_mphtxt_nodes[edge_id].update(edg)
 
-    # [PUNTO D] Check integrità normali
-    bad_normals = 0
-    for i in range(num_vertices):
-        mag = np.linalg.norm(node_normals[i])
-        if mag > 1e-9 and abs(mag - 1.0) > 0.05:
-            bad_normals += 1
-    if bad_normals > 0:
-        print(f"  [WARNING] Trovate {bad_normals} normali non unitarie nel file mesh. Verranno normalizzate forzatamente.")
-
+    # Elaborazione delle selezioni e calcolo delle normali LOCALE a ciascun gruppo di contorno (evita sovrapposizioni d'angolo)
     for label, entities in selections.items():
         selection_nodes_mphtxt = set()
         for edge_id in entities:
             if edge_id in edge_to_mphtxt_nodes:
                 selection_nodes_mphtxt.update(edge_to_mphtxt_nodes[edge_id])
                 
+        if len(selection_nodes_mphtxt) == 0:
+            continue
+
+        # Vettore di accumulo delle normali locale per questo specifico gruppo
+        group_normals_accum = np.zeros((num_vertices, 2))
+        entities_set = set(entities)
+
+        for edg, edge_id in zip(edg_elements, edg_entity_indices):
+            if edge_id not in entities_set:
+                continue
+                
+            ga, gb, gmid = edg[0], edg[1], edg[2]
+            
+            # Trova il triangolo adiacente
+            adj_tri_idx = None
+            if ga in node_to_triangles and gb in node_to_triangles:
+                common = set(node_to_triangles[ga]).intersection(node_to_triangles[gb])
+                if common:
+                    adj_tri_idx = list(common)[0]
+                    
+            if adj_tri_idx is None:
+                continue
+                
+            tri = tri_elements[adj_tri_idx]
+            g_opp = None
+            for n_id in tri:
+                if n_id != ga and n_id != gb:
+                    g_opp = n_id
+                    break
+                    
+            if g_opp is None:
+                continue
+                
+            p_a = vertices_raw[ga]
+            p_b = vertices_raw[gb]
+            p_opp = vertices_raw[g_opp]
+            
+            tangent = p_b - p_a
+            length = np.linalg.norm(tangent)
+            if length > 0:
+                tangent_unit = tangent / length
+                p_mid = 0.5 * (p_a + p_b)
+                to_internal = p_opp - p_mid
+                
+                n_candidate = np.array([tangent_unit[1], -tangent_unit[0]])
+                if np.dot(n_candidate, to_internal) > 0:
+                    n_candidate = -n_candidate
+                    
+                for g in [ga, gb, gmid]:
+                    group_normals_accum[g] += n_candidate
+
         global_indices = []
         global_normals = []
         
@@ -530,8 +526,8 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
             
             if dist < tol_match:
                 global_indices.append(idx)
-                # Forza normalizzazione unitaria
-                n_vec = node_normals[n_id]
+                # Calcola e normalizza la normale localmente al gruppo
+                n_vec = group_normals_accum[n_id]
                 n_mag = np.linalg.norm(n_vec)
                 global_normals.append(n_vec / n_mag if n_mag > 1e-9 else n_vec)
                 
@@ -545,7 +541,7 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
             'norm': torch.tensor(np.array(global_normals), dtype=torch.float32, device=device),
             'fields': {k: dataset[k][global_indices].to(device) for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy'] if k in dataset}
         }
-        print(f"  Boundary '{label}': accoppiati {len(global_indices)} nodi")
+        print(f"  Boundary '{label}': accoppiati {len(global_indices)} nodi con normali locali.")
 
     # --- 4. GENERAZIONE DEL PLOT DI DIAGNOSTICA DINAMICA ---
     try:
@@ -676,6 +672,13 @@ def prepare_training_data(dataset_path, comsol_params, num_data_subset, initial_
         if mask.sum() > 0:
             triang.set_mask(mask)
             print(f"[TRIANGULATION] Applicato mask semplificato su {mask.sum()} triangoli spuri (soglia: {threshold:.6f})")
+            
+            # Warning per mesh fortemente non uniformi
+            masked_ratio = mask.sum() / len(triangles)
+            if masked_ratio > 0.15:
+                print(f"  [WARNING] La percentuale di triangoli mascherati è elevata ({masked_ratio:.1%}). "
+                      f"Se noti dei 'buchi bianchi' indesiderati nelle zone centrali o dove la mesh è più rada, "
+                      f"considera di rilassare la soglia di masking incrementando il fattore di threshold.")
     except Exception as e:
         print(f"[WARNING] Errore nell'applicazione del mask alla triangolazione: {e}")
     

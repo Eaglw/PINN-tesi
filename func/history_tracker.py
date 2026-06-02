@@ -244,11 +244,13 @@ class TrainingHistory:
                 all_plotted_vals = []
                 for name in keys_to_plot:
                     if name in self.losses:
-                        all_plotted_vals.extend([v for v in self.losses[name] if v is not None and not np.isnan(v) and v > 0])
+                        # Consideriamo solo i valori all'interno degli indici delle epoche plottate su questo asse
+                        vals_in_range = [self.losses[name][i] for i in epoch_range_indices]
+                        all_plotted_vals.extend([v for v in vals_in_range if v is not None and not np.isnan(v) and v > 0])
                 if all_plotted_vals:
                     vmin, vmax = min(all_plotted_vals), max(all_plotted_vals)
-                    if vmax / vmin > 1e6:
-                        ax.set_ylim(vmin * 0.5, vmin * 1e5)
+                    # Impostiamo i limiti reali per mostrare TUTTO il grafico in scala logaritmica
+                    ax.set_ylim(vmin * 0.5, vmax * 2.0)
             
             # Phase markers e warmup (disegnati su tutti i subplot per allineamento verticale)
             if phase_markers:

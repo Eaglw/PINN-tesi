@@ -20,16 +20,16 @@ DEFAULT_BC_RULES = {
         'neumann': {}
     },
     'Walls': {
-        'dirichlet': {'u': 0.0, 'v': 0.0}
-        #'neumann': {'p': 0.0}
+        'dirichlet': {'u': 0.0, 'v': 0.0},
+        'neumann': {'p': 0.0}
     },
     'Outlet': {
         'dirichlet': {'p': 'csv'}
         #'neumann': {'tau_xx': 0.0, 'tau_xy': 0.0, 'tau_yy': 0.0}
     },
     'Walls-dritte':{
-        'dirichlet': {'u': 0.0, 'v': 0.0}
-        #'neumann': {'p': 0.0}
+        'dirichlet': {'u': 0.0, 'v': 0.0},
+        'neumann': {'p': 0.0}
     }
 }
 
@@ -196,7 +196,7 @@ class ViscoelasticPhysics(nn.Module):
         
         f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(model, x)
                 
-        loss_m = (f_u**2 / max(vw.get('u', 1.0), 1e-8)).mean() + (f_v**2 / max(vw.get('v', 1.0), 1e-8)).mean()
+        loss_m = ((f_u**2 + f_v**2) / max(vw.get('u', 1.0), 1e-8)).mean()
         loss_c = (f_txx**2 / max(vw.get('txx_nd', 1.0), 1e-8)).mean() + \
                  (f_tyy**2 / max(vw.get('tyy_nd', 1.0), 1e-8)).mean() + \
                  (f_txy**2 / max(vw.get('txy_nd', 1.0), 1e-8)).mean()

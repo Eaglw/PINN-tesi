@@ -124,6 +124,11 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
             physics_problem.pde_weights = {'momentum': base_pde_weights.get('momentum', 10.0), 'constitutive': 0.0}
             current_active_bcs = ['u', 'v', 'p']
             set_physics_trainable(physics_problem, [])
+            if cfg.dynamic_weighting:
+                lambda_data = cfg.loss_weights.get('data', 1.0)
+                lambda_bc = cfg.loss_weights.get('bc', 1.0)
+                target_lambda_physics = cfg.loss_weights.get('physics', 1.0)
+                print(f"  [Dynamic Weights] Reset a inizio Fase 2: data={lambda_data:.2f}, bc={lambda_bc:.2f}, phys={target_lambda_physics:.2f}")
             optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(warmup_epochs_2 - half_epochs)
         if staged_training and epoch == warmup_epochs_2:
             set_physics_trainable(physics_problem, ['mu_s'])
