@@ -32,11 +32,11 @@ from Viscoelastic.src.Viscoelastic_physics import ViscoelasticPhysics
 
 # --- 2. GRID SEARCH SPACE ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]]  # VENet 8x128
-EPOCHS_OPTIONS = [6000]
+EPOCHS_OPTIONS = [1000]
 MAX_LBFGS_ITERS = 0  #Se None, usa il 10% di epoche Adam.
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
-WEIGHTING_OPTIONS = ['dynamic']
+WEIGHTING_OPTIONS = ['static']
 
 
 # --- 3. FIXED CONFIGURATIONS & HYPERPARAMETERS ---
@@ -51,7 +51,7 @@ COMSOL_PARAMS = {
     'lam': 0.1,      # Tempo di rilassamento [s]
     'eps': 0.0,      # Parametro PTT
     'alpha': 0.0,    # Parametro Giesekus
-    'rho': 1.0,      # Densità [kg/m³]
+    'rho': 1000,      # Densità [kg/m³]
 }
 
 # 0=PurePhys, 1=Phys+Data, 2=SoloData
@@ -72,7 +72,7 @@ BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 STAGED_TRAINING = True
 
-MINIBATCH_INTERNAL = 2048*16
+MINIBATCH_INTERNAL = 2048*2
 MINIBATCH_BOUNDARY = 256*2
 
 STATIC_WEIGHTS = {'bc': 1.0, 'physics': 10.0, 'data': 100.0}
@@ -81,7 +81,6 @@ DYNAMIC_WEIGHT_STR = "Dynamic-Annealing"
 
 PDE_WEIGHTS = {'momentum': 10.0, 'constitutive': 1.0}
 
-NUM_DATA_SUBSET = 5000
 VARIANCE_EPS = 1e-4
 
 # --- Inverse Problem Settings ---
@@ -133,7 +132,7 @@ if __name__ == '__main__':
         # Import aggiornato da src
         from Viscoelastic.src.load_comsol import prepare_training_data
         data_bundle = prepare_training_data(
-            str(DATASET_PATH), COMSOL_PARAMS, NUM_DATA_SUBSET,
+            str(DATASET_PATH), COMSOL_PARAMS,
             initial_dtype, device, variance_eps=VARIANCE_EPS
         )
         

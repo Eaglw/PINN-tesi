@@ -19,7 +19,6 @@ comsol_params = {
 data_bundle = prepare_training_data(
     'COMSOL/Oldroyd.csv',
     comsol_params,
-    num_data_subset=5000,
     initial_dtype=torch.float32,
     device=device
 )

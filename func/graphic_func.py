@@ -179,22 +179,24 @@ def plot2D_final_result(triang, field_exact_1d, field_pred_1d, epoch, save_path,
     # Overlay Points
     if physics_points is not None:
         xy_phys = physics_points.detach().cpu().numpy() if hasattr(physics_points, 'detach') else np.asarray(physics_points)
-        if len(xy_phys) > 2000:
-            xy_phys = xy_phys[np.random.choice(len(xy_phys), 2000, replace=False)]
-        ax.scatter(xy_phys[:, 0], xy_phys[:, 1], s=1, facecolor='white',
-                   edgecolor='none', marker='o', alpha=0.2, label='Physics Points')
+        s_phys = max(0.05, 1000.0 / len(xy_phys)) if len(xy_phys) > 1000 else 1.0
+        alpha_phys = max(0.05, min(0.2, 500.0 / len(xy_phys))) if len(xy_phys) > 1000 else 0.2
+        ax.scatter(xy_phys[:, 0], xy_phys[:, 1], s=s_phys, facecolor='white',
+                   edgecolor='none', marker='o', alpha=alpha_phys, label='Physics Points')
 
     if internal_points is not None:
         xy_int = internal_points.detach().cpu().numpy() if hasattr(internal_points, 'detach') else np.asarray(internal_points)
-        if len(xy_int) > 3000:
-            xy_int = xy_int[np.random.choice(len(xy_int), 3000, replace=False)]
-        ax.scatter(xy_int[:, 0], xy_int[:, 1], s=8, c='cyan', marker='o',
-                   alpha=0.6, edgecolor='none', label='Internal Points')
+        s_int = max(0.1, 2000.0 / len(xy_int)) if len(xy_int) > 500 else 8.0
+        alpha_int = max(0.1, min(0.6, 1500.0 / len(xy_int))) if len(xy_int) > 500 else 0.6
+        ax.scatter(xy_int[:, 0], xy_int[:, 1], s=s_int, c='cyan', marker='o',
+                   alpha=alpha_int, edgecolor='none', label='Internal Points')
 
     if boundary_points is not None:
         xy_bc = boundary_points.detach().cpu().numpy() if hasattr(boundary_points, 'detach') else np.asarray(boundary_points)
-        ax.scatter(xy_bc[:, 0], xy_bc[:, 1], s=12, c='red', marker='s',
-                   alpha=0.7, edgecolor='none', label='Boundary Points')
+        s_bc = max(0.2, 1000.0 / len(xy_bc)) if len(xy_bc) > 200 else 12.0
+        alpha_bc = max(0.2, min(0.7, 500.0 / len(xy_bc))) if len(xy_bc) > 200 else 0.7
+        ax.scatter(xy_bc[:, 0], xy_bc[:, 1], s=s_bc, c='red', marker='s',
+                   alpha=alpha_bc, edgecolor='none', label='Boundary Points')
 
     if physics_points is not None or internal_points is not None or boundary_points is not None:
         ax.legend(loc='upper right', framealpha=0.9, fontsize='small')
@@ -525,8 +527,8 @@ def generate_final_training_plots(final_dir, plots_dir, triang, T_exact_grid, T_
         }
         visco_final_path = os.path.join(final_dir, 'VE_viscoelastic_fields.png')
         plot2D_viscoelastic_final(triang, fields_pred, fields_exact, epochs,
-                                  save_path=visco_final_path, internal_points=internal_pts, 
-                                  boundary_points=boundary_pts, physics_points=xy_physics_full)
+                                  save_path=visco_final_path, internal_points=None, 
+                                  boundary_points=None, physics_points=None)
     
     # --- GIF E PULIZIA ---
     if plot_files:

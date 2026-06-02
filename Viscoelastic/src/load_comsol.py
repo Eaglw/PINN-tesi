@@ -146,8 +146,8 @@ def load_comsol_csv(csv_path, params, device='cpu'):
     print(f"  p_ref = {p_ref:.6e} Pa")
     print(f"  tau_ref = {tau_ref:.6e} N/m²")
     print(f"  --- Parametri adimensionali ---")
-    print(f"  Re   = {Re:.4f}")
-    print(f"  Wi   = {Wi:.4f}")
+    print(f"  Re   = {Re:.8f}")
+    print(f"  Wi   = {Wi:.8f}")
     print(f"  beta = {beta:.4f}")
     print(f"  --- Range campi (adimensionali) ---")
     print(f"  u*:      [{u_t.min().item():.4f}, {u_t.max().item():.4f}]")
@@ -622,7 +622,7 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
     return boundary_groups
 
 
-def prepare_training_data(dataset_path, comsol_params, num_data_subset, initial_dtype, device, variance_eps=1e-5):
+def prepare_training_data(dataset_path, comsol_params, initial_dtype, device, variance_eps=1e-5):
     """
     Esegue la preparazione completa dei dati COMSOL per il training:
     - Caricamento e adimensionalizzazione
@@ -717,12 +717,10 @@ def prepare_training_data(dataset_path, comsol_params, num_data_subset, initial_
         for f_name, f_t in group['fields'].items():
             group['fields'][f_name] = f_t.to(initial_dtype)
     
-    # Data Subset
-    torch.manual_seed(42)
-    idx = torch.randperm(xy_grid_flat.shape[0])[:num_data_subset]
-    xy_pinn_data = xy_grid_flat[idx]
-    psip_pinn_data = torch.cat([u_exact[idx], v_exact[idx], p_exact[idx], tau_xx_exact[idx], tau_xy_exact[idx], tau_yy_exact[idx]], dim=1)
-    uv_pinn_data = torch.cat([u_exact[idx], v_exact[idx]], dim=1)
+    # Data (All Points)
+    xy_pinn_data = xy_grid_flat
+    psip_pinn_data = torch.cat([u_exact, v_exact, p_exact, tau_xx_exact, tau_xy_exact, tau_yy_exact], dim=1)
+    uv_pinn_data = torch.cat([u_exact, v_exact], dim=1)
     
     # GPU Pre-cast
     xy_pinn_data = xy_pinn_data.to(initial_dtype)
