@@ -20,16 +20,16 @@ DEFAULT_BC_RULES = {
         'neumann': {}
     },
     'Walls': {
-        'dirichlet': {'u': 0.0, 'v': 0.0},
-        'neumann': {'p': 0.0}
+        'dirichlet': {'u': 0.0, 'v': 0.0}
+        #'neumann': {'p': 0.0}
     },
     'Outlet': {
-        'dirichlet': {'p': 'csv'},
-        'neumann': {'tau_xx': 0.0, 'tau_xy': 0.0, 'tau_yy': 0.0}
+        'dirichlet': {'p': 'csv'}
+        #'neumann': {'tau_xx': 0.0, 'tau_xy': 0.0, 'tau_yy': 0.0}
     },
     'Walls-dritte':{
-        'dirichlet': {'u': 0.0, 'v': 0.0},
-        'neumann': {'p': 0.0}
+        'dirichlet': {'u': 0.0, 'v': 0.0}
+        #'neumann': {'p': 0.0}
     }
 }
 
@@ -58,11 +58,11 @@ class ViscoelasticPhysics(nn.Module):
         self._boundary_metadata = None
         
         if inverse_mode:
-            self.mu_s = nn.Parameter(torch.tensor([_softplus_inverse(max(mu_s - 1e-6, 1e-9))], dtype=torch.float32))
-            self.mu_p = nn.Parameter(torch.tensor([_softplus_inverse(max(mu_p - 1e-6, 1e-9))], dtype=torch.float32))
-            self.lam = nn.Parameter(torch.tensor([_softplus_inverse(max(lam - 1e-6, 1e-9))], dtype=torch.float32))
-            self.eps = nn.Parameter(torch.tensor([_softplus_inverse(max(eps - 1e-8, 1e-9))], dtype=torch.float32))
-            self.alpha = nn.Parameter(torch.tensor([_softplus_inverse(max(alpha - 1e-8, 1e-9))], dtype=torch.float32))
+            self.mu_s = nn.Parameter(torch.tensor([mu_s], dtype=torch.float32))
+            self.mu_p = nn.Parameter(torch.tensor([mu_p], dtype=torch.float32))
+            self.lam = nn.Parameter(torch.tensor([lam], dtype=torch.float32))
+            self.eps = nn.Parameter(torch.tensor([eps], dtype=torch.float32))
+            self.alpha = nn.Parameter(torch.tensor([alpha], dtype=torch.float32))
             self.real_mu_s = real_mu_s if real_mu_s is not None else mu_s
             self.real_mu_p = real_mu_p if real_mu_p is not None else mu_p
             self.real_lam = real_lam if real_lam is not None else lam
@@ -105,14 +105,6 @@ class ViscoelasticPhysics(nn.Module):
                    inverse_mode=False, **kwargs).to(device)
 
     def _get_effective_params(self):
-        if self.inverse_mode:
-            return {
-                'mu_s': 1e-6 + F.softplus(self.mu_s),
-                'mu_p': 1e-6 + F.softplus(self.mu_p),
-                'lam': 1e-6 + F.softplus(self.lam),
-                'eps': 1e-8 + F.softplus(self.eps),
-                'alpha': 1e-8 + F.softplus(self.alpha),
-            }
         return {'mu_s': self.mu_s, 'mu_p': self.mu_p, 'lam': self.lam, 'eps': self.eps, 'alpha': self.alpha}
 
     def get_logged_parameters(self):
@@ -231,7 +223,7 @@ class ViscoelasticPhysics(nn.Module):
             for i, key in enumerate(keys):
                 var_w[0, i] = variance_weights.get(key, 1.0)
                     
-            total_bc_loss = 0.0
+            total_bc_loss = torch.tensor(0.0, device=x_bc.device, dtype=x_bc.dtype)
             per_group_losses = {}
 
             # 3. Fallback di emergenza (se manca il metadata, processa tutto in un colpo solo)
@@ -242,7 +234,7 @@ class ViscoelasticPhysics(nn.Module):
                 u, v, p, tau = self.get_velocity(model, x_bc)
                 pred_bc = torch.cat([u, v, p, tau], dim=1) 
                 raw_loss = self._compute_raw_bc_loss(pred_bc, x_bc, dir_target, neu_target, nx, ny, var_w, active_bcs, keys)
-                return raw_loss, {"loss_bc_all": raw_loss.item()}
+                return raw_loss, {"loss_bc_all": raw_loss.item() if hasattr(raw_loss, 'item') else float(raw_loss)}
 
             # 4. Ciclo di Slicing sui Gruppi Fisici
             start_idx = 0
@@ -281,7 +273,7 @@ class ViscoelasticPhysics(nn.Module):
                 )
                 
                 # --- AGGIORNAMENTO TOTALI ---
-                per_group_losses[f"loss_bc_{group_name}"] = g_loss.item()
+                per_group_losses[f"loss_bc_{group_name}"] = g_loss.item() if hasattr(g_loss, 'item') else float(g_loss)
                 total_bc_loss += g_weight * g_loss
                 
                 # Avanzamento del puntatore per il prossimo gruppo
@@ -302,7 +294,7 @@ class ViscoelasticPhysics(nn.Module):
                 active_bcs: (Opzionale) Lista dei campi da forzare
                 keys: Nomi delle variabili corrispondenti agli indici 0-5
             """
-            total_loss = 0.0
+            total_loss = torch.tensor(0.0, device=x.device, dtype=x.dtype)
 
             for i, var_name in enumerate(keys):
                 # 1. Filtro variabili attive

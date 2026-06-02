@@ -701,9 +701,9 @@ def prepare_training_data(dataset_path, comsol_params, num_data_subset, initial_
     
     var_weights = {
         'u': sigma2_u, 'v': sigma2_v, 'p': sigma2_p,
-        'txx': sigma2_txx_tilde * (one_m_beta**2), # varianza fisica per BC
-        'txy': sigma2_txy_tilde * (one_m_beta**2),
-        'tyy': sigma2_tyy_tilde * (one_m_beta**2),
+        'tau_xx': sigma2_txx_tilde * (one_m_beta**2), # varianza fisica per BC
+        'tau_xy': sigma2_txy_tilde * (one_m_beta**2),
+        'tau_yy': sigma2_tyy_tilde * (one_m_beta**2),
         'txx_nd': sigma2_txx_tilde, # varianza riscalata per residui PDE
         'txy_nd': sigma2_txy_tilde,
         'tyy_nd': sigma2_tyy_tilde

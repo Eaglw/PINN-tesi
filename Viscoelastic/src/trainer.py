@@ -1,103 +1,19 @@
 import torch
 import torch.nn as nn
-import matplotlib.pyplot as plt
 import numpy as np
 import os
 import sys
 import shutil
-from dataclasses import dataclass, field
 from tqdm import tqdm
 
-# Import function for GIF and loss comparison
-sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+# Ensure func can be imported from parent directory
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from func.graphic_func import generate_epoch_diagnostic_plot, generate_final_training_plots
 from func.history_tracker import TrainingHistory
 from func.hardware_utils import IS_1050TI
 
-class FCN(nn.Module):
-    """Rete Neurale a Connessioni Complete (Fully Connected Network)"""
-    def __init__(self, layers, activation_fn=nn.Tanh):
-        super().__init__()
-        self.activation = activation_fn()
-        self.fcs = nn.ModuleList()
-        for i in range(len(layers) - 1):
-            self.fcs.append(nn.Linear(layers[i], layers[i+1]))
-    def forward(self, x):
-        for layer in self.fcs[:-1]:
-            x = self.activation(layer(x))
-        return self.fcs[-1](x) 
-    def loss_fn(self, pred, target):
-        return nn.MSELoss()(pred, target)
-
-def get_activation_name(activation_class):
-    return activation_class.__name__
-
-def format_layers_name(layers):
-    if len(layers) > 3:
-        hidden = layers[1:-1]
-        if all(x == hidden[0] for x in hidden):
-            return f"{layers[0]}_{hidden[0]}x{len(hidden)}_{layers[-1]}"
-    return "_".join(map(str, layers))
-
-class ViscoelasticCombinedModel(nn.Module):
-    def __init__(self, model_psi, model_p, model_tau):
-        super().__init__()
-        self.model_psi = model_psi
-        self.model_p = model_p
-        self.model_tau = model_tau
-    def forward(self, x):
-        psi = self.model_psi(x)
-        p = self.model_p(x)
-        tau = self.model_tau(x)
-        return torch.cat([psi, p, tau], dim=1)
-
-def set_model_trainable(model_combined, active_components=['psi', 'p', 'tau']):
-    for p in model_combined.parameters():
-        p.requires_grad = False
-    
-    if 'psi' in active_components:
-        for p in model_combined.model_psi.parameters(): p.requires_grad = True
-    if 'p' in active_components:
-        for p in model_combined.model_p.parameters(): p.requires_grad = True
-    if 'tau' in active_components:
-        for p in model_combined.model_tau.parameters(): p.requires_grad = True
-        
-    print(f"  [Trainable status] Psi: {'psi' in active_components}, P: {'p' in active_components}, Tau: {'tau' in active_components}")
-
-def set_physics_trainable(physics_problem, active_params=['mu_s', 'mu_p', 'lam', 'eps', 'alpha']):
-    if not getattr(physics_problem, 'inverse_mode', False):
-        return
-    for p_name in ['mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
-        p_val = getattr(physics_problem, p_name)
-        if isinstance(p_val, torch.Tensor) and p_val.is_leaf:
-            p_val.requires_grad_(p_name in active_params)
-    print(f"  [Physics Trainable] {active_params}")
-
-@dataclass
-class TrainingConfig:
-    epochs: int = 1000
-    base_lr: float = 1e-3
-    adam_eps: float = 1e-7
-    lr_strategy: str = 'cosine'
-    staged_training: bool = True
-    warmup_ratio: float = 0.1
-    precision_mode: str = 'staged'
-    max_lbfgs_iters: int = 100
-    grad_clip_norm: float = 5.0
-    param_clip_norm: float = 1.0
-    param_lr_factor: float = 0.1
-    minibatch_internal: int = 1024
-    minibatch_boundary: int = 256
-    dynamic_weighting: bool = True
-    update_weights_every: int = 100
-    loss_weights: dict = field(default_factory=lambda: {'data': 1.0, 'bc': 1.0, 'physics': 1.0})
-    group_weights: dict = field(default_factory=lambda: {'Inlet': 1.0, 'Walls': 1.0, 'Outlet': 1.0})
-    mode: str = 'standard'
-    variance_weights: dict = None
-    log_gradients_every: int = 500
-    plot_every: int = 500
-    experiment_name: str = "VE Training"
-    val_label: str = "Value"
+from .models import FCN, ViscoelasticCombinedModel, get_activation_name, format_layers_name, initialize_last_layer_zero
+from .config import TrainingConfig, set_model_trainable, set_physics_trainable, _get_scheduler
 
 def _sample_minibatch(xy, targets, batch_size, device):
     if batch_size is None or batch_size >= xy.shape[0]:
@@ -151,22 +67,6 @@ def _sample_boundary_groups(xy_bc, target_bc, boundary_metadata, batch_size, dev
         new_metadata
     )
 
-def _get_scheduler(optimizer, strategy, total_steps):
-    if strategy == 'step_decay':
-        return torch.optim.lr_scheduler.StepLR(optimizer, step_size=int(total_steps * 0.25), gamma=0.5)
-    elif strategy == 'plateau':
-        return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=600, min_lr=1e-6, cooldown=3000)
-    elif strategy == 'cosine':
-        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=1e-6)
-    return None
-
-def initialize_last_layer_zero(model):
-    last_layer = list(model.fcs)[-1]
-    nn.init.zeros_(last_layer.weight)
-    nn.init.zeros_(last_layer.bias)
-    print(f"  [Init] Ultimo layer di {model.__class__.__name__} inizializzato a zero.")
-
-
 def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, validation_grid, collocation_points, loss_history, plots_dir):
     _device = next(model.parameters()).device
     epochs = cfg.epochs
@@ -204,7 +104,7 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         print(f"\n  [Staged Training] Fase 1: Cinematica e Reologia.")
         set_model_trainable(model, ['psi', 'tau'])
         physics_problem.pde_weights = {'momentum': 0.0, 'constitutive': base_pde_weights.get('constitutive', 1.0)} 
-        current_active_bcs = ['u', 'v', 'txx', 'txy', 'tyy']
+        current_active_bcs = ['u', 'v', 'tau_xx', 'tau_xy', 'tau_yy']
         set_physics_trainable(physics_problem, []) 
     else:
         set_model_trainable(model, ['psi', 'p', 'tau'])
@@ -269,6 +169,10 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
 
         loss.backward(inputs=trainable_params)
         torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
+        if getattr(physics_problem, 'inverse_mode', False):
+            phys_params_clip = [p for p in physics_problem.parameters() if p.requires_grad]
+            if phys_params_clip:
+                torch.nn.utils.clip_grad_norm_(phys_params_clip, cfg.param_clip_norm)
         optimizer.step()
         if cfg.lr_strategy in ['step_decay', 'cosine']: scheduler.step()
 
@@ -313,13 +217,104 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
     
     def closure():
         optimizer_lbfgs.zero_grad()
-        loss, loss_dict = compute_pinn_loss(model, x_data=xy_int, y_data=obs_int, x_bc=xy_bc, y_bc=bc_targets, physics_problem=physics_problem, x_physics=xph_full, lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics, mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=None, force_data_loss=(l_it[0]%50==0), chunk_size=c_size, group_weights=cfg.group_weights)
+        loss_accum = {'data_loss': 0.0, 'bc_loss': 0.0, 'pde_loss': 0.0, 'total_loss': 0.0}
+        
+        # 1. Data Loss Chunking
+        if xy_int is not None and xy_int.numel() > 0:
+            for i in range(0, xy_int.shape[0], c_size):
+                xc = xy_int[i : i + c_size]
+                yc = obs_int[i : i + c_size]
+                cl, cd = compute_pinn_loss(
+                    model,
+                    x_data=xc,
+                    y_data=yc,
+                    x_bc=None,
+                    y_bc=None,
+                    x_physics=None,
+                    physics_problem=physics_problem,
+                    lambda_data=lambda_data,
+                    lambda_bc=0.0,
+                    lambda_physics=0.0,
+                    mode=cfg.mode,
+                    variance_weights=cfg.variance_weights,
+                    group_weights=cfg.group_weights,
+                    force_data_loss=(l_it[0] % 50 == 0)
+                )
+                chunk_weight = xc.shape[0] / xy_int.shape[0]
+                loss_accum['data_loss'] += cd.get('data_loss', 0.0) * chunk_weight
+                loss_scaled = cl * chunk_weight
+                if loss_scaled.requires_grad:
+                    loss_scaled.backward()
+        
+        # 2. Boundary Loss (No chunking needed for BC as it is typically small and wasn't chunked in the original code)
+        if xy_bc is not None and xy_bc.numel() > 0:
+            cl, cd = compute_pinn_loss(
+                model,
+                x_data=None,
+                y_data=None,
+                x_bc=xy_bc,
+                y_bc=bc_targets,
+                x_physics=None,
+                physics_problem=physics_problem,
+                lambda_data=0.0,
+                lambda_bc=lambda_bc,
+                lambda_physics=0.0,
+                mode=cfg.mode,
+                variance_weights=cfg.variance_weights,
+                group_weights=cfg.group_weights
+            )
+            loss_accum['bc_loss'] = cd.get('bc_loss', 0.0)
+            for k, v in cd.items():
+                if k.startswith('loss_bc_'):
+                    loss_accum[k] = v
+            if cl.requires_grad:
+                cl.backward()
+                
+        # 3. Physics Loss Chunking (xph_full)
+        if xph_full is not None and xph_full.numel() > 0:
+            for i in range(0, xph_full.shape[0], c_size):
+                xc = xph_full[i : i + c_size]
+                cl, cd = compute_pinn_loss(
+                    model,
+                    x_data=None,
+                    y_data=None,
+                    x_bc=None,
+                    y_bc=None,
+                    x_physics=xc,
+                    physics_problem=physics_problem,
+                    lambda_data=0.0,
+                    lambda_bc=0.0,
+                    lambda_physics=target_lambda_physics,
+                    mode=cfg.mode,
+                    variance_weights=cfg.variance_weights,
+                    group_weights=cfg.group_weights
+                )
+                chunk_weight = xc.shape[0] / xph_full.shape[0]
+                loss_accum['pde_loss'] += cd.get('pde_loss', 0.0) * chunk_weight
+                loss_scaled = cl * chunk_weight
+                if loss_scaled.requires_grad:
+                    loss_scaled.backward()
+                    
+        # Extract scalar values for logging
+        data_loss_val = loss_accum['data_loss'].item() if isinstance(loss_accum['data_loss'], torch.Tensor) else loss_accum['data_loss']
+        bc_loss_val = loss_accum['bc_loss'].item() if isinstance(loss_accum['bc_loss'], torch.Tensor) else loss_accum['bc_loss']
+        pde_loss_val = loss_accum['pde_loss'].item() if isinstance(loss_accum['pde_loss'], torch.Tensor) else loss_accum['pde_loss']
+        
+        total_loss_val = lambda_data * data_loss_val + lambda_bc * bc_loss_val + target_lambda_physics * pde_loss_val
+        loss_accum['total_loss'] = total_loss_val
+        
         if l_it[0] % 50 == 0:
-            history_entry = {k: (v.item() if isinstance(v, torch.Tensor) else v) for k, v in loss_dict.items()}
+            history_entry = {k: (v.item() if isinstance(v, torch.Tensor) else v) for k, v in loss_accum.items()}
             history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
             loss_history.update(cfg.epochs + l_it[0], history_entry, lr=1.0)
-        l_it[0] += 1; pbar.update(1); pbar.set_postfix({'Loss': f"{loss.item():.2e}"})
-        return loss
+            
+        l_it[0] += 1
+        pbar.update(1)
+        pbar.set_postfix({'Loss': f"{total_loss_val:.2e}"})
+        
+        dev = next(model.parameters()).device
+        dtype = next(model.parameters()).dtype
+        return torch.tensor(total_loss_val, device=dev, dtype=dtype, requires_grad=True)
 
     optimizer_lbfgs.step(closure)
     pbar.close()
@@ -338,53 +333,29 @@ def train_ViscoelasticPINN(model, config, data_internal, data_boundary, validati
     with torch.set_grad_enabled(True):
         xg, Te, triang = validation_grid
         u_f, v_f, p_f, tau_f = physics_problem.get_velocity(model, xg.clone().requires_grad_(True))
-        generate_final_training_plots(final_dir, plots_dir, triang, Te.cpu(), u_f.detach().cpu().view(-1), p_f, model(xg), stress_exact_grids, plot_files, config.epochs, config.val_label, data_internal[0], data_boundary[0], collocation_points)
+        generate_final_training_plots(final_dir, plots_dir, triang, Te.cpu(), u_f.detach().cpu().view(-1), p_f, tau_f, stress_exact_grids, plot_files, config.epochs, config.val_label, data_internal[0], data_boundary[0], collocation_points)
     
     loss_history.plot_losses(adam_epochs=config.epochs, save_path=os.path.join(final_dir, 'VE_loss_history.png'), experiment_name=config.experiment_name, smoothing_alpha=0.95)
     return loss_history
 
-def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, mode='standard', variance_weights=None, force_data_loss=False, chunk_size=None, group_weights=None, **kwargs):
-    if chunk_size is not None:
-        loss_accum = {'data_loss': 0.0, 'bc_loss': 0.0, 'pde_loss': 0.0, 'total_loss': 0.0}
-        dev, dtype = next(model.parameters()).device, next(model.parameters()).dtype
-        
-        if x_data is not None and x_data.numel() > 0:
-            for i in range(0, x_data.shape[0], chunk_size):
-                xc, yc = x_data[i:i+chunk_size], y_data[i:i+chunk_size]
-                cl, cd = compute_pinn_loss(model, xc, yc, None, None, None, physics_problem, lambda_data, 0, 0, mode, variance_weights, force_data_loss, None, group_weights, **kwargs)
-                loss_accum['data_loss'] += cd.get('data_loss', 0.0) * (xc.shape[0]/x_data.shape[0])
-                if cl.requires_grad: (cl * (xc.shape[0]/x_data.shape[0])).backward()
-        
-        if x_bc is not None and x_bc.numel() > 0:
-            cl, cd = compute_pinn_loss(model, None, None, x_bc, y_bc, None, physics_problem, 0, lambda_bc, 0, mode, variance_weights, False, None, group_weights, **kwargs)
-            loss_accum['bc_loss'] = cd.get('bc_loss', 0.0)
-            for k, v in cd.items(): 
-                if k.startswith('loss_bc_'): loss_accum[k] = v
-            if cl.requires_grad: cl.backward()
-
-        if x_physics is not None and x_physics.numel() > 0:
-            for i in range(0, x_physics.shape[0], chunk_size):
-                xc = x_physics[i:i+chunk_size]
-                cl, cd = compute_pinn_loss(model, None, None, None, None, xc, physics_problem, 0, 0, lambda_physics, mode, variance_weights, False, None, group_weights, **kwargs)
-                loss_accum['pde_loss'] += cd.get('pde_loss', 0.0) * (xc.shape[0]/x_physics.shape[0])
-                if cl.requires_grad: (cl * (xc.shape[0]/x_physics.shape[0])).backward()
-
-        loss_accum['total_loss'] = lambda_data*loss_accum['data_loss'] + lambda_bc*loss_accum['bc_loss'] + lambda_physics*loss_accum['pde_loss']
-        return torch.tensor(loss_accum['total_loss'], device=dev, dtype=dtype), loss_accum
-
+def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=None, physics_problem=None, lambda_data=1.0, lambda_bc=1.0, lambda_physics=1.0, mode='standard', variance_weights=None, force_data_loss=False, group_weights=None, **kwargs):
     loss_dict, total_loss = {}, 0.0
     if x_data is not None and x_data.numel() > 0:
         up, vp, pp, tp = physics_problem.get_velocity(model, x_data)
-        l_dt = 0.5 * (nn.MSELoss()(up, y_data[:,0:1])/variance_weights.get('u',1.0) + nn.MSELoss()(vp, y_data[:,1:2])/variance_weights.get('v',1.0))
-        loss_dict['data_loss'] = l_dt; total_loss += lambda_data * l_dt
+        data_loss = 0.5 * (nn.MSELoss()(up, y_data[:,0:1])/variance_weights.get('u',1.0) + nn.MSELoss()(vp, y_data[:,1:2])/variance_weights.get('v',1.0))
+        loss_dict['data_loss'] = data_loss
+        total_loss += lambda_data * data_loss
     
     if x_bc is not None and x_bc.numel() > 0:
-        lb, per_g = physics_problem.boundary_loss(model, x_bc, y_bc, variance_weights, kwargs.get('active_bcs'), group_weights)
-        loss_dict['bc_loss'] = lb; loss_dict.update(per_g); total_loss += lambda_bc * lb
+        bc_loss, per_g = physics_problem.boundary_loss(model, x_bc, y_bc, variance_weights, kwargs.get('active_bcs'), group_weights)
+        loss_dict['bc_loss'] = bc_loss
+        loss_dict.update(per_g)
+        total_loss += lambda_bc * bc_loss
 
     if x_physics is not None:
-        lp = physics_problem.residual(model, x_physics, variance_weights=variance_weights)
-        loss_dict['pde_loss'] = lp; total_loss += lambda_physics * lp
+        pde_loss = physics_problem.residual(model, x_physics, variance_weights=variance_weights)
+        loss_dict['pde_loss'] = pde_loss
+        total_loss += lambda_physics * pde_loss
         
     loss_dict['total_loss'] = total_loss
     return total_loss, loss_dict

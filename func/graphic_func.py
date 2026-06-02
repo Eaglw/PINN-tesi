@@ -498,7 +498,7 @@ def generate_epoch_diagnostic_plot(model, physics_problem, xy_grid, T_exact_grid
         torch.cuda.empty_cache()
 
 
-def generate_final_training_plots(final_dir, plots_dir, triang, T_exact_grid, T_final, p_final, out_final, stress_exact_grids, plot_files, epochs, val_label, internal_pts, boundary_pts, xy_physics_full):
+def generate_final_training_plots(final_dir, plots_dir, triang, T_exact_grid, T_final, p_final, tau_final, stress_exact_grids, plot_files, epochs, val_label, internal_pts, boundary_pts, xy_physics_full):
     """Genera i plot finali (singolo e multi-campo), crea la GIF ed elimina la cartella temporanea."""
     import shutil
     # --- PLOT COMPARATIVO PRINCIPALE ---
@@ -512,9 +512,9 @@ def generate_final_training_plots(final_dir, plots_dir, triang, T_exact_grid, T_
         fields_pred = {
             'u': T_final, 
             'p': p_final.detach().cpu().view(-1),
-            'tau_xx': out_final[:, 2].detach().cpu().view(-1),
-            'tau_xy': out_final[:, 3].detach().cpu().view(-1),
-            'tau_yy': out_final[:, 4].detach().cpu().view(-1),
+            'tau_xx': tau_final[:, 0].detach().cpu().view(-1),
+            'tau_xy': tau_final[:, 1].detach().cpu().view(-1),
+            'tau_yy': tau_final[:, 2].detach().cpu().view(-1),
         }
         fields_exact = {
             'u': T_exact_grid.view(-1),

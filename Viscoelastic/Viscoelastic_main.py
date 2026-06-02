@@ -25,17 +25,14 @@ from func.logging_utils import update_results_csv
 from func.graphic_func import plot2D_unified_comparison, plot_loss_comparison, plot2D_viscoelastic_comparison
 
 # Import locali Viscoelastic
-from Viscoelastic.src.Viscoelastic_PINN import (
-    train_ViscoelasticPINN, TrainingConfig,
-    FCN, ViscoelasticCombinedModel,
-    get_activation_name, format_layers_name,
-    compute_viscoelastic_metrics
-)
+from Viscoelastic.src.models import FCN, ViscoelasticCombinedModel, get_activation_name, format_layers_name
+from Viscoelastic.src.config import TrainingConfig
+from Viscoelastic.src.trainer import train_ViscoelasticPINN, compute_viscoelastic_metrics
 from Viscoelastic.src.Viscoelastic_physics import ViscoelasticPhysics
 
 # --- 2. GRID SEARCH SPACE ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]]  # VENet 8x128
-EPOCHS_OPTIONS = [50]
+EPOCHS_OPTIONS = [10000]
 MAX_LBFGS_ITERS = None  #Se None, usa il 10% di epoche Adam.
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
@@ -45,7 +42,8 @@ WEIGHTING_OPTIONS = ['dynamic']
 # --- 3. FIXED CONFIGURATIONS & HYPERPARAMETERS ---
 PRECISION_MODE = 'staged'           # 'full_32' | 'staged' | 'full_64'
 SEED = 123
-DATASET_OPTIONS = ['Oldroyd.csv','Oldroyd_res.csv']
+#DATASET_OPTIONS = ['Oldroyd.csv','Oldroyd_res.csv']
+DATASET_OPTIONS = ['Oldroyd_res.csv']
 
 COMSOL_PARAMS = {
     'mu_s': 0.005,   # Viscosità solvente [Pa·s]
@@ -387,13 +385,12 @@ if __name__ == '__main__':
                 with torch.set_grad_enabled(True):
                     x_input = data_bundle['xy_grid_flat'].clone().to(next(model.parameters()).dtype).requires_grad_(True)
                     active_phys_problem = final_phys_problems.get(label, comp_phys_problem)
-                    u_p, _, p_p, _ = active_phys_problem.get_velocity(model, x_input)
-                    out = model(x_input)
+                    u_p, _, p_p, tau_p = active_phys_problem.get_velocity(model, x_input)
                     pred_u = u_p.detach().cpu().to(torch.float32).view(-1)
                     pred_p = p_p.detach().cpu().to(torch.float32).view(-1)
-                    pred_txx = out[:, 2].detach().cpu().to(torch.float32).view(-1)
-                    pred_txy = out[:, 3].detach().cpu().to(torch.float32).view(-1)
-                    pred_tyy = out[:, 4].detach().cpu().to(torch.float32).view(-1)
+                    pred_txx = tau_p[:, 0].detach().cpu().to(torch.float32).view(-1)
+                    pred_txy = tau_p[:, 1].detach().cpu().to(torch.float32).view(-1)
+                    pred_tyy = tau_p[:, 2].detach().cpu().to(torch.float32).view(-1)
                 
                 model_results.append({'T_pred': pred_u, 'label': label})
                 model_results_multi.append({
