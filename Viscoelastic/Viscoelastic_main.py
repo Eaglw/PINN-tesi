@@ -32,7 +32,7 @@ from Viscoelastic.src.Viscoelastic_physics import ViscoelasticPhysics
 
 # --- 2. GRID SEARCH SPACE ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]]  # VENet 8x128
-EPOCHS_OPTIONS = [10000]
+EPOCHS_OPTIONS = [10010]
 MAX_LBFGS_ITERS = None #Se None, usa il 10% di epoche Adam.
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
@@ -59,7 +59,7 @@ GOALS_TO_RUN = [1]
 
 GOAL_CONFIGS = {
     0: {'label': 'PurePhys',  'weights': {'bc': 1.0, 'physics': 1.0, 'data': 0.0}, 'mode': 'standard'},
-    1: {'label': 'Phys+Data', 'weights': {'bc': 1.0, 'physics': 1.0, 'data': 1.0}, 'mode': 'semi_inverse'},
+    1: {'label': 'Phys+Data', 'weights': {'bc': 10.0, 'physics': 1.0, 'data': 1.0}, 'mode': 'semi_inverse'},
     2: {'label': 'SoloData',  'weights': {'bc': 1.0, 'physics': 0.0, 'data': 1.0}, 'mode': 'standard'},
 }
 
@@ -136,7 +136,7 @@ if __name__ == '__main__':
             initial_dtype, device, variance_eps=VARIANCE_EPS
         )
         
-        # Estrazione diretta delle strutture per snellire il codice
+        # Estrazione diretta delle strutture
         dataset = data_bundle['dataset']
         xy_pinn_data = data_bundle['data_subsets']['xy']
         psip_pinn_data = data_bundle['data_subsets']['psip']
@@ -228,7 +228,7 @@ if __name__ == '__main__':
                 model_tau = FCN(layers=layers_tau, activation_fn=act_fn).to(device)
                 model_combined = ViscoelasticCombinedModel(model_psi, model_p, model_tau)
 
-                # Determinazione pesi effettivi
+                # Determinazione pesi effettivi, sovrascrive config
                 run_is_dynamic = is_dynamic if goal != 2 else False
                 effective_w = dict(current_w)
                 if not run_is_dynamic and goal != 2:

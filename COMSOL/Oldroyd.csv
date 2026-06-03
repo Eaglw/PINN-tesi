@@ -1,12 +1,12 @@
 % Model,Oldyoid_project.mph
 % Version,COMSOL 6.3.0.290
-% Date,"Jun 2 2026, 20:07"
+% Date,"Jun 3 2026, 14:27"
 % Dimension,2
 % Nodes,40730
 % Expressions,6
-% Description,"Velocity field, x-component, Velocity field, y-component, Pressure, Total elastic stress tensor, xx-component, Total elastic stress tensor, xy-component, Total elastic stress tensor, yy-component"
+% Description,"Velocity field, x-component, Velocity field, y-component, Pressure, Viscoelastic extra stress tensor, branch 1, xx-component, Viscoelastic extra stress tensor, branch 1, xy-component, Viscoelastic extra stress tensor, branch 1, yy-component"
 % Length unit,m
-% x,y,u (m/s),v (m/s),p (Pa),vef.Te_tot_stress_tensorxx (N/m^2),vef.Te_tot_stress_tensorxy (N/m^2),vef.Te_tot_stress_tensoryy (N/m^2)
+% x,y,u (m/s),v (m/s),p (Pa),vef.Te_1xx (N/m^2),vef.Te_1xy (N/m^2),vef.Te_1yy (N/m^2)
 1.7049359987681093E-6,1.7619123383649972E-6,5.239121395802882E-5,-2.4875991128343394E-10,2.9949650048295955,0.8684865992759294,0.1473529845749158,6.917563274812775E-7
 0,2.5974025974025985E-6,7.69101158221786E-5,-1.3151366754635742E-11,3.0001231909932433,0.8537531086588981,0.14610396963153538,3.097481936317138E-8
 0,0,0,0,3.000103324948879,0.8998991521172626,0.14999998559256086,-1.1632947264705436E-8

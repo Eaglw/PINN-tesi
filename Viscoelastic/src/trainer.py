@@ -87,6 +87,7 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
     warmup_ratio = getattr(cfg, 'warmup_ratio', 0.1)
     warmup_epochs_1 = int(epochs * warmup_ratio) if staged_training else 0
     warmup_epochs_2 = half_epochs + int(epochs * warmup_ratio) if staged_training else 0
+    warmup_half = warmup_epochs_1 // 2 if staged_training else 0
     
     def _rebuild_optimizer(steps_remaining):
         net_params = [p for p in model.parameters() if p.requires_grad]
@@ -115,6 +116,10 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
     alpha_dynamic = 0.9
 
     for epoch in pbar:
+        if staged_training and epoch == warmup_half:
+            set_physics_trainable(physics_problem, ['eps', 'alpha'])
+            optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(epochs - warmup_half)
+            
         if staged_training and epoch == warmup_epochs_1:
             set_physics_trainable(physics_problem, ['mu_p', 'lam', 'eps', 'alpha'])
             optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(half_epochs - warmup_epochs_1)
@@ -232,7 +237,7 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
     
     print("\n  [Staged Training] Fase 3: Raffinamento L-BFGS.")
     set_model_trainable(model, ['psi', 'p', 'tau'])
-    set_physics_trainable(physics_problem, ['mu_s', 'mu_p', 'lam'])
+    set_physics_trainable(physics_problem, ['mu_s', 'mu_p', 'lam', 'eps', 'alpha'])
     physics_problem.pde_weights = base_pde_weights
     
     if cfg.precision_mode == 'staged':
@@ -408,7 +413,8 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
         total_loss += lambda_bc * bc_loss
 
     if x_physics is not None:
-        pde_loss = physics_problem.residual(model, x_physics, variance_weights=variance_weights)
+        # La PDE mantiene la scala fisica originaria O(1) non venendo distorta dai variance_weights
+        pde_loss = physics_problem.residual(model, x_physics, variance_weights=None)
         loss_dict['pde_loss'] = pde_loss
         total_loss += lambda_physics * pde_loss
         

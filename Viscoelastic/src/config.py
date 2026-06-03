@@ -8,7 +8,7 @@ class TrainingConfig:
     adam_eps: float = 1e-7
     lr_strategy: str = 'cosine'
     staged_training: bool = True
-    warmup_ratio: float = 0.1
+    warmup_ratio: float = 0.4
     precision_mode: str = 'staged'
     max_lbfgs_iters: int = 100
     grad_clip_norm: float = 5.0
@@ -19,7 +19,7 @@ class TrainingConfig:
     dynamic_weighting: bool = True
     update_weights_every: int = 100
     loss_weights: dict = field(default_factory=lambda: {'data': 1.0, 'bc': 1.0, 'physics': 1.0})
-    group_weights: dict = field(default_factory=lambda: {'Inlet': 1.0, 'Walls': 1.0, 'Outlet': 1.0})
+    group_weights: dict = field(default_factory=lambda: {'Inlet': 10.0, 'Walls': 1.0, 'Outlet': 1.0})
     mode: str = 'standard'
     variance_weights: dict = None
     log_gradients_every: int = 500
@@ -30,7 +30,6 @@ class TrainingConfig:
 def set_model_trainable(model_combined, active_components=['psi', 'p', 'tau']):
     for p in model_combined.parameters():
         p.requires_grad = False
-    
     if 'psi' in active_components:
         for p in model_combined.model_psi.parameters(): p.requires_grad = True
     if 'p' in active_components:

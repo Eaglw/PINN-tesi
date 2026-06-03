@@ -701,10 +701,10 @@ def prepare_training_data(dataset_path, comsol_params, initial_dtype, device, va
     sigma2_tyy = max(tau_yy_exact.var().item(), variance_eps)
     
     var_weights = {
-        'u': 1.0, 'v': 1.0, 'p': 1.0,
-        'tau_xx': 1.0,
-        'tau_xy': 1.0,
-        'tau_yy': 1.0,
+        'u': sigma2_u, 'v': sigma2_v, 'p': sigma2_p,
+        'tau_xx': sigma2_txx,
+        'tau_xy': sigma2_txy,
+        'tau_yy': sigma2_tyy,
     }
     
     # Boundary Conditions: estraiamo solo i gruppi geometrici
