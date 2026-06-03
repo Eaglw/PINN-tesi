@@ -19,6 +19,8 @@ def _sample_minibatch(xy, targets, batch_size, device):
     if batch_size is None or batch_size >= xy.shape[0]:
         return xy, targets
     idx = torch.randperm(xy.shape[0], device=device)[:batch_size]
+    if targets is None:
+        return xy[idx], None
     if isinstance(targets, tuple):
         return xy[idx], tuple(t[idx] for t in targets)
     return xy[idx], targets[idx]
@@ -85,9 +87,9 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
     
     pbar = tqdm(range(epochs), desc=f"Training VE (Adam) ({cfg.lr_strategy})", mininterval=2.0)
     warmup_ratio = getattr(cfg, 'warmup_ratio', 0.1)
-    warmup_epochs_1 = int(epochs * warmup_ratio) if staged_training else 0
+    warmup_epochs_1_start_active = int(epochs * 0.1) if staged_training else 0 #solo eps e alpha
+    warmup_epochs_1_all_active = int(epochs * 0.6) if staged_training else 0 #anche etap e lambda
     warmup_epochs_2 = half_epochs + int(epochs * warmup_ratio) if staged_training else 0
-    warmup_half = warmup_epochs_1 // 2 if staged_training else 0
     
     def _rebuild_optimizer(steps_remaining):
         net_params = [p for p in model.parameters() if p.requires_grad]
@@ -110,19 +112,19 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
     else:
         set_model_trainable(model, ['psi', 'p', 'tau'])
         current_active_bcs = None
-        set_physics_trainable(physics_problem, ['mu_s', 'mu_p', 'lam', 'eps', 'alpha'])
+        set_physics_trainable(physics_problem, ['eps', 'alpha'])
 
-    optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(warmup_epochs_1 if staged_training else epochs)
+    optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(warmup_epochs_1_start_active if staged_training else epochs)
     alpha_dynamic = 0.9
 
     for epoch in pbar:
-        if staged_training and epoch == warmup_half:
+        if staged_training and epoch == warmup_epochs_1_start_active:
             set_physics_trainable(physics_problem, ['eps', 'alpha'])
-            optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(epochs - warmup_half)
+            optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(warmup_epochs_1_all_active - warmup_epochs_1_start_active)
             
-        if staged_training and epoch == warmup_epochs_1:
-            set_physics_trainable(physics_problem, ['mu_p', 'lam', 'eps', 'alpha'])
-            optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(half_epochs - warmup_epochs_1)
+        if staged_training and epoch == warmup_epochs_1_all_active:
+            set_physics_trainable(physics_problem, ['eps', 'alpha'])
+            optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(half_epochs - warmup_epochs_1_all_active)
             if cfg.dynamic_weighting:
                 lambda_data = cfg.loss_weights.get('data', 1.0)
                 lambda_bc = cfg.loss_weights.get('bc', 1.0)
@@ -141,7 +143,7 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
                 print(f"  [Dynamic Weights] Reset a inizio Fase 2: data={lambda_data:.2f}, bc={lambda_bc:.2f}, phys={target_lambda_physics:.2f}")
             optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(warmup_epochs_2 - half_epochs)
         if staged_training and epoch == warmup_epochs_2:
-            set_physics_trainable(physics_problem, ['mu_s'])
+            set_physics_trainable(physics_problem, [])
             optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(epochs - warmup_epochs_2)
 
         model.train()

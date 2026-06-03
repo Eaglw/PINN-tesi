@@ -19,7 +19,7 @@ class TrainingConfig:
     dynamic_weighting: bool = True
     update_weights_every: int = 100
     loss_weights: dict = field(default_factory=lambda: {'data': 1.0, 'bc': 1.0, 'physics': 1.0})
-    group_weights: dict = field(default_factory=lambda: {'Inlet': 10.0, 'Walls': 1.0, 'Outlet': 1.0})
+    group_weights: dict = field(default_factory=lambda: {'Inlet': 1.0, 'Walls': 1.0, 'Outlet': 1.0})
     mode: str = 'standard'
     variance_weights: dict = None
     log_gradients_every: int = 500
