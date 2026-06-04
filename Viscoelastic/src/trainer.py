@@ -160,7 +160,10 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         orig_metadata = physics_problem._boundary_metadata
         physics_problem._boundary_metadata = epoch_metadata
         
-        xph = xb.clone().requires_grad_(True) if lambda_data > 0 else _sample_minibatch(collocation_points, None, cfg.minibatch_internal, _device)[0].clone().requires_grad_(True)
+        if target_lambda_physics > 0:
+            xph = xb.clone().requires_grad_(True) if lambda_data > 0 else _sample_minibatch(collocation_points, None, cfg.minibatch_internal, _device)[0].clone().requires_grad_(True)
+        else:
+            xph = None
 
         loss, loss_dict = compute_pinn_loss(
             model, x_data=xb, y_data=yb, x_bc=xbc, y_bc=ybc, physics_problem=physics_problem, x_physics=xph,
@@ -313,7 +316,7 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
                 cl.backward()
                 
         # 3. Physics Loss Chunking (xph_full)
-        if xph_full is not None and xph_full.numel() > 0:
+        if target_lambda_physics > 0 and xph_full is not None and xph_full.numel() > 0:
             for i in range(0, xph_full.shape[0], c_size):
                 xc = xph_full[i : i + c_size]
                 cl, cd = compute_pinn_loss(
@@ -414,11 +417,13 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
         loss_dict.update(per_g)
         total_loss += lambda_bc * bc_loss
 
-    if x_physics is not None:
+    if x_physics is not None and lambda_physics > 0:
         # La PDE mantiene la scala fisica originaria O(1) non venendo distorta dai variance_weights
         pde_loss = physics_problem.residual(model, x_physics, variance_weights=None)
         loss_dict['pde_loss'] = pde_loss
         total_loss += lambda_physics * pde_loss
+    else:
+        loss_dict['pde_loss'] = torch.tensor(0.0, device=x_data.device if (x_data is not None and x_data.numel() > 0) else next(model.parameters()).device)
         
     loss_dict['total_loss'] = total_loss
     return total_loss, loss_dict
