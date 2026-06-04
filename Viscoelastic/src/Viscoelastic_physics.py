@@ -121,6 +121,8 @@ class ViscoelasticPhysics(nn.Module):
             'eps': eff['eps'],
             'alpha': eff['alpha'],
             'beta_poly': eff['mu_p'] / real_mu_tot,
+            'etas': eff['mu_s'],
+            'etap': eff['mu_p'],
         }
 
     def get_velocity(self, model, x):
@@ -172,7 +174,7 @@ class ViscoelasticPhysics(nn.Module):
         # 5. Momentum (Navier-Stokes)
         f_u = Re * (u * u_x + v * u_y) + p_x - beta * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
         f_v = Re * (u * v_x + v * v_y) + p_y - beta * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
-
+ 
         # 6. Costitutive (Oldroyd-B / PTT / Giesekus)
         # Il parametro beta_poly bilancia lo scaling fisico dello sforzo polimerico
         f_PTT = 1.0 + (eps * Wi / beta_poly) * (tau_xx + tau_yy)
@@ -180,13 +182,13 @@ class ViscoelasticPhysics(nn.Module):
         upper_xx = (u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy)
         upper_yy = (u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy)
         upper_xy = (u * tau_xy_x + v * tau_xy_y - u_x * tau_xy - u_y * tau_yy - tau_xx * v_x - tau_xy * v_y)
-
+ 
         f_txx = f_PTT * tau_xx + Wi * upper_xx + (alpha * Wi / beta_poly) * (tau_xx**2 + tau_xy**2) - 2.0 * beta_poly * u_x
         f_tyy = f_PTT * tau_yy + Wi * upper_yy + (alpha * Wi / beta_poly) * (tau_xy**2 + tau_yy**2) - 2.0 * beta_poly * v_y
         f_txy = f_PTT * tau_xy + Wi * upper_xy + (alpha * Wi / beta_poly) * tau_xy * (tau_xx + tau_yy) - beta_poly * (u_y + v_x)
         
         return f_u, f_v, f_txx, f_tyy, f_txy
-
+ 
     def residual(self, model, x, pde_weights=None, variance_weights=None):
         weights = pde_weights or self.pde_weights
         vw = variance_weights or {}
@@ -197,9 +199,9 @@ class ViscoelasticPhysics(nn.Module):
         loss_c = (f_txx**2 / max(vw.get('tau_xx', 1.0), 1e-8)).mean() + \
                  (f_tyy**2 / max(vw.get('tau_yy', 1.0), 1e-8)).mean() + \
                  (f_txy**2 / max(vw.get('tau_xy', 1.0), 1e-8)).mean()
-
+ 
         return weights.get('momentum', 10.0) * loss_m + weights.get('constitutive', 1.0) * loss_c
-
+ 
     def boundary_loss(self, model, x_bc, target_bc, variance_weights=None, active_bcs=None, group_weights=None):
             """
             Orchestratore della loss al contorno. Affetta i mega-tensori in base
@@ -222,7 +224,7 @@ class ViscoelasticPhysics(nn.Module):
                     
             total_bc_loss = torch.tensor(0.0, device=x_bc.device, dtype=x_bc.dtype)
             per_group_losses = {}
-
+ 
             # 3. Fallback di emergenza (se manca il metadata, processa tutto in un colpo solo)
             if not hasattr(self, '_boundary_metadata') or not self._boundary_metadata:
                 if not x_bc.requires_grad: 
@@ -232,7 +234,7 @@ class ViscoelasticPhysics(nn.Module):
                 pred_bc = torch.cat([u, v, p, tau], dim=1) 
                 raw_loss = self._compute_raw_bc_loss(pred_bc, x_bc, dir_target, neu_target, nx, ny, var_w, active_bcs, keys)
                 return raw_loss, {"loss_bc_all": raw_loss.item() if hasattr(raw_loss, 'item') else float(raw_loss)}
-
+ 
             # 4. Ciclo di Slicing sui Gruppi Fisici
             start_idx = 0
             for group_name, num_points in self._boundary_metadata:
@@ -274,10 +276,13 @@ class ViscoelasticPhysics(nn.Module):
                     rules = self.bc_rules[group_name]
                     if 'custom' in rules:
                         for custom_rule in rules['custom']:
-                            if custom_rule == 'outlet-stress':
+                            if custom_rule == 'normal_stress':
+                                nd = self._get_nondim_params()
+                                beta = nd['beta']
+                                eta_p=nd['etap']
                                 grad_u = torch.autograd.grad(u_g.sum(), x_slice, create_graph=True)[0]
                                 u_x = grad_u[:, 0:1]
-                                res_ns = p_g - 2.0 * self.mu_s * u_x - tau_g[:, 0:1]
+                                res_ns = p_g - 2.0 * beta*eta_p * u_x - tau_g[:, 0:1]
                                 g_loss += (res_ns ** 2).mean()
                 
                 # --- AGGIORNAMENTO TOTALI ---
