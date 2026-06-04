@@ -24,7 +24,8 @@ DEFAULT_BC_RULES = {
         #'neumann': {'p': 0.0}
     },
     'Outlet': {
-        'dirichlet': {'u': 0, 'p': 'csv'}
+        'dirichlet': {'u': 0},
+        'custom': ['normal_stress']
         #'neumann': {'tau_xx': 0.0, 'tau_xy': 0.0, 'tau_yy': 0.0}
     },
     'Walls-dritte':{
@@ -268,6 +269,20 @@ class ViscoelasticPhysics(nn.Module):
                     keys=keys
                 )
                 
+                # --- AGGIUNTA CONDIZIONI PERSONALIZZATE ---
+                if group_name in self.bc_rules:
+                    rules = self.bc_rules[group_name]
+                    if 'custom' in rules:
+                        for custom_rule in rules['custom']:
+                            if custom_rule == 'normal_stress':
+                                nd = self._get_nondim_params()
+                                beta = nd['beta']
+                                eta_p=nd['etap']
+                                grad_u = torch.autograd.grad(u_g.sum(), x_slice, create_graph=True)[0]
+                                u_x = grad_u[:, 0:1]
+                                res_ns = p_g - 2.0 * beta*eta_p * u_x - tau_g[:, 0:1]
+                                g_loss += (res_ns ** 2).mean()
+                
                 # --- AGGIORNAMENTO TOTALI ---
                 per_group_losses[f"loss_bc_{group_name}"] = g_loss.item() if hasattr(g_loss, 'item') else float(g_loss)
                 total_bc_loss += g_weight * g_loss
@@ -390,6 +405,9 @@ class ViscoelasticPhysics(nn.Module):
                 if rules.get(bc_type):
                     fields_str = ','.join(rules[bc_type].keys())
                     active_rules_str.append(f"{bc_type[0].upper()}:{fields_str}")
+            if rules.get('custom'):
+                custom_str = ','.join(rules['custom'])
+                active_rules_str.append(f"C:{custom_str}")
             print(f"{group_name:<25} | {num_points:<8} | {' '.join(active_rules_str)}")
 
             # 4. Popolamento dei tensori con i valori target
