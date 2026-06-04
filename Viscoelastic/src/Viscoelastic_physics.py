@@ -276,13 +276,10 @@ class ViscoelasticPhysics(nn.Module):
                     rules = self.bc_rules[group_name]
                     if 'custom' in rules:
                         for custom_rule in rules['custom']:
-                            if custom_rule == 'normal_stress':
-                                nd = self._get_nondim_params()
-                                beta = nd['beta']
-                                eta_p=nd['etap']
+                            if custom_rule == 'outlet-stress':
                                 grad_u = torch.autograd.grad(u_g.sum(), x_slice, create_graph=True)[0]
                                 u_x = grad_u[:, 0:1]
-                                res_ns = p_g - 2.0 * beta*eta_p * u_x - tau_g[:, 0:1]
+                                res_ns = p_g - 2.0 * self.mu_s * u_x - tau_g[:, 0:1]
                                 g_loss += (res_ns ** 2).mean()
                 
                 # --- AGGIORNAMENTO TOTALI ---
