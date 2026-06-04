@@ -24,7 +24,7 @@ DEFAULT_BC_RULES = {
         #'neumann': {'p': 0.0}
     },
     'Outlet': {
-        'dirichlet': {'u': 0},
+        'dirichlet': {'v': 0},
         'custom': ['outlet-stress']
         #'neumann': {'tau_xx': 0.0, 'tau_xy': 0.0, 'tau_yy': 0.0}
     },
