@@ -16,7 +16,7 @@ def _softplus_inverse(x):
 # ==============================================================================
 DEFAULT_BC_RULES = {
     'Inlet': {
-        'dirichlet': {'u': 'csv', 'v': 'csv', 'p': 'csv', 'tau_xx': 'csv', 'tau_xy': 'csv', 'tau_yy': 'csv'},
+        'dirichlet': {'u': 'csv', 'v': 'csv', 'tau_xx': '0', 'tau_xy': '0', 'tau_yy': '0'},
         'neumann': {}
     },
     'Walls': {
@@ -24,7 +24,7 @@ DEFAULT_BC_RULES = {
         #'neumann': {'p': 0.0}
     },
     'Outlet': {
-        'dirichlet': {'p': 'csv'}
+        'dirichlet': {'u': 0, 'p': 'csv'}
         #'neumann': {'tau_xx': 0.0, 'tau_xy': 0.0, 'tau_yy': 0.0}
     },
     'Walls-dritte':{
