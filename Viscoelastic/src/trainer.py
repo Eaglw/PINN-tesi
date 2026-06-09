@@ -90,6 +90,8 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
     warmup_epochs_1_start_active = int(epochs * 0.1) if staged_training else 0 #solo eps e alpha
     warmup_epochs_1_all_active = int(epochs * 0.6) if staged_training else 0 #anche etap e lambda
     warmup_epochs_2 = half_epochs + int(epochs * warmup_ratio) if staged_training else 0
+    warmup_non_staged_eps_alpha = int(epochs * 0.1) if not staged_training else 0   # warmup minore (es. 800 epoche)
+    warmup_non_staged_all = int(epochs * 0.25) if not staged_training else 0        # sblocco totale (es. 2000 epoche)
     
     def _rebuild_optimizer(steps_remaining):
         net_params = [p for p in model.parameters() if p.requires_grad]
@@ -112,12 +114,21 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
     else:
         set_model_trainable(model, ['psi', 'p', 'tau'])
         current_active_bcs = None
-        set_physics_trainable(physics_problem, ['eps', 'alpha'])
+        # Partiamo con i parametri fisici congelati se siamo in inverse_mode
+        set_physics_trainable(physics_problem, [] if getattr(physics_problem, 'inverse_mode', False) else ['mu_s', 'mu_p', 'lam'])
 
     optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(warmup_epochs_1_start_active if staged_training else epochs)
     alpha_dynamic = 0.9
 
     for epoch in pbar:
+        if not staged_training and getattr(physics_problem, 'inverse_mode', False):
+            if epoch == warmup_non_staged_eps_alpha:
+                pass # eps e alpha rimangono fissati a 0
+            elif epoch == warmup_non_staged_all:
+                print(f"\n  [Warmup Stage 2] Attivazione di viscosità e lambda (eps, alpha fissati).")
+                set_physics_trainable(physics_problem, ['mu_s', 'mu_p', 'lam'])
+                optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(epochs - epoch)
+            
         if staged_training and epoch == warmup_epochs_1_start_active:
             set_physics_trainable(physics_problem, ['eps', 'alpha'])
             optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(warmup_epochs_1_all_active - warmup_epochs_1_start_active)
@@ -242,7 +253,8 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
     
     print("\n  [Staged Training] Fase 3: Raffinamento L-BFGS.")
     set_model_trainable(model, ['psi', 'p', 'tau'])
-    set_physics_trainable(physics_problem, ['mu_s', 'mu_p', 'lam', 'eps', 'alpha'])
+    # eps e alpha rimangono fissati
+    set_physics_trainable(physics_problem, ['mu_s', 'mu_p', 'lam'])
     physics_problem.pde_weights = base_pde_weights
     
     if cfg.precision_mode == 'staged':
@@ -378,7 +390,7 @@ def train_ViscoelasticPINN(model, config, data_internal, data_boundary, validati
     os.makedirs(plots_dir, exist_ok=True); os.makedirs(final_dir, exist_ok=True)
     loss_history = TrainingHistory()
     loss_history, plot_files, ld, lbc, lp, bpw = _run_adam_phase(model, physics_problem, config, data_internal, data_boundary, validation_grid, collocation_points, loss_history, plots_dir)
-    #loss_history = _run_lbfgs_phase(model, physics_problem, config, data_internal, data_boundary, collocation_points, loss_history, ld, lbc, lp, bpw)
+    loss_history = _run_lbfgs_phase(model, physics_problem, config, data_internal, data_boundary, collocation_points, loss_history, ld, lbc, lp, bpw)
     
     print("Training completato. Generazione artifacts...")
     model.eval()

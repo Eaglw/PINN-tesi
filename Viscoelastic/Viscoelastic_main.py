@@ -39,7 +39,7 @@ LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['dynamic']
 
 # 0=PurePhys, 1=Phys+Data, 2=SoloData
-GOALS_TO_RUN = [0]
+GOALS_TO_RUN = [1]
 
 GOAL_CONFIGS = {
     0: {'label': 'PurePhys',  'weights': {'bc': 1.0, 'physics': 1.0, 'data': 0.0}, 'mode': 'standard'},
@@ -52,7 +52,7 @@ GOAL_CONFIGS = {
 PRECISION_MODE = 'staged'           # 'full_32' | 'staged' | 'full_64'
 SEED = 123
 #DATASET_OPTIONS = ['Oldroyd.csv','Oldroyd_res.csv']
-DATASET_OPTIONS = ['Oldroyd_mau.csv']
+DATASET_OPTIONS = ['Oldroyd_mau_res.csv']
 
 COMSOL_PARAMS = {
     'mu_s': 0.1,   # Viscosità solvente [Pa·s]
@@ -70,7 +70,7 @@ torch.set_default_dtype(initial_dtype)
 # --- Hyperparameters ---
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
-STAGED_TRAINING = True
+STAGED_TRAINING = False
 
 MINIBATCH_INTERNAL = 2048*2
 MINIBATCH_BOUNDARY = 256*2
@@ -84,10 +84,10 @@ PDE_WEIGHTS = {'momentum': 10.0, 'constitutive': 1.0}
 VARIANCE_EPS = 1e-4
 
 # --- Inverse Problem Settings ---
-INVERSE_PROBLEM = True
-GUESS_MULTIPLIER = 1.0
-GUESS_MIN_EPS = 0.1
-GUESS_MIN_ALPHA = 0.1
+INVERSE_PROBLEM = False
+GUESS_MULTIPLIER = 0.8
+GUESS_MIN_EPS = 0.0
+GUESS_MIN_ALPHA = 0.0
 
 LOG_GRADIENTS_EVERY = 500
 PLOT_EVERY = 500

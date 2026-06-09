@@ -24,8 +24,8 @@ DEFAULT_BC_RULES = {
         #'neumann': {'p': 0.0}
     },
     'Outlet': {
-        'dirichlet': {'v': 0},
-        'custom': ['outlet-stress']
+        'dirichlet': {'v': 0, 'p':'csv'},
+        #'custom': ['outlet-stress-inverso']
         #'neumann': {'tau_xx': 0.0, 'tau_xy': 0.0, 'tau_yy': 0.0}
     },
     'Walls-dritte':{
@@ -275,11 +275,19 @@ class ViscoelasticPhysics(nn.Module):
                 if group_name in self.bc_rules:
                     rules = self.bc_rules[group_name]
                     if 'custom' in rules:
+                        real_mu_tot = self.real_mu_s + self.real_mu_p
+                        beta_s = self.mu_s / real_mu_tot
+                        
                         for custom_rule in rules['custom']:
-                            if custom_rule == 'outlet-stress':
+                            if custom_rule == 'outlet-stress-diretto':
                                 grad_u = torch.autograd.grad(u_g.sum(), x_slice, create_graph=True)[0]
                                 u_x = grad_u[:, 0:1]
-                                res_ns = p_g - 2.0 * self.mu_s * u_x - tau_g[:, 0:1]
+                                res_ns = p_g - 2.0 * beta_s * u_x - tau_g[:, 0:1]
+                                g_loss += (res_ns ** 2).mean()
+                            if custom_rule == 'outlet-stress-inverso':
+                                grad_u = torch.autograd.grad(u_g.sum(), x_slice, create_graph=True)[0]
+                                u_x = grad_u[:, 0:1]
+                                res_ns = 2.0 * beta_s * u_x + tau_g[:, 0:1]
                                 g_loss += (res_ns ** 2).mean()
                 
                 # --- AGGIORNAMENTO TOTALI ---
