@@ -371,7 +371,7 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
         
         dev = next(model.parameters()).device
         dtype = next(model.parameters()).dtype
-        return torch.tensor(total_loss_val, device=dev, dtype=dtype, requires_grad=True)
+        return torch.tensor(total_loss_val, device=dev, dtype=dtype)
 
     optimizer_lbfgs.step(closure)
     if getattr(physics_problem, 'inverse_mode', False):
@@ -424,7 +424,7 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
         total_loss += lambda_data * data_loss
     
     if x_bc is not None and x_bc.numel() > 0:
-        bc_loss, per_g = physics_problem.boundary_loss(model, x_bc, y_bc, variance_weights, kwargs.get('active_bcs'), group_weights)
+        bc_loss, per_g = physics_problem.boundary_loss(model, x_bc, y_bc, None, kwargs.get('active_bcs'), group_weights)
         loss_dict['bc_loss'] = bc_loss
         loss_dict.update(per_g)
         total_loss += lambda_bc * bc_loss

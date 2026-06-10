@@ -278,19 +278,25 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
         vertices_raw.append([float(parts[0]), float(parts[1])])
     vertices_raw = np.array(vertices_raw)
 
-    # Parsing elementi edg2 (Type #1) e Geometric entity indices
+    # Parsing elementi edg/edg2 (Type #1) e Geometric entity indices
     edg_elements = []
     edg_entity_indices = []
     edg_start = -1
+    edg_type = None
     for idx, line in enumerate(lines):
         if 'edg2 # type name' in line:
             edg_start = idx
+            edg_type = 'edg2'
+            break
+        elif 'edg # type name' in line:
+            edg_start = idx
+            edg_type = 'edg'
             break
 
     if edg_start != -1:
         num_edg_elements = 0
         edg_elem_idx = -1
-        # Trova il numero di elementi edg2
+        # Trova il numero di elementi edg/edg2
         for i in range(edg_start, len(lines)):
             if '# number of elements' in lines[i]:
                 num_edg_elements = int(lines[i].split('#')[0].strip())
@@ -304,10 +310,12 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
         if edg_elem_idx != -1:
             for i in range(num_edg_elements):
                 parts = lines[edg_elem_idx + i].split()
-                # edg2 ha 3 nodi per elemento (nodi d'angolo ed intermedi)
-                edg_elements.append([int(parts[0]), int(parts[1]), int(parts[2])])
+                if edg_type == 'edg2':
+                    edg_elements.append([int(parts[0]), int(parts[1]), int(parts[2])])
+                else:
+                    edg_elements.append([int(parts[0]), int(parts[1])])
 
-        # Trova Geometric entity indices per edg2 (Boundary/Edge ID geometrici)
+        # Trova Geometric entity indices per edg/edg2 (Boundary/Edge ID geometrici)
         edg_entity_idx = -1
         for i in range(edg_elem_idx + num_edg_elements, len(lines)):
             if '# Geometric entity indices' in lines[i]:
@@ -318,12 +326,18 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
             for i in range(num_edg_elements):
                 edg_entity_indices.append(int(lines[edg_entity_idx + i]))
 
-    # Parsing elementi tri2 (Type #2) per ricostruzione topologia normali
+    # Parsing elementi tri/tri2 (Type #2) per ricostruzione topologia normali
     tri_elements = []
     tri_start = -1
+    tri_type = None
     for idx, line in enumerate(lines):
         if 'tri2 # type name' in line:
             tri_start = idx
+            tri_type = 'tri2'
+            break
+        elif 'tri # type name' in line:
+            tri_start = idx
+            tri_type = 'tri'
             break
 
     if tri_start != -1:
@@ -341,8 +355,9 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
         if tri_elem_idx != -1:
             for i in range(num_tri_elements):
                 parts = lines[tri_elem_idx + i].split()
-                # tri2 ha 6 nodi per elemento. A noi interessano i primi 3 per la topologia geometrica
+                # In entrambi tri e tri2, i primi 3 nodi sono i nodi d'angolo della topologia geometrica
                 tri_elements.append([int(parts[0]), int(parts[1]), int(parts[2])])
+
 
     # Parsing delle Selezioni (Selection)
     selections = {}
@@ -477,7 +492,7 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
             if edge_id not in entities_set:
                 continue
                 
-            ga, gb, gmid = edg[0], edg[1], edg[2]
+            ga, gb = edg[0], edg[1]
             
             # Trova il triangolo adiacente
             adj_tri_idx = None
@@ -514,7 +529,7 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
                 if np.dot(n_candidate, to_internal) > 0:
                     n_candidate = -n_candidate
                     
-                for g in [ga, gb, gmid]:
+                for g in edg:
                     group_normals_accum[g] += n_candidate
 
         global_indices = []

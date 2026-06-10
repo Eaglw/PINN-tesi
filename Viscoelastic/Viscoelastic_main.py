@@ -25,7 +25,7 @@ from func.logging_utils import update_results_csv
 from func.graphic_func import plot2D_unified_comparison, plot_loss_comparison, plot2D_viscoelastic_comparison
 
 # Import locali Viscoelastic
-from Viscoelastic.src.models import FCN, ViscoelasticCombinedModel, get_activation_name, format_layers_name
+from Viscoelastic.src.models import FCN, ViscoelasticCombinedModel, ScaledViscoelasticCombinedModel, get_activation_name, format_layers_name, initialize_last_layer_zero
 from Viscoelastic.src.config import TrainingConfig
 from Viscoelastic.src.trainer import train_ViscoelasticPINN, compute_viscoelastic_metrics
 from Viscoelastic.src.Viscoelastic_physics import ViscoelasticPhysics
@@ -226,7 +226,33 @@ if __name__ == '__main__':
                 model_psi = FCN(layers=layers_psi, activation_fn=act_fn).to(device)
                 model_p = FCN(layers=layers_p, activation_fn=act_fn).to(device)
                 model_tau = FCN(layers=layers_tau, activation_fn=act_fn).to(device)
-                model_combined = ViscoelasticCombinedModel(model_psi, model_p, model_tau)
+
+                def init_weights_xavier(m):
+                    if isinstance(m, nn.Linear):
+                        nn.init.xavier_normal_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+
+                model_psi.apply(init_weights_xavier)
+                model_p.apply(init_weights_xavier)
+                model_tau.apply(init_weights_xavier)
+
+                initialize_last_layer_zero(model_p)
+                initialize_last_layer_zero(model_tau)
+
+                # Data-driven output scaling
+                p_data = dataset['p']
+                tau_xx_data, tau_xy_data, tau_yy_data = dataset['tau_xx'], dataset['tau_xy'], dataset['tau_yy']
+                p_scale = max(abs(p_data.min().item()), abs(p_data.max().item()), 1.0)
+                tau_scale = max(
+                    abs(tau_xx_data.min().item()), abs(tau_xx_data.max().item()),
+                    abs(tau_xy_data.min().item()), abs(tau_xy_data.max().item()),
+                    abs(tau_yy_data.min().item()), abs(tau_yy_data.max().item()),
+                    1.0
+                )
+                print(f"  [Output Scaling] p_scale={p_scale:.2f}, tau_scale={tau_scale:.2f}")
+
+                model_combined = ScaledViscoelasticCombinedModel(model_psi, model_p, model_tau, p_scale=p_scale, tau_scale=tau_scale)
 
                 # Determinazione pesi effettivi, sovrascrive config
                 run_is_dynamic = is_dynamic if goal != 2 else False
