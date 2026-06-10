@@ -25,14 +25,14 @@ from func.logging_utils import update_results_csv
 from func.graphic_func import plot2D_unified_comparison, plot_loss_comparison, plot2D_viscoelastic_comparison
 
 # Import locali Viscoelastic
-from Viscoelastic.src.models import FCN, ViscoelasticCombinedModel, get_activation_name, format_layers_name
-from Viscoelastic.src.config import TrainingConfig
-from Viscoelastic.src.trainer import train_ViscoelasticPINN, compute_viscoelastic_metrics
-from Viscoelastic.src.Viscoelastic_physics import ViscoelasticPhysics
+from FourRollMill.src.models import FCN, ViscoelasticCombinedModel, get_activation_name, format_layers_name
+from FourRollMill.src.config import TrainingConfig
+from FourRollMill.src.trainer import train_ViscoelasticPINN, compute_viscoelastic_metrics
+from FourRollMill.src.Viscoelastic_physics import ViscoelasticPhysics
 
 # --- 2. GRID SEARCH SPACE ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]]  # VENet 8x128
-EPOCHS_OPTIONS = [5000]
+EPOCHS_OPTIONS = [13000]
 MAX_LBFGS_ITERS = None #Se None, usa il 10% di epoche Adam.
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
@@ -49,10 +49,9 @@ GOAL_CONFIGS = {
 
 
 # --- 3. FIXED CONFIGURATIONS & HYPERPARAMETERS ---
-PRECISION_MODE = 'staged'           # 'full_32' | 'staged' | 'full_64'
+PRECISION_MODE = 'full_64'           # 'full_32' | 'staged' | 'full_64'
 SEED = 123
-#DATASET_OPTIONS = ['Oldroyd.csv','Oldroyd_res.csv']
-DATASET_OPTIONS = ['4_roll_mill.csv']
+DATASET_OPTIONS = ['4_roll_mill.csv'] #lambda = 1 anche se non c'è nel nome
 
 COMSOL_PARAMS = {
     'mu_s': 0.1,   # Viscosità solvente [Pa·s]
@@ -61,6 +60,8 @@ COMSOL_PARAMS = {
     'eps': 0.0,      # Parametro PTT
     'alpha': 0.0,    # Parametro Giesekus
     'rho': 1000,      # Densità [kg/m³]
+    'omega': 100,  # Giri al minuto[rpm] #non credo serva che tanto lo prendo dal csv
+
 }
 
 # Impostazione del tipo di dato globale iniziale
@@ -72,14 +73,14 @@ BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 STAGED_TRAINING = False
 
-MINIBATCH_INTERNAL = 2048*2
-MINIBATCH_BOUNDARY = 256*2
+MINIBATCH_INTERNAL = 2048 if PRECISION_MODE == 'full_64' else 2048*2
+MINIBATCH_BOUNDARY = 256 if PRECISION_MODE == 'full_64' else 256*2
 
 STATIC_WEIGHTS = {'bc': 10.0, 'physics': 10.0, 'data': 1.0}
 STATIC_WEIGHT_STR = "BC=10-PHYS=10-DATA=1"
 DYNAMIC_WEIGHT_STR = "Dynamic-Annealing"
 
-PDE_WEIGHTS = {'momentum': 10.0, 'constitutive': 1.0}
+PDE_WEIGHTS = {'momentum': 1.0, 'constitutive': 1.0}
 
 VARIANCE_EPS = 1e-4
 
@@ -130,10 +131,11 @@ if __name__ == '__main__':
         print(f'=======================================================')
         
         # Import aggiornato da src
-        from Viscoelastic.src.load_comsol import prepare_training_data
+        from FourRollMill.src.load_comsol import prepare_training_data
         data_bundle = prepare_training_data(
             str(DATASET_PATH), COMSOL_PARAMS,
-            initial_dtype, device, variance_eps=VARIANCE_EPS
+            initial_dtype, device, variance_eps=VARIANCE_EPS,
+            mask_multiplier=5.0
         )
         
         # Estrazione diretta delle strutture

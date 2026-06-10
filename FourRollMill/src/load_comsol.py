@@ -278,19 +278,19 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
         vertices_raw.append([float(parts[0]), float(parts[1])])
     vertices_raw = np.array(vertices_raw)
 
-    # Parsing elementi edg2 (Type #1) e Geometric entity indices
+    # Parsing elementi edg2 o edg (Type #1) e Geometric entity indices
     edg_elements = []
     edg_entity_indices = []
     edg_start = -1
     for idx, line in enumerate(lines):
-        if 'edg2 # type name' in line:
+        if 'edg2 # type name' in line or 'edg # type name' in line:
             edg_start = idx
             break
 
     if edg_start != -1:
         num_edg_elements = 0
         edg_elem_idx = -1
-        # Trova il numero di elementi edg2
+        # Trova il numero di elementi edg2/edg
         for i in range(edg_start, len(lines)):
             if '# number of elements' in lines[i]:
                 num_edg_elements = int(lines[i].split('#')[0].strip())
@@ -304,8 +304,8 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
         if edg_elem_idx != -1:
             for i in range(num_edg_elements):
                 parts = lines[edg_elem_idx + i].split()
-                # edg2 ha 3 nodi per elemento (nodi d'angolo ed intermedi)
-                edg_elements.append([int(parts[0]), int(parts[1]), int(parts[2])])
+                # Supporta sia edg (2 nodi) che edg2 (3 nodi)
+                edg_elements.append([int(p) for p in parts])
 
         # Trova Geometric entity indices per edg2 (Boundary/Edge ID geometrici)
         edg_entity_idx = -1
@@ -318,11 +318,11 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
             for i in range(num_edg_elements):
                 edg_entity_indices.append(int(lines[edg_entity_idx + i]))
 
-    # Parsing elementi tri2 (Type #2) per ricostruzione topologia normali
+    # Parsing elementi tri2 o tri (Type #2) per ricostruzione topologia normali
     tri_elements = []
     tri_start = -1
     for idx, line in enumerate(lines):
-        if 'tri2 # type name' in line:
+        if 'tri2 # type name' in line or 'tri # type name' in line:
             tri_start = idx
             break
 
@@ -341,8 +341,8 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
         if tri_elem_idx != -1:
             for i in range(num_tri_elements):
                 parts = lines[tri_elem_idx + i].split()
-                # tri2 ha 6 nodi per elemento. A noi interessano i primi 3 per la topologia geometrica
-                tri_elements.append([int(parts[0]), int(parts[1]), int(parts[2])])
+                # tri ha 3 nodi, tri2 ha 6 nodi. Ci interessano solo i primi 3 per la topologia
+                tri_elements.append([int(p) for p in parts[:3]])
 
     # Parsing delle Selezioni (Selection)
     selections = {}
@@ -477,7 +477,9 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
             if edge_id not in entities_set:
                 continue
                 
-            ga, gb, gmid = edg[0], edg[1], edg[2]
+            ga = edg[0]
+            gb = edg[1]
+            gmid = edg[2] if len(edg) > 2 else None
             
             # Trova il triangolo adiacente
             adj_tri_idx = None
@@ -514,7 +516,10 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
                 if np.dot(n_candidate, to_internal) > 0:
                     n_candidate = -n_candidate
                     
-                for g in [ga, gb, gmid]:
+                nodes_to_update = [ga, gb]
+                if gmid is not None:
+                    nodes_to_update.append(gmid)
+                for g in nodes_to_update:
                     group_normals_accum[g] += n_candidate
 
         global_indices = []
@@ -622,7 +627,7 @@ def extract_boundary_groups_from_comsol(dataset, device='cpu'):
     return boundary_groups
 
 
-def prepare_training_data(dataset_path, comsol_params, initial_dtype, device, variance_eps=1e-5):
+def prepare_training_data(dataset_path, comsol_params, initial_dtype, device, variance_eps=1e-5, mask_multiplier=2.0):
     """
     Esegue la preparazione completa dei dati COMSOL per il training:
     - Caricamento e adimensionalizzazione
@@ -665,7 +670,7 @@ def prepare_training_data(dataset_path, comsol_params, initial_dtype, device, va
         
         # La spaziatura tipica del mesh è stimata tramite la mediana del lato più lungo dei triangoli
         typical_spacing = np.median(max_edge)
-        threshold = 2.0 * typical_spacing
+        threshold = mask_multiplier * typical_spacing
         
         # Applichiamo la maschera per escludere i triangoli spuri esterni
         mask = max_edge > threshold

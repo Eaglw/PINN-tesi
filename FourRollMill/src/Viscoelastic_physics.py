@@ -15,23 +15,24 @@ def _softplus_inverse(x):
 # STRUTTURA E FUNZIONAMENTO DELLE CONDIZIONI AL CONTORNO (BC)
 # ==============================================================================
 DEFAULT_BC_RULES = {
-    'Inlet': {
-        'dirichlet': {'u': 'csv', 'v': 'csv', 'tau_xx': '0', 'tau_xy': '0', 'tau_yy': '0'},
-        'neumann': {}
-    },
     'Walls': {
-        'dirichlet': {'u': 0.0, 'v': 0.0},
-        #'neumann': {'p': 0.0}
-    },
-    'Outlet': {
-        'dirichlet': {'v': 0, 'p':'csv'},
+        'dirichlet': {'u': 0.0, 'v': 0.0, 'p': 0.0},
+        #'neumann': {'p': 0.0},
         #'custom': ['outlet-stress-inverso']
-        #'neumann': {'tau_xx': 0.0, 'tau_xy': 0.0, 'tau_yy': 0.0}
     },
-    'Walls-dritte':{
-        'dirichlet': {'u': 0.0, 'v': 0.0},
-        #'neumann': {'p': 0.0}
-    }
+    'Roll1': {
+        'dirichlet': {'u': 'csv', 'v': 'csv'}
+    },
+    'Roll2': {
+        'dirichlet': {'u': 'csv', 'v': 'csv'}
+    },
+    'Roll3': {
+        'dirichlet': {'u': 'csv', 'v': 'csv'}
+    },
+    'Roll4': {
+        'dirichlet': {'u': 'csv', 'v': 'csv'}
+    },
+
 }
 
 
@@ -56,22 +57,22 @@ class ViscoelasticPhysics(nn.Module):
         self._boundary_metadata = None
         
         if inverse_mode:
-            self.mu_s = nn.Parameter(torch.tensor([mu_s], dtype=torch.float32))
-            self.mu_p = nn.Parameter(torch.tensor([mu_p], dtype=torch.float32))
-            self.lam = nn.Parameter(torch.tensor([lam], dtype=torch.float32))
-            self.eps = nn.Parameter(torch.tensor([eps], dtype=torch.float32))
-            self.alpha = nn.Parameter(torch.tensor([alpha], dtype=torch.float32))
+            self.mu_s = nn.Parameter(torch.tensor([mu_s], dtype=torch.get_default_dtype()))
+            self.mu_p = nn.Parameter(torch.tensor([mu_p], dtype=torch.get_default_dtype()))
+            self.lam = nn.Parameter(torch.tensor([lam], dtype=torch.get_default_dtype()))
+            self.eps = nn.Parameter(torch.tensor([eps], dtype=torch.get_default_dtype()))
+            self.alpha = nn.Parameter(torch.tensor([alpha], dtype=torch.get_default_dtype()))
             self.real_mu_s = real_mu_s if real_mu_s is not None else mu_s
             self.real_mu_p = real_mu_p if real_mu_p is not None else mu_p
             self.real_lam = real_lam if real_lam is not None else lam
             self.real_eps = real_eps if real_eps is not None else eps
             self.real_alpha = real_alpha if real_alpha is not None else alpha
         else:
-            self.register_buffer('mu_s', torch.tensor([mu_s], dtype=torch.float32))
-            self.register_buffer('mu_p', torch.tensor([mu_p], dtype=torch.float32))
-            self.register_buffer('lam', torch.tensor([lam], dtype=torch.float32))
-            self.register_buffer('eps', torch.tensor([eps], dtype=torch.float32))
-            self.register_buffer('alpha', torch.tensor([alpha], dtype=torch.float32))
+            self.register_buffer('mu_s', torch.tensor([mu_s], dtype=torch.get_default_dtype()))
+            self.register_buffer('mu_p', torch.tensor([mu_p], dtype=torch.get_default_dtype()))
+            self.register_buffer('lam', torch.tensor([lam], dtype=torch.get_default_dtype()))
+            self.register_buffer('eps', torch.tensor([eps], dtype=torch.get_default_dtype()))
+            self.register_buffer('alpha', torch.tensor([alpha], dtype=torch.get_default_dtype()))
             self.real_mu_s = real_mu_s if real_mu_s is not None else mu_s
             self.real_mu_p = real_mu_p if real_mu_p is not None else mu_p
             self.real_lam = real_lam if real_lam is not None else lam
