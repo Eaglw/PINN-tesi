@@ -34,7 +34,7 @@ from FourRollMill.src.Viscoelastic_physics import ViscoelasticPhysics
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]]  # VENet 8x128
 EPOCHS_OPTIONS = [10000]
 MAX_LBFGS_ITERS = None #Se None, usa il 10% di epoche Adam.
-ACTIVATION_OPTIONS = [nn.SiLU]
+ACTIVATION_OPTIONS = [nn.Tanh]
 LR_STRATEGY_OPTIONS = ['cosine']
 WEIGHTING_OPTIONS = ['static']
 
@@ -71,7 +71,7 @@ torch.set_default_dtype(initial_dtype)
 # --- Hyperparameters ---
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
-STAGED_TRAINING = False
+STAGED_TRAINING = True
 
 MINIBATCH_INTERNAL = 2048 if PRECISION_MODE == 'full_64' else 2048*2
 MINIBATCH_BOUNDARY = 256 if PRECISION_MODE == 'full_64' else 256*2
@@ -302,7 +302,7 @@ if __name__ == '__main__':
                     plot_every=PLOT_EVERY,
                     experiment_name=f"Viscoelastic {label}",
                     val_label="u (Velocity)",
-                    physics_warmup_epochs=3000,
+                    physics_warmup_epochs=100,
                     group_weights=GROUP_WEIGHTS,
                 )
 

@@ -136,22 +136,14 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         if staged_training and epoch == warmup_epochs_1_all_active:
             set_physics_trainable(physics_problem, ['eps', 'alpha'])
             optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(half_epochs - warmup_epochs_1_all_active)
-            if cfg.dynamic_weighting:
-                lambda_data = cfg.loss_weights.get('data', 1.0)
-                lambda_bc = cfg.loss_weights.get('bc', 1.0)
-                target_lambda_physics = cfg.loss_weights.get('physics', 1.0)
-                print(f"  [Dynamic Weights] Reset a fine warmup (epoca {epoch}): data={lambda_data:.2f}, bc={lambda_bc:.2f}, phys={target_lambda_physics:.2f}")
+
         if staged_training and epoch == half_epochs:
             print(f"\n  [Staged Training] Fase 2: Dinamica (psi+p).")
             set_model_trainable(model, ['psi', 'p'])
             physics_problem.pde_weights = {'momentum': base_pde_weights.get('momentum', 10.0), 'constitutive': 0.0}
             current_active_bcs = ['u', 'v', 'p']
             set_physics_trainable(physics_problem, [])
-            if cfg.dynamic_weighting:
-                lambda_data = cfg.loss_weights.get('data', 1.0)
-                lambda_bc = cfg.loss_weights.get('bc', 1.0)
-                target_lambda_physics = cfg.loss_weights.get('physics', 1.0)
-                print(f"  [Dynamic Weights] Reset a inizio Fase 2: data={lambda_data:.2f}, bc={lambda_bc:.2f}, phys={target_lambda_physics:.2f}")
+
             optimizer, scheduler, _last_layer_trainable, trainable_params = _rebuild_optimizer(warmup_epochs_2 - half_epochs)
         if staged_training and epoch == warmup_epochs_2:
             set_physics_trainable(physics_problem, [])
@@ -437,8 +429,8 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
         total_loss += lambda_bc * bc_loss
 
     if x_physics is not None and lambda_physics > 0:
-        # La PDE mantiene la scala fisica originaria O(1) non venendo distorta dai variance_weights
-        pde_loss = physics_problem.residual(model, x_physics, variance_weights=None)
+        # Passo esplicitamente i variance_weights per normalizzare i grandi residui
+        pde_loss = physics_problem.residual(model, x_physics, variance_weights=variance_weights)
         loss_dict['pde_loss'] = pde_loss
         total_loss += lambda_physics * pde_loss
     else:

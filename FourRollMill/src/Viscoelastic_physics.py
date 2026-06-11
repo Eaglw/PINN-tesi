@@ -198,7 +198,9 @@ class ViscoelasticPhysics(nn.Module):
         
         f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(model, x)
                 
-        loss_m = (f_u**2 + f_v**2).mean()
+        var_m = max(vw.get('tau_xx', 1.0), vw.get('p', 1.0), 1e-8)
+        loss_m = ((f_u**2 + f_v**2) / var_m).mean()
+        
         loss_c = (f_txx**2 / max(vw.get('tau_xx', 1.0), 1e-8)).mean() + \
                  (f_tyy**2 / max(vw.get('tau_yy', 1.0), 1e-8)).mean() + \
                  (f_txy**2 / max(vw.get('tau_xy', 1.0), 1e-8)).mean()
