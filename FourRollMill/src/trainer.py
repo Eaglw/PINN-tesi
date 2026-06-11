@@ -171,17 +171,23 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         orig_metadata = physics_problem._boundary_metadata
         physics_problem._boundary_metadata = epoch_metadata
         
-        if target_lambda_physics > 0:
+        current_lambda_physics = target_lambda_physics
+        warmup_epochs = getattr(cfg, 'physics_warmup_epochs', 0)
+        if warmup_epochs > 0 and epoch < warmup_epochs:
+            current_lambda_physics = target_lambda_physics * (epoch / warmup_epochs)
+
+        if current_lambda_physics > 0:
             xph = xb.clone().requires_grad_(True) if lambda_data > 0 else _sample_minibatch(collocation_points, None, cfg.minibatch_internal, _device)[0].clone().requires_grad_(True)
         else:
             xph = None
 
         loss, loss_dict = compute_pinn_loss(
             model, x_data=xb, y_data=yb, x_bc=xbc, y_bc=ybc, physics_problem=physics_problem, x_physics=xph,
-            lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=target_lambda_physics,
+            lambda_data=lambda_data, lambda_bc=lambda_bc, lambda_physics=current_lambda_physics,
             mode=cfg.mode, variance_weights=cfg.variance_weights, active_bcs=current_active_bcs,
             group_weights=cfg.group_weights
         )
+
         
         physics_problem._boundary_metadata = orig_metadata
 
@@ -229,7 +235,8 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
         if cfg.lr_strategy in ['step_decay', 'cosine']: scheduler.step()
 
         history_entry = {k: (v.item() if isinstance(v, torch.Tensor) else v) for k, v in loss_dict.items()}
-        history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': target_lambda_physics})
+        history_entry.update({'weight_data': lambda_data, 'weight_bc': lambda_bc, 'weight_phys': current_lambda_physics})
+
         if getattr(physics_problem, 'inverse_mode', False):
             eff = physics_problem.get_logged_parameters()
             history_entry.update({'param_etas': eff['mu_s'], 'param_etap': eff['mu_p'], 'param_lam': eff['lam'], 'param_epsilon': eff['eps'], 'param_alpha': eff['alpha']})
@@ -371,7 +378,7 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
         
         dev = next(model.parameters()).device
         dtype = next(model.parameters()).dtype
-        return torch.tensor(total_loss_val, device=dev, dtype=dtype, requires_grad=True)
+        return torch.tensor(total_loss_val, device=dev, dtype=dtype)
 
     optimizer_lbfgs.step(closure)
     if getattr(physics_problem, 'inverse_mode', False):
@@ -424,7 +431,7 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
         total_loss += lambda_data * data_loss
     
     if x_bc is not None and x_bc.numel() > 0:
-        bc_loss, per_g = physics_problem.boundary_loss(model, x_bc, y_bc, variance_weights, kwargs.get('active_bcs'), group_weights)
+        bc_loss, per_g = physics_problem.boundary_loss(model, x_bc, y_bc, None, kwargs.get('active_bcs'), group_weights)
         loss_dict['bc_loss'] = bc_loss
         loss_dict.update(per_g)
         total_loss += lambda_bc * bc_loss

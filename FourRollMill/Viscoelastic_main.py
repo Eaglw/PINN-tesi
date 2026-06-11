@@ -25,18 +25,18 @@ from func.logging_utils import update_results_csv
 from func.graphic_func import plot2D_unified_comparison, plot_loss_comparison, plot2D_viscoelastic_comparison
 
 # Import locali Viscoelastic
-from FourRollMill.src.models import FCN, ViscoelasticCombinedModel, get_activation_name, format_layers_name
+from FourRollMill.src.models import FCN, ViscoelasticCombinedModel, ScaledViscoelasticCombinedModel, get_activation_name, format_layers_name, initialize_last_layer_zero
 from FourRollMill.src.config import TrainingConfig
 from FourRollMill.src.trainer import train_ViscoelasticPINN, compute_viscoelastic_metrics
 from FourRollMill.src.Viscoelastic_physics import ViscoelasticPhysics
 
 # --- 2. GRID SEARCH SPACE ---
 LAYERS_OPTIONS = [[2, 128, 128, 128, 128, 128, 128, 128, 128, 1]]  # VENet 8x128
-EPOCHS_OPTIONS = [13000]
+EPOCHS_OPTIONS = [10000]
 MAX_LBFGS_ITERS = None #Se None, usa il 10% di epoche Adam.
 ACTIVATION_OPTIONS = [nn.SiLU]
 LR_STRATEGY_OPTIONS = ['cosine']
-WEIGHTING_OPTIONS = ['dynamic']
+WEIGHTING_OPTIONS = ['static']
 
 # 0=PurePhys, 1=Phys+Data, 2=SoloData
 GOALS_TO_RUN = [1]
@@ -79,6 +79,8 @@ MINIBATCH_BOUNDARY = 256 if PRECISION_MODE == 'full_64' else 256*2
 STATIC_WEIGHTS = {'bc': 10.0, 'physics': 10.0, 'data': 1.0}
 STATIC_WEIGHT_STR = "BC=10-PHYS=10-DATA=1"
 DYNAMIC_WEIGHT_STR = "Dynamic-Annealing"
+
+GROUP_WEIGHTS = {'Walls': 1.0, 'Roll1': 1.0, 'Roll2': 1.0, 'Roll3': 1.0, 'Roll4': 1.0, 'PressurePoint': 10.0}
 
 PDE_WEIGHTS = {'momentum': 1.0, 'constitutive': 1.0}
 
@@ -228,7 +230,32 @@ if __name__ == '__main__':
                 model_psi = FCN(layers=layers_psi, activation_fn=act_fn).to(device)
                 model_p = FCN(layers=layers_p, activation_fn=act_fn).to(device)
                 model_tau = FCN(layers=layers_tau, activation_fn=act_fn).to(device)
-                model_combined = ViscoelasticCombinedModel(model_psi, model_p, model_tau)
+
+                # Inizializzazione dei pesi Xavier Normal e azzeramento ultimo layer per stabilità
+                def init_weights_xavier(m):
+                    if isinstance(m, nn.Linear):
+                        nn.init.xavier_normal_(m.weight)
+                        if m.bias is not None:
+                            nn.init.zeros_(m.bias)
+
+                model_psi.apply(init_weights_xavier)
+                model_p.apply(init_weights_xavier)
+                model_tau.apply(init_weights_xavier)
+                initialize_last_layer_zero(model_p)
+                initialize_last_layer_zero(model_tau)
+
+                # Data-driven output scaling: scale = max absolute value of each field
+                p_data = dataset['p']
+                tau_xx_data, tau_xy_data, tau_yy_data = dataset['tau_xx'], dataset['tau_xy'], dataset['tau_yy']
+                p_scale = max(abs(p_data.min().item()), abs(p_data.max().item()), 1.0)
+                tau_scale = max(
+                    abs(tau_xx_data.min().item()), abs(tau_xx_data.max().item()),
+                    abs(tau_xy_data.min().item()), abs(tau_xy_data.max().item()),
+                    abs(tau_yy_data.min().item()), abs(tau_yy_data.max().item()),
+                    1.0
+                )
+                print(f"  [Output Scaling] p_scale={p_scale:.2f}, tau_scale={tau_scale:.2f}")
+                model_combined = ScaledViscoelasticCombinedModel(model_psi, model_p, model_tau, p_scale=p_scale, tau_scale=tau_scale)
 
                 # Determinazione pesi effettivi, sovrascrive config
                 run_is_dynamic = is_dynamic if goal != 2 else False
@@ -255,6 +282,7 @@ if __name__ == '__main__':
                 )
                 pinn_data_boundary = (xy_master_boundary, dir_master_boundary, neu_master_boundary, norm_master_boundary)
 
+
                 max_lbfgs = MAX_LBFGS_ITERS if MAX_LBFGS_ITERS is not None else int(0.1 * epochs)
                 train_config = TrainingConfig(
                     epochs=epochs,
@@ -274,7 +302,10 @@ if __name__ == '__main__':
                     plot_every=PLOT_EVERY,
                     experiment_name=f"Viscoelastic {label}",
                     val_label="u (Velocity)",
+                    physics_warmup_epochs=3000,
+                    group_weights=GROUP_WEIGHTS,
                 )
+
 
                 try:
                     history = train_ViscoelasticPINN(

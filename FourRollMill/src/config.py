@@ -26,6 +26,8 @@ class TrainingConfig:
     plot_every: int = 500
     experiment_name: str = "VE Training"
     val_label: str = "Value"
+    physics_warmup_epochs: int = 0
+
 
 def set_model_trainable(model_combined, active_components=['psi', 'p', 'tau']):
     for p in model_combined.parameters():

@@ -38,6 +38,21 @@ class ViscoelasticCombinedModel(nn.Module):
         tau = self.model_tau(x)
         return torch.cat([psi, p, tau], dim=1)
 
+class ScaledViscoelasticCombinedModel(nn.Module):
+    """Combined model with output scaling for p and tau to match physical magnitudes."""
+    def __init__(self, model_psi, model_p, model_tau, p_scale=1.0, tau_scale=1.0):
+        super().__init__()
+        self.model_psi = model_psi
+        self.model_p = model_p
+        self.model_tau = model_tau
+        self.p_scale = p_scale
+        self.tau_scale = tau_scale
+    def forward(self, x):
+        psi = self.model_psi(x)
+        p = self.model_p(x) * self.p_scale
+        tau = self.model_tau(x) * self.tau_scale
+        return torch.cat([psi, p, tau], dim=1)
+
 def initialize_last_layer_zero(model):
     last_layer = list(model.fcs)[-1]
     nn.init.zeros_(last_layer.weight)

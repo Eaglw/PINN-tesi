@@ -16,7 +16,7 @@ def _softplus_inverse(x):
 # ==============================================================================
 DEFAULT_BC_RULES = {
     'Walls': {
-        'dirichlet': {'u': 0.0, 'v': 0.0, 'p': 0.0},
+        'dirichlet': {'u': 0.0, 'v': 0.0},
         #'neumann': {'p': 0.0},
         #'custom': ['outlet-stress-inverso']
     },
@@ -32,7 +32,9 @@ DEFAULT_BC_RULES = {
     'Roll4': {
         'dirichlet': {'u': 'csv', 'v': 'csv'}
     },
-
+    'PressurePoint': {
+        'dirichlet': {'p': 'csv'}
+    }
 }
 
 
@@ -373,6 +375,35 @@ class ViscoelasticPhysics(nn.Module):
 
     def apply_boundary_conditions(self, boundary_groups):
         bc_rules = self.bc_rules
+        
+        # Se 'PressurePoint' è richiesto nelle bc_rules ma non è presente in boundary_groups,
+        # lo creiamo dinamicamente prendendo lo spigolo in alto a sinistra del contorno Walls
+        if 'PressurePoint' in bc_rules and 'PressurePoint' not in boundary_groups and 'Walls' in boundary_groups:
+            ref_group = boundary_groups['Walls']
+            xy = ref_group['xy']
+            
+            # Trova il punto più vicino all'angolo in alto a sinistra (x_min, y_max)
+            x_coords = xy[:, 0]
+            y_coords = xy[:, 1]
+            x_min = x_coords.min()
+            y_max = y_coords.max()
+            
+            # Calcola distanza quadratica da (x_min, y_max)
+            dists = (x_coords - x_min)**2 + (y_coords - y_max)**2
+            best_idx = torch.argmin(dists).item()
+            
+            # Copia il dizionario dei gruppi e inietta il punto di pressione (senza bisogno di caricare campi CSV)
+            boundary_groups = dict(boundary_groups)
+            boundary_groups['PressurePoint'] = {
+                'indices': ref_group['indices'][best_idx : best_idx + 1],
+                'xy': ref_group['xy'][best_idx : best_idx + 1],
+                'norm': ref_group['norm'][best_idx : best_idx + 1],
+                'fields': {k: v[best_idx : best_idx + 1] for k, v in ref_group['fields'].items()}
+            }
+            pin_p_val = ref_group['fields'].get('p', torch.tensor([float('nan')]))[best_idx].item()
+            print(f"  [Physics] Pressure Point impostato sullo spigolo (p_csv={pin_p_val:.4f}): {xy[best_idx].tolist()}")
+
+
         FIELD_TO_COL = {'u': 0, 'v': 1, 'p': 2, 'tau_xx': 3, 'tau_xy': 4, 'tau_yy': 5}
         
         # Pre-assegnazione di device e tipo per garantire coerenza con il modello
