@@ -6,7 +6,7 @@ tesi/
 plots/
 models/
 .vscode
-
+scratch/
 #file mie
 *.gif
 *.png
