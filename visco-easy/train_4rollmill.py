@@ -18,9 +18,24 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 from tqdm import tqdm
+from datetime import datetime
 from pathlib import Path
 
+# --- Logging automatico di tutti i print ---
+LOG_FILE_PATH = None
+
+def print(*args, **kwargs):
+    import builtins
+    builtins.print(*args, **kwargs)
+    if LOG_FILE_PATH is not None:
+        sep = kwargs.get('sep', ' ')
+        end = kwargs.get('end', '\n')
+        text = sep.join(map(str, args)) + end
+        with open(LOG_FILE_PATH, 'a', encoding='utf-8') as f:
+            f.write(text)
+
 # ============================================================================
+
 # 1. SETUP & CONFIGURAZIONE
 # ============================================================================
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -34,14 +49,13 @@ torch.cuda.manual_seed_all(123)
 DEVICE = torch.device("cuda")
 
 # --- Opzioni di Controllo ---
-STAGED_TRAINING = False  # True: staged (Fase 1: psi+tau, Fase 2: psi+p), False: non-staged (tutto attivo da subito)
+STAGED_TRAINING = True  # True: staged (Fase 1: psi+tau, Fase 2: psi+p), False: non-staged (tutto attivo da subito)
 INVERSE_PROBLEM = False  # True: semi-inverso (parametri fisici ottimizzati), False: diretto (parametri reali bloccati)
+CHUNK_SIZE_ADAM = 7000  # Dimensione dei chunk per Adam. Aumenta per velocità, diminuisci se satura la VRAM (es. 20128 per full batch totale)
 
 # --- Percorsi ---
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / 'COMSOL' / '4roll' / '4_roll_mill.csv'
-OUTPUT_DIR = BASE_DIR / 'output_4rollmill'
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- Parametri fisici REALI del fluido (ground truth) ---
 MU_S_TRUE = 0.1      # Viscosità solvente [Pa·s]
@@ -64,8 +78,8 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.Tanh
 
 # --- Training ---
-ADAM_EPOCHS = 3000
-LBFGS_MAX_ITERS = 0.1*ADAM_EPOCHS # 10% di epoche Adam
+ADAM_EPOCHS = 1000*10
+LBFGS_MAX_ITERS = int(0.1*ADAM_EPOCHS) # 10% di epoche Adam
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
@@ -76,11 +90,11 @@ MINIBATCH_BOUNDARY = 256
 SEED = 123
 
 # Warmup: a quale epoca sbloccare i parametri fisici in Fase 1
-WARMUP_UNLOCK_EPOCH = 0.2*ADAM_EPOCHS
+WARMUP_UNLOCK_EPOCH = int(0.2*ADAM_EPOCHS)
 
 # --- Pesi loss statici ---
-W_BC = 10.0
-W_PHYSICS = 10.0
+W_BC = 2.0
+W_PHYSICS = 3.0
 W_DATA = 1.0
 
 # --- Pesi PDE ---
@@ -89,6 +103,18 @@ W_CONSTITUTIVE = 1.0
 
 # --- Varianza epsilon ---
 VARIANCE_EPS = 1e-4
+
+# --- Configurazione Cartella Output Dinamica ---
+layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
+config_name = f"{DATASET_PATH.stem}_L{layers_str}_E{ADAM_EPOCHS}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+OUTPUT_DIR = BASE_DIR / 'output_4rollmill' / config_name
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# File per il salvataggio dei log di training
+LOG_FILE_PATH = OUTPUT_DIR / 'train_log.txt'
+
+# Frequenza monitoraggio print (circa 4-5 volte durante il training)
+PRINT_EVERY = max(1, ADAM_EPOCHS // 5)
 
 
 # ============================================================================
@@ -399,17 +425,24 @@ def _extract_boundary_groups(coords, x_raw, y_raw, x_min, y_min, H, fields):
         }
         print(f"  Boundary '{label}': {len(global_idx)} nodi")
 
-    # Iniettiamo il PressurePoint dinamicamente dall'angolo in alto a sinistra di Walls
+    # Iniettiamo il PressurePoint dinamicamente vicino al centro del bordo superiore (y massimo)
     if 'Walls' in boundary_groups and 'PressurePoint' not in boundary_groups:
         ref_group = boundary_groups['Walls']
         xy = ref_group['xy']
         x_coords = xy[:, 0]
         y_coords = xy[:, 1]
-        x_min_val = x_coords.min()
+        x_mean = x_coords.mean()
         y_max_val = y_coords.max()
         
-        dists = (x_coords - x_min_val)**2 + (y_coords - y_max_val)**2
-        best_idx = torch.argmin(dists).item()
+        # Filtra i punti con y >= 0.9 * y_max_val
+        mask = y_coords >= 0.9 * y_max_val
+        indices_filtered = torch.where(mask)[0]
+        
+        # Trova quello che minimizza (x - x_mean)**2
+        x_filtered = x_coords[indices_filtered]
+        dists = (x_filtered - x_mean)**2
+        best_local_idx = torch.argmin(dists).item()
+        best_idx = indices_filtered[best_local_idx].item()
         
         boundary_groups['PressurePoint'] = {
             'indices': ref_group['indices'][best_idx : best_idx + 1],
@@ -417,7 +450,7 @@ def _extract_boundary_groups(coords, x_raw, y_raw, x_min, y_min, H, fields):
             'norm': ref_group['norm'][best_idx : best_idx + 1],
             'fields': {k: v[best_idx : best_idx + 1] for k, v in ref_group['fields'].items()}
         }
-        print(f"  Boundary 'PressurePoint' iniettato dinamicamente: coordinate {xy[best_idx].tolist()}")
+        print(f"  Boundary 'PressurePoint' iniettato dinamicamente (centro-alto): coordinate {xy[best_idx].tolist()}")
 
     return boundary_groups
 
@@ -466,9 +499,9 @@ def initialize_last_layer_zero(model):
 
 
 def init_weights_xavier(m):
-    """Inizializzazione dei pesi Small Xavier Normal (gain=0.1) e azzeramento dei bias."""
+    """Inizializzazione dei pesi Xavier Normal e azzeramento dei bias con gain per Tanh."""
     if isinstance(m, nn.Linear):
-        nn.init.xavier_normal_(m.weight, gain=0.1)
+        nn.init.xavier_normal_(m.weight, gain=nn.init.calculate_gain('tanh'))
         if m.bias is not None:
             nn.init.zeros_(m.bias)
 
@@ -478,10 +511,11 @@ def init_weights_xavier(m):
 # ============================================================================
 class Physics(nn.Module):
     """PDE adimensionali + boundary conditions. Supporta modalità diretta o inversa."""
-    def __init__(self, U_ref, H_ref, inverse_mode=True):
+    def __init__(self, U_ref, H_ref, var_weights=None, inverse_mode=True):
         super().__init__()
         self.U_ref = U_ref
         self.H_ref = H_ref
+        self.var_weights = var_weights
         self.inverse_mode = inverse_mode
         
         if inverse_mode:
@@ -502,79 +536,134 @@ class Physics(nn.Module):
         # Referenza fissa per adimensionalizzazione
         self.real_mu_tot = MU_S_TRUE + MU_P_TRUE
 
-    def get_velocity(self, model, x):
+    def get_velocity(self, model, x, create_graph=True):
         """Calcola u, v, p, tau dalla stream function."""
         if not x.requires_grad:
             x = x.clone().requires_grad_(True)
         out = model(x)
         psi, p, tau = out[:, 0:1], out[:, 1:2], out[:, 2:5]
-        grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=True)[0]
+        grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=create_graph)[0]
         u = grad_psi[:, 1:2]
         v = -grad_psi[:, 0:1]
         return u, v, p, tau
 
     def _nondim(self):
         """Parametri adimensionali correnti."""
-        Re = RHO * self.U_ref * self.H_ref / self.real_mu_tot
+        mu_tot = self.mu_s + self.mu_p
+        Re = RHO * self.U_ref * self.H_ref / mu_tot
         Wi = self.lam * self.U_ref / self.H_ref
-        beta = self.mu_s / self.real_mu_tot
-        beta_poly = self.mu_p / self.real_mu_tot
+        beta = self.mu_s / mu_tot
+        beta_poly = self.mu_p / mu_tot
         return Re, Wi, beta, beta_poly, self.eps, self.alpha
 
-    def compute_residuals(self, model, x):
-        """Calcola i residui PDE adimensionali."""
+    def compute_residuals(self, model, x, w_momentum=1.0, w_constitutive=1.0):
+        """Calcola i residui PDE adimensionali in modo ottimizzato con meno autograd.grad, saltando i calcoli superflui se i pesi associati sono nulli."""
         Re, Wi, beta, beta_poly, eps, alpha = self._nondim()
 
-        out = model(x)
-        psi, p, tau = out[:, 0:1], out[:, 1:2], out[:, 2:5]
+        # Chiamiamo le tre sotto-reti separatamente per avere grafi computazionali
+        # completamente indipendenti. Usare model(x) che internamente fa torch.cat
+        # collegherebbe i tre grafi in un unico nodo: il backward di tau passerebbe
+        # attraverso cat e potrebbe liberare i saved tensors di model_p e model_psi.
+        psi = model.model_psi(x)
+        p   = model.model_p(x) * model.p_scale
+        tau = model.model_tau(x) * model.tau_scale
         tau_xx, tau_xy, tau_yy = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
 
-        # Cinematica
+        # Cinematica (gradiente primo w.r.t coordinates x)
         grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=True)[0]
-        u, v = grad_psi[:, 1:2], -grad_psi[:, 0:1]
+        u = grad_psi[:, 1:2]
+        v = -grad_psi[:, 0:1]
+
         grad_u = torch.autograd.grad(u.sum(), x, create_graph=True)[0]
         u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
+
         grad_v = torch.autograd.grad(v.sum(), x, create_graph=True)[0]
         v_x, v_y = grad_v[:, 0:1], -u_x  # v_y = -u_x (incompressibilità)
 
-        # Derivate seconde e pressione
-        grad_p = torch.autograd.grad(p.sum(), x, create_graph=True)[0]
-        p_x, p_y = grad_p[:, 0:1], grad_p[:, 1:2]
-        u_xx = torch.autograd.grad(u_x.sum(), x, create_graph=True)[0][:, 0:1]
-        u_yx = torch.autograd.grad(u_y.sum(), x, create_graph=True)[0][:, 0:1]
-        u_yy = torch.autograd.grad(u_y.sum(), x, create_graph=True)[0][:, 1:2]
-        v_xx = torch.autograd.grad(v_x.sum(), x, create_graph=True)[0][:, 0:1]
-        v_yy = -u_yx
+        # Derivate stress (necessarie se momentum o constitutive sono attivi)
+        if w_momentum > 0.0 or w_constitutive > 0.0:
+            cg = (w_constitutive > 0.0)
+            # tau_xx, tau_xy, tau_yy provengono dalla stessa sotto-rete model_tau:
+            # retain_graph=True è necessario sulle prime due chiamate per non liberare
+            # il grafo di model_tau prima di aver calcolato tutti e tre i gradienti.
+            g_txx = torch.autograd.grad(tau_xx.sum(), x, create_graph=cg, retain_graph=True)[0]
+            tau_xx_x, tau_xx_y = g_txx[:, 0:1], g_txx[:, 1:2]
 
-        # Derivate stress
-        g_txx = torch.autograd.grad(tau_xx.sum(), x, create_graph=True)[0]
-        g_txy = torch.autograd.grad(tau_xy.sum(), x, create_graph=True)[0]
-        g_tyy = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0]
-        tau_xx_x, tau_xx_y = g_txx[:, 0:1], g_txx[:, 1:2]
-        tau_xy_x, tau_xy_y = g_txy[:, 0:1], g_txy[:, 1:2]
-        tau_yy_x, tau_yy_y = g_tyy[:, 0:1], g_tyy[:, 1:2]
+            g_txy = torch.autograd.grad(tau_xy.sum(), x, create_graph=cg, retain_graph=True)[0]
+            tau_xy_x, tau_xy_y = g_txy[:, 0:1], g_txy[:, 1:2]
+
+            g_tyy = torch.autograd.grad(tau_yy.sum(), x, create_graph=cg)[0]  # ultima: libera il grafo
+            tau_yy_x, tau_yy_y = g_tyy[:, 0:1], g_tyy[:, 1:2]
+            
+            if not cg:
+                tau_xx_x = tau_xx_x.detach()
+                tau_xx_y = tau_xx_y.detach()
+                tau_xy_x = tau_xy_x.detach()
+                tau_xy_y = tau_xy_y.detach()
+                tau_yy_x = tau_yy_x.detach()
+                tau_yy_y = tau_yy_y.detach()
+        else:
+            tau_xx_x = tau_xx_y = tau_xy_x = tau_xy_y = tau_yy_x = tau_yy_y = None
 
         # Momentum
-        f_u = Re * (u * u_x + v * u_y) + p_x - beta * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
-        f_v = Re * (u * v_x + v * v_y) + p_y - beta * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
+        if w_momentum > 0.0:
+            grad_p = torch.autograd.grad(p.sum(), x, create_graph=True)[0]
+            p_x, p_y = grad_p[:, 0:1], grad_p[:, 1:2]
+
+            grad_u_x = torch.autograd.grad(u_x.sum(), x, create_graph=True)[0]
+            u_xx = grad_u_x[:, 0:1]
+
+            # Doppia chiamata ad autograd.grad su u_y risolta in un'unica chiamata (grad_u_y)
+            grad_u_y = torch.autograd.grad(u_y.sum(), x, create_graph=True)[0]
+            u_yx, u_yy = grad_u_y[:, 0:1], grad_u_y[:, 1:2]
+
+            grad_v_x = torch.autograd.grad(v_x.sum(), x, create_graph=True)[0]
+            v_xx = grad_v_x[:, 0:1]
+
+            v_yy = -u_yx
+
+            f_u = Re * (u * u_x + v * u_y) + p_x - beta * (u_xx + u_yy) - (tau_xx_x + tau_xy_y)
+            f_v = Re * (u * v_x + v * v_y) + p_y - beta * (v_xx + v_yy) - (tau_xy_x + tau_yy_y)
+        else:
+            f_u = torch.zeros_like(u)
+            f_v = torch.zeros_like(u)
 
         # Costitutive (Oldroyd-B/PTT/Giesekus)
-        f_PTT = 1.0 + (eps * Wi / beta_poly) * (tau_xx + tau_yy)
-        upper_xx = u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy
-        upper_yy = u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy
-        upper_xy = u * tau_xy_x + v * tau_xy_y - u_x * tau_xy - u_y * tau_yy - tau_xx * v_x - tau_xy * v_y
+        if w_constitutive > 0.0:
+            f_PTT = 1.0 + (eps * Wi / beta_poly) * (tau_xx + tau_yy)
+            upper_xx = u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy
+            upper_yy = u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy
+            upper_xy = u * tau_xy_x + v * tau_xy_y - u_x * tau_xy - u_y * tau_yy - tau_xx * v_x - tau_xy * v_y
 
-        f_txx = f_PTT * tau_xx + Wi * upper_xx + (alpha * Wi / beta_poly) * (tau_xx**2 + tau_xy**2) - 2.0 * beta_poly * u_x
-        f_tyy = f_PTT * tau_yy + Wi * upper_yy + (alpha * Wi / beta_poly) * (tau_xy**2 + tau_yy**2) - 2.0 * beta_poly * v_y
-        f_txy = f_PTT * tau_xy + Wi * upper_xy + (alpha * Wi / beta_poly) * tau_xy * (tau_xx + tau_yy) - beta_poly * (u_y + v_x)
+            f_txx = f_PTT * tau_xx + Wi * upper_xx + (alpha * Wi / beta_poly) * (tau_xx**2 + tau_xy**2) - 2.0 * beta_poly * u_x
+            f_tyy = f_PTT * tau_yy + Wi * upper_yy + (alpha * Wi / beta_poly) * (tau_xy**2 + tau_yy**2) - 2.0 * beta_poly * v_y
+            f_txy = f_PTT * tau_xy + Wi * upper_xy + (alpha * Wi / beta_poly) * tau_xy * (tau_xx + tau_yy) - beta_poly * (u_y + v_x)
+        else:
+            f_txx = torch.zeros_like(u)
+            f_tyy = torch.zeros_like(u)
+            f_txy = torch.zeros_like(u)
 
         return f_u, f_v, f_txx, f_tyy, f_txy
 
+    def compute_pde_losses(self, model, x, w_momentum=1.0, w_constitutive=1.0):
+        """Calcola separatamente loss momentum e constitutive normalizzate per componente."""
+        f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(model, x, w_momentum, w_constitutive)
+        loss_m = 0.5 * (f_u**2 + f_v**2).mean()
+        
+        if self.var_weights is not None:
+            loss_c = (
+                (f_txx**2 / self.var_weights['tau_xx']) +
+                (f_tyy**2 / self.var_weights['tau_yy']) +
+                (f_txy**2 / self.var_weights['tau_xy'])
+            ).mean() / 3.0
+        else:
+            loss_c = (f_txx**2 + f_tyy**2 + f_txy**2).mean() / 3.0
+            
+        return loss_m, loss_c
+
     def pde_loss_weighted(self, model, x, w_momentum, w_constitutive):
         """Loss PDE pesata per staged training."""
-        f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(model, x)
-        loss_m = (f_u**2 + f_v**2).mean()
-        loss_c = (f_txx**2).mean() + (f_tyy**2).mean() + (f_txy**2).mean()
+        loss_m, loss_c = self.compute_pde_losses(model, x, w_momentum, w_constitutive)
         return w_momentum * loss_m + w_constitutive * loss_c
 
     def pde_loss(self, model, x):
@@ -666,10 +755,17 @@ class SimpleHistory:
                 self.losses[k].append(None)
 
     def plot_losses(self, save_path):
-        """Plot loss totale/data/bc/pde."""
+        """Plot loss totale/data/bc/pde/momentum/constitutive."""
         fig, ax = plt.subplots(figsize=(10, 5))
-        keys_plot = ['total', 'data', 'bc', 'pde']
-        colors = {'total': 'black', 'data': 'blue', 'bc': 'green', 'pde': 'red'}
+        keys_plot = ['total', 'data', 'bc', 'pde', 'loss_momentum', 'loss_constitutive']
+        colors = {
+            'total': 'black',
+            'data': 'blue',
+            'bc': 'green',
+            'pde': 'red',
+            'loss_momentum': 'purple',
+            'loss_constitutive': 'orange'
+        }
         for k in keys_plot:
             if k not in self.losses:
                 continue
@@ -728,7 +824,7 @@ def plot_fields(model, physics, data, save_path):
     _dtype = next(model.parameters()).dtype
     with torch.set_grad_enabled(True):
         x_in = data['coords'].to(_dtype).clone().requires_grad_(True)
-        u_p, v_p, p_p, tau_p = physics.get_velocity(model, x_in)
+        u_p, v_p, p_p, tau_p = physics.get_velocity(model, x_in, create_graph=False)
 
     preds = {
         'u': u_p.detach().cpu().view(-1),
@@ -814,7 +910,7 @@ def train(model, physics, data):
     bc_data = data['boundary_groups']
 
     # Calcolo epoca di cambio fase
-    half_epochs = int(ADAM_EPOCHS * 0.5)
+    half_epochs = int(ADAM_EPOCHS * 1.1)
 
     def build_optimizer(net_params, steps):
         if physics.inverse_mode:
@@ -895,24 +991,9 @@ def train(model, physics, data):
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
-        # Mini-batch dati interni
-        xb, yb = sample_minibatch(xy_all, uv_all, MINIBATCH_INTERNAL)
-
-        # Mini-batch boundary (campionamento proporzionale per gruppo)
-        bc_mini = {}
-        total_bc = sum(gd['xy'].shape[0] for gd in bc_data.values())
-        for gname, gd in bc_data.items():
-            n_g = gd['xy'].shape[0]
-            n_sample = max(1, int(round(n_g * MINIBATCH_BOUNDARY / max(total_bc, 1))))
-            n_sample = min(n_g, n_sample)
-            if n_sample < n_g:
-                idx = torch.randperm(n_g, device=DEVICE)[:n_sample]
-                bc_mini[gname] = {
-                    'xy': gd['xy'][idx],
-                    'fields': {k: v[idx] for k, v in gd['fields'].items()},
-                }
-            else:
-                bc_mini[gname] = gd
+        # Accumulazione deterministica del gradiente in chunk per prevenire la saturazione della VRAM
+        chunk_size = CHUNK_SIZE_ADAM
+        total_points = xy_all.shape[0]
 
         # Pesi equazioni e BC in base allo Staged Training
         if STAGED_TRAINING:
@@ -929,26 +1010,44 @@ def train(model, physics, data):
             pde_w_momentum = W_MOMENTUM
             pde_w_constitutive = W_CONSTITUTIVE
 
-        # Loss dati (solo u, v - Goal 1)
-        d_loss = physics.data_loss(model, xb, yb, var_w)
-        # Loss BC
-        b_loss = physics.boundary_loss(model, bc_mini, var_w, active_bcs=active_bcs)
-
-        # Loss PDE
-        xph = xb.clone().requires_grad_(True)
-        p_loss = physics.pde_loss_weighted(model, xph, pde_w_momentum, pde_w_constitutive)
-
-        total_loss = W_DATA * d_loss + W_BC * b_loss + W_PHYSICS * p_loss
-
         trainable_params = [p for p in model.parameters() if p.requires_grad]
         if physics.inverse_mode:
             trainable_params += [p for p in physics.parameters() if p.requires_grad]
 
-        total_loss.backward(inputs=trainable_params)
+        # 1. Calcolo di Data Loss e PDE Loss in chunk ed accumulazione dei gradienti per risparmiare memoria
+        d_loss_accum = 0.0
+        p_loss_accum = 0.0
+        
+        for i in range(0, total_points, chunk_size):
+            xc = xy_all[i:i + chunk_size]
+            yc = uv_all[i:i + chunk_size]
+            w_chunk = xc.shape[0] / total_points
+            
+            # Data loss per questo chunk — backward immediato prima di costruire il grafo PDE
+            # (evita RuntimeError: backward through the graph a second time)
+            dl = physics.data_loss(model, xc, yc, var_w)
+            d_loss_accum += dl.item() * w_chunk
+            (W_DATA * dl * w_chunk).backward(inputs=trainable_params)
+            
+            # PDE loss per questo chunk — grafo costruito ex-novo dopo che dl è stato liberato
+            xph = xc.clone().requires_grad_(True)
+            pl = physics.pde_loss_weighted(model, xph, pde_w_momentum, pde_w_constitutive)
+            p_loss_accum += pl.item() * w_chunk
+            (W_PHYSICS * pl * w_chunk).backward(inputs=trainable_params)
+            
+        # 2. Calcolo di Boundary Loss (dataset piccolo, sicuro per la VRAM)
+        b_loss = physics.boundary_loss(model, bc_data, var_w, active_bcs=active_bcs)
+        b_loss_val = b_loss.item()
+        (W_BC * b_loss).backward(inputs=trainable_params)
+
+        # 3. Calcolo della loss totale per il logging
+        total_loss_val = W_DATA * d_loss_accum + W_BC * b_loss_val + W_PHYSICS * p_loss_accum
+
+        # 4. Clipping del gradiente e step
         torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
         
         if physics.inverse_mode:
-            phys_clip = [p for p in physics.parameters() if p.requires_grad]
+            phys_clip = [p for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha] if p.requires_grad]
             if phys_clip:
                 torch.nn.utils.clip_grad_norm_(phys_clip, PARAM_CLIP_NORM)
 
@@ -960,23 +1059,38 @@ def train(model, physics, data):
         # Logging veloce ad ogni epoca
         if (epoch + 1) % 10 == 0 or epoch == 0 or (STAGED_TRAINING and (epoch + 1) == half_epochs):
             params = physics.log_params()
+
             history.update(epoch, {
-                'total': total_loss.item(),
-                'data': d_loss.item(),
-                'bc': b_loss.item(),
-                'pde': p_loss.item(),
+                'total': total_loss_val,
+                'data': d_loss_accum,
+                'bc': b_loss_val,
+                'pde': p_loss_accum,
                 'param_mu_s': params['mu_s'],
                 'param_mu_p': params['mu_p'],
                 'param_lam': params['lam'],
                 'param_eps': params['eps'],
                 'param_alpha': params['alpha'],
             })
+            
+            # Monitoraggio periodico dettagliato di L2(u), Momentum e Constitutive
+            if (epoch + 1) % PRINT_EVERY == 0 or epoch == 0:
+                with torch.no_grad():
+                    l2_errs = compute_l2_errors(model, physics, data)
+                    losses_eval = evaluate_final_losses(model, physics, data)
+                model.train()
+                print(
+                    f"  [Epoch {epoch+1:>4d}/{ADAM_EPOCHS}] "
+                    f"L2(u)={l2_errs['u']:.4f} | "
+                    f"Momentum={losses_eval['Momentum Loss']:.2e} | "
+                    f"Constitutive={losses_eval['Constitutive Loss']:.2e}",
+                    flush=True
+                )
         
         pbar.set_postfix({
-            'Loss': f"{total_loss.item():.2e}",
-            'Data': f"{d_loss.item():.2e}",
-            'BC': f"{b_loss.item():.2e}",
-            'PDE': f"{p_loss.item():.2e}",
+            'Loss': f"{total_loss_val:.2e}",
+            'Data': f"{d_loss_accum:.2e}",
+            'BC': f"{b_loss_val:.2e}",
+            'PDE': f"{p_loss_accum:.2e}",
             'LR': f"{optimizer.param_groups[0]['lr']:.2e}",
         })
 
@@ -989,8 +1103,7 @@ def train(model, physics, data):
     print(f"FASE L-BFGS: {int(LBFGS_MAX_ITERS)} iterazioni (FP64)")
     print(f"{'='*60}")
 
-    # Cast a FP64 per precisione scientifica
-    torch.set_default_dtype(torch.float64)
+    # Cast a FP64 per precisione scientifica (nessun default_dtype globale)
     model.double()
     physics.double()
     xy_all = xy_all.double()
@@ -1028,39 +1141,55 @@ def train(model, physics, data):
 
     def closure():
         optimizer_lbfgs.zero_grad()
-        accum = {'data': 0.0, 'bc': 0.0, 'pde': 0.0}
 
-        # Data loss (chunked)
+        # Costruzione della loss dati come tensore scalare vivo (backward immediato per risparmiare memoria)
+        loss_data = torch.tensor(0.0, device=DEVICE, dtype=torch.float64)
         for i in range(0, xy_all.shape[0], chunk_size):
             xc = xy_all[i:i + chunk_size]
             yc = uv_all[i:i + chunk_size]
             dl = physics.data_loss(model, xc, yc, var_w)
             w = xc.shape[0] / xy_all.shape[0]
-            accum['data'] += dl.item() * w
-            (W_DATA * dl * w).backward()
+            chunk_loss = W_DATA * dl * w
+            loss_data = loss_data + chunk_loss
+            chunk_loss.backward()
 
-        # BC loss (no chunking)
-        bl = physics.boundary_loss(model, bc_data, var_w, active_bcs=None)
-        accum['bc'] = bl.item()
-        (W_BC * bl).backward()
+        # Loss BC
+        loss_bc = physics.boundary_loss(model, bc_data, var_w, active_bcs=None)
+        loss_bc_weighted = W_BC * loss_bc
+        loss_bc_weighted.backward()
 
-        # PDE loss (chunked)
+        # Costruzione della loss PDE come tensore scalare vivo (backward immediato per evitare OOM)
+        loss_pde = torch.tensor(0.0, device=DEVICE, dtype=torch.float64)
+        loss_m_val = 0.0
+        loss_c_val = 0.0
+        
         for i in range(0, xph_full.shape[0], chunk_size):
             xc = xph_full[i:i + chunk_size]
-            pl = physics.pde_loss(model, xc)
             w = xc.shape[0] / xph_full.shape[0]
-            accum['pde'] += pl.item() * w
-            (W_PHYSICS * pl * w).backward()
+            
+            # Calcola le loss locali
+            loss_m, loss_c = physics.compute_pde_losses(model, xc)
+            loss_m_val += loss_m.item() * w
+            loss_c_val += loss_c.item() * w
+            
+            chunk_loss = W_PHYSICS * (W_MOMENTUM * loss_m + W_CONSTITUTIVE * loss_c) * w
+            loss_pde = loss_pde + chunk_loss
+            chunk_loss.backward()
 
-        total_val = W_DATA * accum['data'] + W_BC * accum['bc'] + W_PHYSICS * accum['pde']
+        # Loss totale come tensore vivo connesso al grafo
+        total_loss = loss_data + loss_bc_weighted + loss_pde
+        total_val = total_loss.item()
 
         if l_it[0] % 2 == 0 or l_it[0] == int(LBFGS_MAX_ITERS) - 1:
             params = physics.log_params()
+
             history.update(ADAM_EPOCHS + l_it[0], {
                 'total': total_val,
-                'data': accum['data'],
-                'bc': accum['bc'],
-                'pde': accum['pde'],
+                'data': (loss_data / W_DATA).item(),
+                'bc': loss_bc.item(),
+                'pde': (loss_pde / W_PHYSICS).item(),
+                'loss_momentum': loss_m_val,
+                'loss_constitutive': loss_c_val,
                 'param_mu_s': params['mu_s'],
                 'param_mu_p': params['mu_p'],
                 'param_lam': params['lam'],
@@ -1072,7 +1201,7 @@ def train(model, physics, data):
         pbar.update(1)
         pbar.set_postfix({'Loss': f'{total_val:.2e}'})
 
-        return torch.tensor(total_val, device=DEVICE, requires_grad=True)
+        return total_loss
 
     optimizer_lbfgs.step(closure)
     if physics.inverse_mode:
@@ -1085,13 +1214,110 @@ def train(model, physics, data):
 # ============================================================================
 # 7. METRICHE E MAIN
 # ============================================================================
+def evaluate_final_losses(model, physics, data):
+    """Calcola le loss finali valutate sul dataset completo in chunk per evitare OOM (usando la precisione corrente)."""
+    model.eval()
+    _dtype = next(model.parameters()).dtype
+    
+    xy_all = data['coords'].to(_dtype)
+    uv_all = data['uv_data'].to(_dtype)
+    var_w = data['var_weights']
+    bc_data = data['boundary_groups']
+    
+    bc_data_typed = {}
+    for gname, gd in bc_data.items():
+        bc_data_typed[gname] = {
+            'xy': gd['xy'].to(_dtype),
+            'norm': gd['norm'].to(_dtype),
+            'fields': {k: v.to(_dtype) for k, v in gd['fields'].items()}
+        }
+
+    chunk_size = 2000
+
+    with torch.set_grad_enabled(True):
+        # Data loss (chunked)
+        d_loss_val = 0.0
+        for i in range(0, xy_all.shape[0], chunk_size):
+            xc = xy_all[i:i + chunk_size]
+            yc = uv_all[i:i + chunk_size]
+            dl = physics.data_loss(model, xc, yc, var_w)
+            w = xc.shape[0] / xy_all.shape[0]
+            d_loss_val += dl.item() * w
+            
+        # BC loss splits
+        bc_u_val = 0.0
+        bc_v_val = 0.0
+        bc_p_val = 0.0
+        
+        for group_name, gd in bc_data_typed.items():
+            x_bc = gd['xy'].clone().requires_grad_(True)
+            u, v, p, tau = physics.get_velocity(model, x_bc)
+            
+            if group_name == 'Walls':
+                bc_u_val += (nn.MSELoss()(u, torch.zeros_like(u)) / var_w['u']).item()
+                bc_v_val += (nn.MSELoss()(v, torch.zeros_like(v)) / var_w['v']).item()
+            elif group_name in ('Roll1', 'Roll2', 'Roll3', 'Roll4'):
+                bc_u_val += (nn.MSELoss()(u, gd['fields']['u']) / var_w['u']).item()
+                bc_v_val += (nn.MSELoss()(v, gd['fields']['v']) / var_w['v']).item()
+            elif group_name == 'PressurePoint':
+                bc_p_val += (nn.MSELoss()(p, gd['fields']['p']) / var_w['p']).item()
+                
+        b_loss_val = bc_u_val + bc_v_val + bc_p_val
+        
+        # PDE losses (chunked)
+        loss_m_val = 0.0
+        loss_c_val = 0.0
+        abs_fu_sum = 0.0
+        abs_fv_sum = 0.0
+        abs_ftxx_sum = 0.0
+        abs_ftxy_sum = 0.0
+        abs_ftyy_sum = 0.0
+        
+        for i in range(0, xy_all.shape[0], chunk_size):
+            xc = xy_all[i:i + chunk_size].clone().requires_grad_(True)
+            f_u, f_v, f_txx, f_tyy, f_txy = physics.compute_residuals(model, xc)
+            
+            loss_m = 0.5 * (f_u**2 + f_v**2).mean()
+            loss_c = (f_txx**2 + f_tyy**2 + f_txy**2).mean() / 3.0
+            
+            w = xc.shape[0] / xy_all.shape[0]
+            loss_m_val += loss_m.item() * w
+            loss_c_val += loss_c.item() * w
+            
+            abs_fu_sum += f_u.abs().mean().item() * w
+            abs_fv_sum += f_v.abs().mean().item() * w
+            abs_ftxx_sum += f_txx.abs().mean().item() * w
+            abs_ftxy_sum += f_txy.abs().mean().item() * w
+            abs_ftyy_sum += f_tyy.abs().mean().item() * w
+            
+        pde_loss_val = W_MOMENTUM * loss_m_val + W_CONSTITUTIVE * loss_c_val
+        total_loss_val = W_DATA * d_loss_val + W_BC * b_loss_val + W_PHYSICS * pde_loss_val
+        
+    return {
+        'Data Loss': d_loss_val,
+        'Boundary Loss': b_loss_val,
+        'BC_u': bc_u_val,
+        'BC_v': bc_v_val,
+        'BC_p': bc_p_val,
+        'Momentum Loss': loss_m_val,
+        'Constitutive Loss': loss_c_val,
+        'Total PDE Loss': pde_loss_val,
+        'Total Loss': total_loss_val,
+        'Mean Abs f_u': abs_fu_sum,
+        'Mean Abs f_v': abs_fv_sum,
+        'Mean Abs f_txx': abs_ftxx_sum,
+        'Mean Abs f_txy': abs_ftxy_sum,
+        'Mean Abs f_tyy': abs_ftyy_sum
+    }
+
+
 def compute_l2_errors(model, physics, data):
     """Calcola L2 relative errors per tutti i campi."""
     model.eval()
     _dtype = next(model.parameters()).dtype
     with torch.set_grad_enabled(True):
         xi = data['coords'].to(_dtype).clone().requires_grad_(True)
-        u_p, v_p, p_p, tau_p = physics.get_velocity(model, xi)
+        u_p, v_p, p_p, tau_p = physics.get_velocity(model, xi, create_graph=False)
 
     preds = {'u': u_p, 'p': p_p, 'tau_xx': tau_p[:, 0:1], 'tau_xy': tau_p[:, 1:2], 'tau_yy': tau_p[:, 2:3]}
     exacts = {'u': data['u'], 'p': data['p'], 'tau_xx': data['tau_xx'], 'tau_xy': data['tau_xy'], 'tau_yy': data['tau_yy']}
@@ -1123,7 +1349,7 @@ if __name__ == '__main__':
     initialize_last_layer_zero(model.model_p)
     initialize_last_layer_zero(model.model_tau)
 
-    physics = Physics(U_ref=data['U_ref'], H_ref=data['H'], inverse_mode=INVERSE_PROBLEM).to(DEVICE)
+    physics = Physics(U_ref=data['U_ref'], H_ref=data['H'], var_weights=data['var_weights'], inverse_mode=INVERSE_PROBLEM).to(DEVICE)
 
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nModello: {total_params:,} parametri totali")
@@ -1148,6 +1374,28 @@ if __name__ == '__main__':
     print(f"  lam:   {params['lam']:.6f}  (true: {LAM_TRUE})")
     print(f"  eps:   {params['eps']:.6f}  (true: {EPS_TRUE})")
     print(f"  alpha: {params['alpha']:.6f}  (true: {ALPHA_TRUE})")
+
+    # Report finale dettagliato valutato sul dataset completo
+    final_losses = evaluate_final_losses(model, physics, data)
+    print(f"\n{'='*60}")
+    print("REPORT FINALE DETTAGLIATO (Dataset Completo)")
+    print(f"{'='*60}")
+    print(f"  Data Loss:          {final_losses['Data Loss']:.6e}")
+    print(f"  Boundary Loss:      {final_losses['Boundary Loss']:.6e}")
+    print(f"    - BC_u:           {final_losses['BC_u']:.6e}")
+    print(f"    - BC_v:           {final_losses['BC_v']:.6e}")
+    print(f"    - BC_p:           {final_losses['BC_p']:.6e}")
+    print(f"  Momentum Loss:      {final_losses['Momentum Loss']:.6e}")
+    print(f"  Constitutive Loss:  {final_losses['Constitutive Loss']:.6e}")
+    print(f"  Total PDE Loss:     {final_losses['Total PDE Loss']:.6e}")
+    print(f"  Total Loss:         {final_losses['Total Loss']:.6e}")
+    
+    print(f"\nResidui medi assoluti (Dataset Completo):")
+    print(f"  |f_u|:              {final_losses['Mean Abs f_u']:.6e}")
+    print(f"  |f_v|:              {final_losses['Mean Abs f_v']:.6e}")
+    print(f"  |f_txx|:            {final_losses['Mean Abs f_txx']:.6e}")
+    print(f"  |f_txy|:            {final_losses['Mean Abs f_txy']:.6e}")
+    print(f"  |f_tyy|:            {final_losses['Mean Abs f_tyy']:.6e}")
 
     errors = compute_l2_errors(model, physics, data)
     print(f"\nL2 Relative Errors:")

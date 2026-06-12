@@ -125,7 +125,13 @@ class TrainingHistory:
                 keys_to_plot = ['total_loss', 'bc_loss', 'data_loss', 'pde_loss']
                 # Se ci sono altre chiavi generiche, includiamole qui
                 for k in self.losses.keys():
-                    if k not in keys_to_plot and not k.startswith('loss_bc_') and not k.startswith('param_') and not k.startswith('grad_') and not k.startswith('weight_'):
+                    if (k not in keys_to_plot 
+                        and not k.startswith('loss_bc_') 
+                        and not k.startswith('param_') 
+                        and not k.startswith('grad_') 
+                        and not k.startswith('weight_')
+                        and not k.startswith('mean_abs_')
+                        and k not in ['loss_txx', 'loss_txy', 'loss_tyy', 'loss_momentum', 'loss_constitutive']):
                         keys_to_plot.append(k)
             elif row_type == 'bc_comp':
                 keys_to_plot = bc_keys

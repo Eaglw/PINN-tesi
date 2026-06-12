@@ -240,6 +240,11 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
                 'Loss': f"{loss.item():.2e}",
                 'LR': f"{optimizer.param_groups[0]['lr']:.2e}"
             })
+            if (epoch + 1) % 500 == 0:
+                mean_txx = loss_dict.get('mean_abs_f_txx', torch.tensor(0.0)).item()
+                mean_tyy = loss_dict.get('mean_abs_f_tyy', torch.tensor(0.0)).item()
+                mean_txy = loss_dict.get('mean_abs_f_txy', torch.tensor(0.0)).item()
+                pbar.write(f"Epoch {epoch+1:05d} | |f_txx|: {mean_txx:.3e} | |f_tyy|: {mean_tyy:.3e} | |f_txy|: {mean_txy:.3e}")
             if (epoch + 1) % cfg.plot_every == 0:
                 generate_epoch_diagnostic_plot(model, physics_problem, xy_grid, T_exact_grid, triang, epoch, plots_dir, cfg.plot_every, cfg.val_label, plot_files)
     pbar.close()
@@ -430,12 +435,34 @@ def compute_pinn_loss(model, x_data, y_data, x_bc=None, y_bc=None, x_physics=Non
         total_loss += lambda_bc * bc_loss
 
     if x_physics is not None and lambda_physics > 0:
-        # La PDE mantiene la scala fisica originaria O(1) non venendo distorta dai variance_weights
-        pde_loss = physics_problem.residual(model, x_physics, variance_weights=None)
+        f_u, f_v, f_txx, f_tyy, f_txy = physics_problem.compute_residuals(model, x_physics)
+        loss_m = (f_u**2 + f_v**2).mean()
+        loss_txx = (f_txx**2).mean()
+        loss_tyy = (f_tyy**2).mean()
+        loss_txy = (f_txy**2).mean()
+        loss_c = loss_txx + loss_tyy + loss_txy
+        
+        w_mom = physics_problem.pde_weights.get('momentum', 10.0)
+        w_const = physics_problem.pde_weights.get('constitutive', 1.0)
+        pde_loss = w_mom * loss_m + w_const * loss_c
+        
         loss_dict['pde_loss'] = pde_loss
+        loss_dict['loss_txx'] = loss_txx
+        loss_dict['loss_tyy'] = loss_tyy
+        loss_dict['loss_txy'] = loss_txy
+        loss_dict['loss_momentum'] = loss_m
+        loss_dict['loss_constitutive'] = loss_c
+        loss_dict['mean_abs_f_u'] = f_u.abs().mean()
+        loss_dict['mean_abs_f_v'] = f_v.abs().mean()
+        loss_dict['mean_abs_f_txx'] = f_txx.abs().mean()
+        loss_dict['mean_abs_f_tyy'] = f_tyy.abs().mean()
+        loss_dict['mean_abs_f_txy'] = f_txy.abs().mean()
+        
         total_loss += lambda_physics * pde_loss
     else:
-        loss_dict['pde_loss'] = torch.tensor(0.0, device=x_data.device if (x_data is not None and x_data.numel() > 0) else next(model.parameters()).device)
+        dev = x_data.device if (x_data is not None and x_data.numel() > 0) else next(model.parameters()).device
+        dtype = next(model.parameters()).dtype
+        loss_dict['pde_loss'] = torch.tensor(0.0, device=dev, dtype=dtype)
         
     loss_dict['total_loss'] = total_loss
     return total_loss, loss_dict

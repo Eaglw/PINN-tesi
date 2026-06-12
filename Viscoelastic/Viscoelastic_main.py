@@ -52,7 +52,7 @@ GOAL_CONFIGS = {
 PRECISION_MODE = 'staged'           # 'full_32' | 'staged' | 'full_64'
 SEED = 123
 #DATASET_OPTIONS = ['Oldroyd.csv','Oldroyd_res.csv']
-DATASET_OPTIONS = ['Oldroyd_mau_res.csv']
+DATASET_OPTIONS = ['Channel/Oldroyd_mau_res.csv']
 
 COMSOL_PARAMS = {
     'mu_s': 0.1,   # Viscosità solvente [Pa·s]
@@ -145,6 +145,12 @@ if __name__ == '__main__':
         validation_grid_u = data_bundle['validation_grid']
         stress_exact_grids = data_bundle['stress_exact_grids']
         VAR_WEIGHTS = data_bundle['var_weights']
+
+        print("\n" + "="*60)
+        print("=== DATASET VARIANCES (VAR_WEIGHTS) ===")
+        for k, v in VAR_WEIGHTS.items():
+            print(f"  var_{k:<6s}: {v:.6e}")
+        print("="*60 + "\n")
 
         params = dataset['params']
         mu_s, mu_p, lam = params['mu_s'], params['mu_p'], params['lam']
