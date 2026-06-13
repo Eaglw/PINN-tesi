@@ -57,6 +57,37 @@ CHUNK_SIZE_ADAM = 7000  # Dimensione dei chunk per Adam. Aumenta per velocità, 
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / 'COMSOL' / '4roll' / '4_roll_mill.csv'
 
+# --- Costanti di Clamping per Parametri Strettamente Positivi ---
+MIN_MU_S = 1e-6
+MIN_MU_P = 1e-6
+MIN_LAM = 1e-6
+
+def weighted_mse(pred, target, var):
+    """Formula esplicita per la weighted MSE normalizzata tramite la varianza."""
+    return torch.mean(((pred - target) ** 2) / var)
+
+def convert_to_fp64(model, physics, data):
+    """Converte in modo centralizzato modello, fisica e dati a FP64 prima di L-BFGS."""
+    model.double()
+    physics.double()
+    
+    # Cast dei dati interni
+    data['coords'] = data['coords'].double()
+    data['u'] = data['u'].double()
+    data['v'] = data['v'].double()
+    data['p'] = data['p'].double()
+    data['tau_xx'] = data['tau_xx'].double()
+    data['tau_xy'] = data['tau_xy'].double()
+    data['tau_yy'] = data['tau_yy'].double()
+    data['uv_data'] = data['uv_data'].double()
+    
+    # Cast dei boundary groups
+    for group_name, gd in data['boundary_groups'].items():
+        gd['xy'] = gd['xy'].double()
+        gd['norm'] = gd['norm'].double()
+        for fname in gd['fields']:
+            gd['fields'][fname] = gd['fields'][fname].double()
+
 # --- Parametri fisici REALI del fluido (ground truth) ---
 MU_S_TRUE = 0.1      # Viscosità solvente [Pa·s]
 MU_P_TRUE = 0.9      # Viscosità polimerica [Pa·s]
@@ -78,7 +109,7 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.Tanh
 
 # --- Training ---
-ADAM_EPOCHS = 1000*10
+ADAM_EPOCHS = 1000*5
 LBFGS_MAX_ITERS = int(0.1*ADAM_EPOCHS) # 10% di epoche Adam
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -114,7 +145,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE_PATH = OUTPUT_DIR / 'train_log.txt'
 
 # Frequenza monitoraggio print (circa 4-5 volte durante il training)
-PRINT_EVERY = max(1, ADAM_EPOCHS // 5)
+PRINT_EVERY = max(1, ADAM_EPOCHS // 4)
 
 
 # ============================================================================
@@ -147,7 +178,7 @@ def load_data():
     y_min, y_max = y_raw.min(), y_raw.max()
     x_min, x_max = x_raw.min(), x_raw.max()
     H = y_max - y_min if (y_max - y_min) > 1e-9 else 1.0
-    U_ref = max(float(np.abs(u_raw).max()), 1e-9)
+    U_ref = max(float(np.max(np.sqrt(u_raw**2 + v_raw**2))), 1e-9)
     mu_tot = MU_S_TRUE + MU_P_TRUE
     p_ref = mu_tot * U_ref / H
     tau_ref = mu_tot * U_ref / H
@@ -673,8 +704,8 @@ class Physics(nn.Module):
     def data_loss(self, model, x, uv_target, var_w):
         """Loss dati: solo u, v (Goal 1, semi-inverso)."""
         u, v, _, _ = self.get_velocity(model, x)
-        loss_u = nn.MSELoss()(u, uv_target[:, 0:1]) / var_w['u']
-        loss_v = nn.MSELoss()(v, uv_target[:, 1:2]) / var_w['v']
+        loss_u = weighted_mse(u, uv_target[:, 0:1], var_w['u'])
+        loss_v = weighted_mse(v, uv_target[:, 1:2], var_w['v'])
         return 0.5 * (loss_u + loss_v)
 
     def boundary_loss(self, model, bc_data, var_w, active_bcs=None):
@@ -694,35 +725,63 @@ class Physics(nn.Module):
             if group_name == 'Walls':
                 # u = v = 0
                 if active_bcs is None or 'u' in active_bcs:
-                    g_loss += nn.MSELoss()(u, torch.zeros_like(u)) / var_w['u']
+                    g_loss += weighted_mse(u, torch.zeros_like(u), var_w['u'])
                 if active_bcs is None or 'v' in active_bcs:
-                    g_loss += nn.MSELoss()(v, torch.zeros_like(v)) / var_w['v']
+                    g_loss += weighted_mse(v, torch.zeros_like(v), var_w['v'])
 
             elif group_name in ('Roll1', 'Roll2', 'Roll3', 'Roll4'):
                 # u, v da CSV
                 if active_bcs is None or 'u' in active_bcs:
-                    g_loss += nn.MSELoss()(u, gd['fields']['u']) / var_w['u']
+                    g_loss += weighted_mse(u, gd['fields']['u'], var_w['u'])
                 if active_bcs is None or 'v' in active_bcs:
-                    g_loss += nn.MSELoss()(v, gd['fields']['v']) / var_w['v']
+                    g_loss += weighted_mse(v, gd['fields']['v'], var_w['v'])
 
             elif group_name == 'PressurePoint':
                 # p da CSV
                 if active_bcs is None or 'p' in active_bcs:
-                    g_loss += nn.MSELoss()(p, gd['fields']['p']) / var_w['p']
+                    g_loss += weighted_mse(p, gd['fields']['p'], var_w['p'])
 
             total_loss += g_loss
 
         return total_loss
 
     def clamp_params(self):
-        """Vincoli fisici sui parametri."""
+        """Vincoli fisici sui parametri con logging delle variazioni."""
         if self.inverse_mode:
             with torch.no_grad():
+                old_mu_s = self.mu_s.item()
+                old_mu_p = self.mu_p.item()
+                old_lam = self.lam.item()
+                old_eps = self.eps.item()
+                old_alpha = self.alpha.item()
+
+                # Clamp normale per parametri che possono arrivare a zero
                 self.eps.clamp_(min=0.0)
                 self.alpha.clamp_(min=0.0)
-                self.mu_s.clamp_(min=1e-6)
-                self.mu_p.clamp_(min=1e-6)
-                self.lam.clamp_(min=1e-6)
+
+                # Clamping con softplus per parametri strettamente positivi se scendono sotto le soglie minime
+                if self.mu_s.item() < MIN_MU_S:
+                    self.mu_s.copy_(torch.nn.functional.softplus(self.mu_s))
+                if self.mu_p.item() < MIN_MU_P:
+                    self.mu_p.copy_(torch.nn.functional.softplus(self.mu_p))
+                if self.lam.item() < MIN_LAM:
+                    self.lam.copy_(torch.nn.functional.softplus(self.lam))
+
+                # Debug report se i parametri cambiano
+                changes = []
+                if self.mu_s.item() != old_mu_s:
+                    changes.append(f"mu_s: {old_mu_s:.6e} -> {self.mu_s.item():.6e} (Softplus clamp)")
+                if self.mu_p.item() != old_mu_p:
+                    changes.append(f"mu_p: {old_mu_p:.6e} -> {self.mu_p.item():.6e} (Softplus clamp)")
+                if self.lam.item() != old_lam:
+                    changes.append(f"lam: {old_lam:.6e} -> {self.lam.item():.6e} (Softplus clamp)")
+                if self.eps.item() != old_eps:
+                    changes.append(f"eps: {old_eps:.6e} -> {self.eps.item():.6e} (Clamp)")
+                if self.alpha.item() != old_alpha:
+                    changes.append(f"alpha: {old_alpha:.6e} -> {self.alpha.item():.6e} (Clamp)")
+
+                if changes:
+                    print(f"  [DEBUG CLAMP] I parametri fisici sono stati aggiornati:\n    " + "\n    ".join(changes))
 
     def log_params(self):
         """Restituisce i parametri correnti come dict di float."""
@@ -814,6 +873,40 @@ class SimpleHistory:
         axs[-1].set_xlabel('Epoch / Iter')
         fig.suptitle('Physical Parameters Evolution', fontsize=14)
         plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.savefig(save_path, dpi=150)
+        plt.close()
+
+    def plot_l2_errors(self, save_path):
+        """Plot evoluzione errori L2 globali e mascherati."""
+        fig, ax = plt.subplots(figsize=(10, 5))
+        keys_plot = ['l2_u', 'l2_p', 'l2_tau_xx', 'l2_tau_xy', 'l2_tau_yy', 'l2_tau_xx_masked', 'l2_tau_xy_masked', 'l2_tau_yy_masked']
+        colors = {
+            'l2_u': 'blue',
+            'l2_p': 'green',
+            'l2_tau_xx': 'red',
+            'l2_tau_xy': 'orange',
+            'l2_tau_yy': 'purple',
+            'l2_tau_xx_masked': 'brown',
+            'l2_tau_xy_masked': 'magenta',
+            'l2_tau_yy_masked': 'cyan'
+        }
+        for k in keys_plot:
+            if k not in self.losses:
+                continue
+            vals = self.losses[k]
+            valid = [(e, v) for e, v in zip(self.epochs, vals) if v is not None]
+            if valid:
+                ep, vv = zip(*valid)
+                linestyle = '--' if 'masked' in k else '-'
+                label = k.replace('l2_', '')
+                ax.plot(ep, vv, label=label, color=colors.get(k, None), linestyle=linestyle, alpha=0.85)
+        ax.set_yscale('log')
+        ax.set_xlabel('Epoch / Iter')
+        ax.set_ylabel('L2 Relative Error')
+        ax.set_title('L2 Relative Error History (Global & Masked Stress)')
+        ax.legend()
+        ax.grid(True, ls='--', alpha=0.5)
+        plt.tight_layout()
         plt.savefig(save_path, dpi=150)
         plt.close()
 
@@ -1059,6 +1152,8 @@ def train(model, physics, data):
         # Logging veloce ad ogni epoca
         if (epoch + 1) % 10 == 0 or epoch == 0 or (STAGED_TRAINING and (epoch + 1) == half_epochs):
             params = physics.log_params()
+            with torch.no_grad():
+                l2_errs = compute_l2_errors(model, physics, data)
 
             history.update(epoch, {
                 'total': total_loss_val,
@@ -1070,19 +1165,30 @@ def train(model, physics, data):
                 'param_lam': params['lam'],
                 'param_eps': params['eps'],
                 'param_alpha': params['alpha'],
+                'l2_u': l2_errs['u'],
+                'l2_p': l2_errs['p'],
+                'l2_tau_xx': l2_errs['tau_xx'],
+                'l2_tau_xy': l2_errs['tau_xy'],
+                'l2_tau_yy': l2_errs['tau_yy'],
+                'l2_tau_xx_masked': l2_errs['tau_xx_masked'],
+                'l2_tau_xy_masked': l2_errs['tau_xy_masked'],
+                'l2_tau_yy_masked': l2_errs['tau_yy_masked'],
             })
             
             # Monitoraggio periodico dettagliato di L2(u), Momentum e Constitutive
             if (epoch + 1) % PRINT_EVERY == 0 or epoch == 0:
                 with torch.no_grad():
-                    l2_errs = compute_l2_errors(model, physics, data)
                     losses_eval = evaluate_final_losses(model, physics, data)
                 model.train()
                 print(
-                    f"  [Epoch {epoch+1:>4d}/{ADAM_EPOCHS}] "
-                    f"L2(u)={l2_errs['u']:.4f} | "
-                    f"Momentum={losses_eval['Momentum Loss']:.2e} | "
-                    f"Constitutive={losses_eval['Constitutive Loss']:.2e}",
+                    f"  [Epoch {epoch+1:>4d}/{ADAM_EPOCHS}] Detailed Status Report:\n"
+                    f"    L2 Errors:         u={l2_errs['u']:.4f} | p={l2_errs['p']:.4f} | "
+                    f"tau_xx={l2_errs['tau_xx']:.4f} | tau_xy={l2_errs['tau_xy']:.4f} | tau_yy={l2_errs['tau_yy']:.4f}\n"
+                    f"    L2 Masked Stress:  tau_xx_masked={l2_errs['tau_xx_masked']:.4f} | tau_xy_masked={l2_errs['tau_xy_masked']:.4f} | tau_yy_masked={l2_errs['tau_yy_masked']:.4f}\n"
+                    f"    Losses:            Data={losses_eval['Data Loss']:.2e} | BC={losses_eval['Boundary Loss']:.2e} (u={losses_eval['BC_u']:.2e}, v={losses_eval['BC_v']:.2e}, p={losses_eval['BC_p']:.2e})\n"
+                    f"                       Momentum={losses_eval['Momentum Loss']:.2e} | Constitutive={losses_eval['Constitutive Loss']:.2e}\n"
+                    f"    Mean Abs Res:      |f_u|={losses_eval['Mean Abs f_u']:.2e} | |f_v|={losses_eval['Mean Abs f_v']:.2e} | "
+                    f"|f_txx|={losses_eval['Mean Abs f_txx']:.2e} | |f_txy|={losses_eval['Mean Abs f_txy']:.2e} | |f_tyy|={losses_eval['Mean Abs f_tyy']:.2e}",
                     flush=True
                 )
         
@@ -1103,17 +1209,39 @@ def train(model, physics, data):
     print(f"FASE L-BFGS: {int(LBFGS_MAX_ITERS)} iterazioni (FP64)")
     print(f"{'='*60}")
 
-    # Cast a FP64 per precisione scientifica (nessun default_dtype globale)
-    model.double()
-    physics.double()
-    xy_all = xy_all.double()
-    uv_all = uv_all.double()
-    # Cast anche i boundary groups
+    # Cast a FP64 per precisione scientifica (centralizzato)
+    convert_to_fp64(model, physics, data)
+    
+    # Aggiorna i riferimenti locali dopo il cast FP64
+    xy_all = data['coords']
+    uv_all = data['uv_data']
+    bc_data = data['boundary_groups']
+
+    # Controllo/Assert sui dtype prima di L-BFGS
+    for p_name, param in model.named_parameters():
+        assert param.dtype == torch.float64, f"[Assert FP64] Parametro {p_name} del modello non è float64: {param.dtype}"
+    for p_name, param in physics.named_parameters():
+        assert param.dtype == torch.float64, f"[Assert FP64] Parametro {p_name} della fisica non è float64: {param.dtype}"
+    for b_name, buf in physics.named_buffers():
+        assert buf.dtype == torch.float64, f"[Assert FP64] Buffer {b_name} della fisica non è float64: {buf.dtype}"
+    assert xy_all.dtype == torch.float64, f"[Assert FP64] Dati xy_all non sono float64: {xy_all.dtype}"
+    assert uv_all.dtype == torch.float64, f"[Assert FP64] Dati uv_all non sono float64: {uv_all.dtype}"
     for gname, gd in bc_data.items():
-        gd['xy'] = gd['xy'].double()
-        gd['norm'] = gd['norm'].double()
-        for fname in gd['fields']:
-            gd['fields'][fname] = gd['fields'][fname].double()
+        assert gd['xy'].dtype == torch.float64, f"[Assert FP64] BC {gname} xy non è float64"
+        assert gd['norm'].dtype == torch.float64, f"[Assert FP64] BC {gname} norm non è float64"
+        for fname, fval in gd['fields'].items():
+            assert fval.dtype == torch.float64, f"[Assert FP64] BC {gname} field {fname} non è float64"
+
+    # Report di debug dtypes
+    print(f"\n[DEBUG REPORT PRE-L-BFGS]")
+    print(f"  - Modello: convertito a {next(model.parameters()).dtype}")
+    print(f"  - Fisica:  convertito a {physics.mu_s.dtype}")
+    print(f"  - coords:  {xy_all.dtype} (shape: {xy_all.shape})")
+    print(f"  - uv_data: {uv_all.dtype} (shape: {uv_all.shape})")
+    print(f"  - BC data dtypes:")
+    for gname, gd in bc_data.items():
+        fields_str = ", ".join([f"{k}:{v.dtype}" for k, v in gd['fields'].items()])
+        print(f"    * {gname:<13s} -> xy: {gd['xy'].dtype} | norm: {gd['norm'].dtype} | fields: [{fields_str}]")
 
     # Tutti i modelli attivi
     for p in model.parameters():
@@ -1180,8 +1308,10 @@ def train(model, physics, data):
         total_loss = loss_data + loss_bc_weighted + loss_pde
         total_val = total_loss.item()
 
-        if l_it[0] % 2 == 0 or l_it[0] == int(LBFGS_MAX_ITERS) - 1:
+        if l_it[0] % 10 == 0 or l_it[0] == int(LBFGS_MAX_ITERS) - 1:
             params = physics.log_params()
+            with torch.no_grad():
+                l2_errs = compute_l2_errors(model, physics, data)
 
             history.update(ADAM_EPOCHS + l_it[0], {
                 'total': total_val,
@@ -1195,6 +1325,14 @@ def train(model, physics, data):
                 'param_lam': params['lam'],
                 'param_eps': params['eps'],
                 'param_alpha': params['alpha'],
+                'l2_u': l2_errs['u'],
+                'l2_p': l2_errs['p'],
+                'l2_tau_xx': l2_errs['tau_xx'],
+                'l2_tau_xy': l2_errs['tau_xy'],
+                'l2_tau_yy': l2_errs['tau_yy'],
+                'l2_tau_xx_masked': l2_errs['tau_xx_masked'],
+                'l2_tau_xy_masked': l2_errs['tau_xy_masked'],
+                'l2_tau_yy_masked': l2_errs['tau_yy_masked'],
             })
 
         l_it[0] += 1
@@ -1254,13 +1392,13 @@ def evaluate_final_losses(model, physics, data):
             u, v, p, tau = physics.get_velocity(model, x_bc)
             
             if group_name == 'Walls':
-                bc_u_val += (nn.MSELoss()(u, torch.zeros_like(u)) / var_w['u']).item()
-                bc_v_val += (nn.MSELoss()(v, torch.zeros_like(v)) / var_w['v']).item()
+                bc_u_val += weighted_mse(u, torch.zeros_like(u), var_w['u']).item()
+                bc_v_val += weighted_mse(v, torch.zeros_like(v), var_w['v']).item()
             elif group_name in ('Roll1', 'Roll2', 'Roll3', 'Roll4'):
-                bc_u_val += (nn.MSELoss()(u, gd['fields']['u']) / var_w['u']).item()
-                bc_v_val += (nn.MSELoss()(v, gd['fields']['v']) / var_w['v']).item()
+                bc_u_val += weighted_mse(u, gd['fields']['u'], var_w['u']).item()
+                bc_v_val += weighted_mse(v, gd['fields']['v'], var_w['v']).item()
             elif group_name == 'PressurePoint':
-                bc_p_val += (nn.MSELoss()(p, gd['fields']['p']) / var_w['p']).item()
+                bc_p_val += weighted_mse(p, gd['fields']['p'], var_w['p']).item()
                 
         b_loss_val = bc_u_val + bc_v_val + bc_p_val
         
@@ -1312,7 +1450,7 @@ def evaluate_final_losses(model, physics, data):
 
 
 def compute_l2_errors(model, physics, data):
-    """Calcola L2 relative errors per tutti i campi."""
+    """Calcola L2 relative errors per tutti i campi (globali e mascherati per lo stress)."""
     model.eval()
     _dtype = next(model.parameters()).dtype
     with torch.set_grad_enabled(True):
@@ -1329,6 +1467,27 @@ def compute_l2_errors(model, physics, data):
         norm_ex = torch.norm(ex, 2)
         l2 = (torch.norm(pr - ex, 2) / norm_ex).item() if norm_ex > 1e-10 else 0.0
         errors[fn] = l2
+
+    # Calcolo errore L2 mascherato sulle zone dove lo stress esatto non è nullo (soglia al 5% del max)
+    exact_txx = exacts['tau_xx'].to(_dtype)
+    exact_txy = exacts['tau_xy'].to(_dtype)
+    exact_tyy = exacts['tau_yy'].to(_dtype)
+    tau_magnitude = torch.sqrt(exact_txx**2 + exact_txy**2 + exact_tyy**2)
+    max_tau = torch.max(tau_magnitude).item()
+    threshold = 0.05 * max_tau
+    mask = (tau_magnitude >= threshold).view(-1)
+    
+    # Se per qualche motivo nessun punto supera la soglia, evitiamo errori usando tutti i punti
+    if torch.sum(mask).item() == 0:
+        mask = torch.ones_like(mask, dtype=torch.bool)
+
+    for fn in ['tau_xx', 'tau_xy', 'tau_yy']:
+        pr_m = preds[fn].detach().view(-1)[mask]
+        ex_m = exacts[fn].to(pr_m.dtype).view(-1)[mask]
+        norm_ex_m = torch.norm(ex_m, 2)
+        l2_m = (torch.norm(pr_m - ex_m, 2) / norm_ex_m).item() if norm_ex_m > 1e-10 else 0.0
+        errors[f"{fn}_masked"] = l2_m
+
     return errors
 
 
@@ -1336,6 +1495,12 @@ if __name__ == '__main__':
     print(f"Device: {DEVICE}")
     print(f"Dtype iniziale: {torch.get_default_dtype()}")
     print(f"Dataset: {DATASET_PATH}")
+    print()
+    print("=" * 60)
+    print("DEBUG REPORT CONFIGURAZIONE INIZIALE:")
+    print("  - Formula Weighted MSE: Mean( ((pred - target) ** 2) / var )")
+    print("  - Definizione U_ref:    max(sqrt(u_raw**2 + v_raw**2))")
+    print("=" * 60)
     print()
 
     # 1. Carica dati
@@ -1405,6 +1570,7 @@ if __name__ == '__main__':
     # 5. Plot
     history.plot_losses(str(OUTPUT_DIR / 'loss_history.png'))
     history.plot_params(str(OUTPUT_DIR / 'params_evolution.png'))
+    history.plot_l2_errors(str(OUTPUT_DIR / 'l2_errors_history.png'))
     plot_fields(model, physics, data, str(OUTPUT_DIR / 'fields_comparison.png'))
 
     print(f"\nPlot salvati in: {OUTPUT_DIR}")

@@ -12,6 +12,7 @@ scratch/
 *.png
 .DS_Store
 *.mph.lock
+train_log.txt
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
