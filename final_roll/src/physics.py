@@ -1,0 +1,469 @@
+import torch
+import torch.nn as nn
+from src.utils import weighted_mse
+
+
+class Physics(nn.Module):
+    """PDE adimensionali + boundary conditions. Supporta modalità diretta o inversa."""
+
+    def __init__(self, U_ref, H_ref, var_weights=None, inverse_mode=True):
+        super().__init__()
+        self.U_ref = U_ref
+        self.H_ref = H_ref
+        self.var_weights = var_weights
+        self.inverse_mode = inverse_mode
+
+        # Registrazione dinamica dei parametri fisici
+        params_setup = {
+            "mu_s": (GUESS_MU_S, MU_S_TRUE),
+            "mu_p": (GUESS_MU_P, MU_P_TRUE),
+            "lam": (GUESS_LAM, LAM_TRUE),
+            "eps": (GUESS_EPS, EPS_TRUE),
+            "alpha": (GUESS_ALPHA, ALPHA_TRUE),
+        }
+
+        for name, (guess_val, true_val) in params_setup.items():
+            val = guess_val if inverse_mode else true_val
+            tensor_val = torch.tensor([val], device=DEVICE)
+            if inverse_mode:
+                self.register_parameter(name, nn.Parameter(tensor_val))
+            else:
+                self.register_buffer(name, tensor_val)
+
+        # Referenza fissa per adimensionalizzazione
+        self.real_mu_tot = MU_S_TRUE + MU_P_TRUE
+
+    def _grad(self, y, x, create_graph=True, retain_graph=True):
+        """Helper per calcolare i gradienti tramite autograd."""
+        return torch.autograd.grad(
+            y,
+            x,
+            grad_outputs=torch.ones_like(y),
+            create_graph=create_graph,
+            retain_graph=retain_graph,
+        )[0]
+
+    def get_velocity(self, model, x, create_graph=True):
+        """Calcola u, v, p, tau dalla stream function."""
+        if not x.requires_grad:
+            x = x.clone().requires_grad_(True)
+
+        psi = model.model_psi(x)
+        p = model.model_p(x) * model.p_scale
+        tau = model.model_tau(x) * model.tau_scale
+
+        grad_psi = self._grad(psi, x, create_graph=create_graph)
+        u, v = grad_psi[:, 1:2], -grad_psi[:, 0:1]
+
+        return u, v, p, tau
+
+    def _nondim(self):
+        """Parametri adimensionali correnti."""
+        mu_tot = self.mu_s + self.mu_p
+        Re = RHO * self.U_ref * self.H_ref / mu_tot
+        Wi = self.lam * self.U_ref / self.H_ref
+        beta = self.mu_s / mu_tot
+        beta_poly = self.mu_p / mu_tot
+        return Re, Wi, beta, beta_poly, self.eps, self.alpha
+
+    def compute_residuals(self, model, x, w_momentum=1.0, w_constitutive=1.0):
+        """Calcola i residui PDE adimensionali saltando i calcoli se i pesi sono nulli."""
+        Re, Wi, beta, beta_poly, eps, alpha = self._nondim()
+
+        # Reti indipendenti per disconnettere i grafi
+        psi = model.model_psi(x)
+        p = model.model_p(x) * model.p_scale
+        tau = model.model_tau(x) * model.tau_scale
+        tau_xx, tau_xy, tau_yy = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
+
+        # --- Cinematica ---
+        grad_psi = self._grad(psi, x)
+        u, v = grad_psi[:, 1:2], -grad_psi[:, 0:1]
+
+        grad_u = self._grad(u, x)
+        u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
+
+        grad_v = self._grad(v, x)
+        v_x, v_y = grad_v[:, 0:1], -u_x  # Incompressibilità analitica
+
+        # --- Derivate Stress ---
+        if w_momentum > 0.0 or w_constitutive > 0.0:
+            cg = w_constitutive > 0.0
+            # retain_graph=True sulle prime due per non consumare il forward di model_tau
+            g_txx = self._grad(tau_xx, x, create_graph=cg, retain_graph=True)
+            tau_xx_x, tau_xx_y = g_txx[:, 0:1], g_txx[:, 1:2]
+
+            g_txy = self._grad(tau_xy, x, create_graph=cg, retain_graph=True)
+            tau_xy_x, tau_xy_y = g_txy[:, 0:1], g_txy[:, 1:2]
+
+            g_tyy = self._grad(tau_yy, x, create_graph=cg)  # Libera il grafo
+            tau_yy_x, tau_yy_y = g_tyy[:, 0:1], g_tyy[:, 1:2]
+
+            if not cg:
+                tau_xx_x, tau_xx_y = tau_xx_x.detach(), tau_xx_y.detach()
+                tau_xy_x, tau_xy_y = tau_xy_x.detach(), tau_xy_y.detach()
+                tau_yy_x, tau_yy_y = tau_yy_x.detach(), tau_yy_y.detach()
+        else:
+            tau_xx_x = tau_xx_y = tau_xy_x = tau_xy_y = tau_yy_x = tau_yy_y = None
+
+        # --- Momentum ---
+        if w_momentum > 0.0:
+            grad_p = self._grad(p, x)
+            p_x, p_y = grad_p[:, 0:1], grad_p[:, 1:2]
+
+            u_xx = self._grad(u_x, x)[:, 0:1]
+
+            grad_u_y = self._grad(u_y, x)
+            u_yx, u_yy = grad_u_y[:, 0:1], grad_u_y[:, 1:2]
+
+            v_xx = self._grad(v_x, x)[:, 0:1]
+            v_yy = -u_yx
+
+            f_u = (
+                Re * (u * u_x + v * u_y)
+                + p_x
+                - beta * (u_xx + u_yy)
+                - (tau_xx_x + tau_xy_y)
+            )
+            f_v = (
+                Re * (u * v_x + v * v_y)
+                + p_y
+                - beta * (v_xx + v_yy)
+                - (tau_xy_x + tau_yy_y)
+            )
+        else:
+            f_u = f_v = torch.zeros_like(u)
+
+        # --- Costitutive ---
+        if w_constitutive > 0.0:
+            f_PTT = 1.0 + (eps * Wi / beta_poly) * (tau_xx + tau_yy)
+            upper_xx = u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy
+            upper_yy = u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy
+            upper_xy = (
+                u * tau_xy_x
+                + v * tau_xy_y
+                - u_x * tau_xy
+                - u_y * tau_yy
+                - tau_xx * v_x
+                - tau_xy * v_y
+            )
+
+            f_txx = (
+                f_PTT * tau_xx
+                + Wi * upper_xx
+                + (alpha * Wi / beta_poly) * (tau_xx**2 + tau_xy**2)
+                - 2.0 * beta_poly * u_x
+            )
+            f_tyy = (
+                f_PTT * tau_yy
+                + Wi * upper_yy
+                + (alpha * Wi / beta_poly) * (tau_xy**2 + tau_yy**2)
+                - 2.0 * beta_poly * v_y
+            )
+            f_txy = (
+                f_PTT * tau_xy
+                + Wi * upper_xy
+                + (alpha * Wi / beta_poly) * tau_xy * (tau_xx + tau_yy)
+                - beta_poly * (u_y + v_x)
+            )
+
+            # Bilanciamento Loss PDE
+            f_txx, f_tyy, f_txy = (
+                f_txx / model.tau_scale,
+                f_tyy / model.tau_scale,
+                f_txy / model.tau_scale,
+            )
+        else:
+            f_txx = f_tyy = f_txy = torch.zeros_like(u)
+
+        return f_u, f_v, f_txx, f_tyy, f_txy
+
+    def compute_pde_losses(self, model, x, w_momentum=1.0, w_constitutive=1.0):
+        """Calcola separatamente loss momentum e constitutive."""
+        f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(
+            model, x, w_momentum, w_constitutive
+        )
+
+        loss_m = 0.5 * (f_u**2 + f_v**2).mean()
+        # Non normalizzato sulla varianza per evitare il collasso a zero dello stress
+        loss_c = (f_txx**2 + f_tyy**2 + f_txy**2).mean() / 3.0
+
+        return loss_m, loss_c
+
+    def pde_loss_weighted(self, model, x, w_momentum, w_constitutive):
+        """Loss PDE pesata per staged training."""
+        loss_m, loss_c = self.compute_pde_losses(model, x, w_momentum, w_constitutive)
+        return w_momentum * loss_m + w_constitutive * loss_c
+
+    def pde_loss(self, model, x):
+        """Loss PDE con pesi di default."""
+        return self.pde_loss_weighted(model, x, W_MOMENTUM, W_CONSTITUTIVE)
+
+    def data_loss(self, model, x, uv_target, var_w):
+        """Loss dati: solo u, v."""
+        u, v, _, _ = self.get_velocity(model, x)
+        loss_u = weighted_mse(u, uv_target[:, 0:1], var_w["u"])
+        loss_v = weighted_mse(v, uv_target[:, 1:2], var_w["v"])
+        return 0.5 * (loss_u + loss_v)
+
+    def boundary_loss(self, model, bc_data, var_w, active_bcs=None):
+        """Calcola le loss per i gruppi al contorno."""
+        # Creazione sicura del tensore cumulativo con il corretto dtype
+        total_loss = torch.tensor(
+            0.0, device=DEVICE, dtype=next(model.parameters()).dtype
+        )
+
+        for group_name, gd in bc_data.items():
+            x_bc = gd["xy"].clone().requires_grad_(True)
+            u, v, p, _ = self.get_velocity(model, x_bc)
+            g_loss = 0.0
+
+            if group_name == "Walls":
+                if active_bcs is None or "u" in active_bcs:
+                    g_loss += weighted_mse(u, torch.zeros_like(u), var_w["u"])
+                if active_bcs is None or "v" in active_bcs:
+                    g_loss += weighted_mse(v, torch.zeros_like(v), var_w["v"])
+
+            elif group_name in ("Roll1", "Roll2", "Roll3", "Roll4"):
+                if active_bcs is None or "u" in active_bcs:
+                    g_loss += weighted_mse(u, gd["fields"]["u"], var_w["u"])
+                if active_bcs is None or "v" in active_bcs:
+                    g_loss += weighted_mse(v, gd["fields"]["v"], var_w["v"])
+
+            elif group_name == "PressurePoint":
+                if active_bcs is None or "p" in active_bcs:
+                    g_loss += weighted_mse(p, gd["fields"]["p"], var_w["p"])
+
+            total_loss = total_loss + g_loss
+
+        return total_loss
+
+    def clamp_params(self):
+        """Vincoli fisici sui parametri dinamici (softplus e clamp nudo)."""
+        if not self.inverse_mode:
+            return
+
+        changes = []
+        with torch.no_grad():
+            # Parametri strettamente positivi -> Softplus se sotto la soglia minima
+            strict_pos_params = [
+                ("mu_s", MIN_MU_S),
+                ("mu_p", MIN_MU_P),
+                ("lam", MIN_LAM),
+            ]
+            for p_name, min_val in strict_pos_params:
+                p = getattr(self, p_name)
+                old_val = p.item()
+                if old_val < min_val:
+                    p.copy_(torch.nn.functional.softplus(p))
+                    changes.append(
+                        f"{p_name}: {old_val:.6e} -> {p.item():.6e} (Softplus clamp)"
+                    )
+
+            # Parametri che possono andare a zero -> Clamp diretto
+            for p_name in ["eps", "alpha"]:
+                p = getattr(self, p_name)
+                old_val = p.item()
+                if old_val < 0.0:
+                    p.clamp_(min=0.0)
+                    changes.append(f"{p_name}: {old_val:.6e} -> {p.item():.6e} (Clamp)")
+
+        if changes:
+            print(
+                "  [DEBUG CLAMP] I parametri fisici sono stati aggiornati:\n    "
+                + "\n    ".join(changes)
+            )
+
+    def log_params(self):
+        """Restituisce i parametri correnti estraendoli proceduralmente."""
+        return {
+            name: getattr(self, name).item()
+            for name in ["mu_s", "mu_p", "lam", "eps", "alpha"]
+        }
+
+
+def evaluate_final_losses(model, physics, data, chunk_size=2000):
+    """
+    Calcola le loss finali valutate sul dataset completo in chunk per evitare OOM.
+    Utilizza un dizionario per l'accumulo dinamico, eliminando il boilerplate.
+    """
+    model.eval()
+    _dtype = next(model.parameters()).dtype
+
+    # Helper per il cast dei tensori
+    def _cast(val):
+        return val.to(_dtype) if torch.is_tensor(val) else val
+
+    xy_all = _cast(data["coords"])
+    uv_all = _cast(data["uv_data"])
+    var_w = data["var_weights"]
+    bc_data = data["boundary_groups"]
+
+    # Pre-cast sicuro delle Boundary Conditions
+    bc_data_typed = {
+        gname: {
+            "xy": _cast(gd["xy"]),
+            "norm": _cast(gd["norm"]),
+            "fields": {k: _cast(v) for k, v in gd["fields"].items()},
+        }
+        for gname, gd in bc_data.items()
+    }
+
+    # Dizionario degli accumulatori per le metriche PDE
+    metrics = {
+        "d_loss": 0.0,
+        "loss_m": 0.0,
+        "loss_c": 0.0,
+        "abs_fu": 0.0,
+        "abs_fv": 0.0,
+        "abs_ftxx": 0.0,
+        "abs_ftxy": 0.0,
+        "abs_ftyy": 0.0,
+    }
+
+    # Le loss di validazione richiedono comunque i gradienti accesi per la PDE
+    with torch.set_grad_enabled(True):
+        # --- 1. DATA E PDE LOSS (Chunked) ---
+        total_points = xy_all.shape[0]
+        for i in range(0, total_points, chunk_size):
+            xc = xy_all[i : i + chunk_size]
+            yc = uv_all[i : i + chunk_size]
+            w = xc.shape[0] / total_points
+
+            # Data Loss
+            dl = physics.data_loss(model, xc, yc, var_w)
+            metrics["d_loss"] += dl.item() * w
+
+            # PDE Residuals
+            xph = xc.clone().requires_grad_(True)
+            f_u, f_v, f_txx, f_tyy, f_txy = physics.compute_residuals(model, xph)
+
+            metrics["loss_m"] += (0.5 * (f_u**2 + f_v**2).mean()).item() * w
+            metrics["loss_c"] += (
+                (f_txx**2 + f_tyy**2 + f_txy**2).mean() / 3.0
+            ).item() * w
+
+            # Mean Absolute Residuals
+            metrics["abs_fu"] += f_u.abs().mean().item() * w
+            metrics["abs_fv"] += f_v.abs().mean().item() * w
+            metrics["abs_ftxx"] += f_txx.abs().mean().item() * w
+            metrics["abs_ftxy"] += f_txy.abs().mean().item() * w
+            metrics["abs_ftyy"] += f_tyy.abs().mean().item() * w
+
+        # --- 2. BOUNDARY LOSS ---
+        bc_vals = {"u": 0.0, "v": 0.0, "p": 0.0}
+
+        for group_name, gd in bc_data_typed.items():
+            x_bc = gd["xy"].clone().requires_grad_(True)
+            u, v, p, _ = physics.get_velocity(model, x_bc)
+
+            if group_name == "Walls":
+                bc_vals["u"] += weighted_mse(u, torch.zeros_like(u), var_w["u"]).item()
+                bc_vals["v"] += weighted_mse(v, torch.zeros_like(v), var_w["v"]).item()
+            elif group_name in ("Roll1", "Roll2", "Roll3", "Roll4"):
+                bc_vals["u"] += weighted_mse(u, gd["fields"]["u"], var_w["u"]).item()
+                bc_vals["v"] += weighted_mse(v, gd["fields"]["v"], var_w["v"]).item()
+            elif group_name == "PressurePoint":
+                bc_vals["p"] += weighted_mse(p, gd["fields"]["p"], var_w["p"]).item()
+
+    b_loss_val = sum(bc_vals.values())
+    pde_loss_val = W_MOMENTUM * metrics["loss_m"] + W_CONSTITUTIVE * metrics["loss_c"]
+    total_loss_val = (
+        W_DATA * metrics["d_loss"] + W_BC * b_loss_val + W_PHYSICS * pde_loss_val
+    )
+
+    return {
+        "Data Loss": metrics["d_loss"],
+        "Boundary Loss": b_loss_val,
+        "BC_u": bc_vals["u"],
+        "BC_v": bc_vals["v"],
+        "BC_p": bc_vals["p"],
+        "Momentum Loss": metrics["loss_m"],
+        "Constitutive Loss": metrics["loss_c"],
+        "Total PDE Loss": pde_loss_val,
+        "Total Loss": total_loss_val,
+        "Mean Abs f_u": metrics["abs_fu"],
+        "Mean Abs f_v": metrics["abs_fv"],
+        "Mean Abs f_txx": metrics["abs_ftxx"],
+        "Mean Abs f_txy": metrics["abs_ftxy"],
+        "Mean Abs f_tyy": metrics["abs_ftyy"],
+    }
+
+
+def compute_l2_errors(model, physics, data):
+    """Calcola L2 relative errors per tutti i campi in modo vettorializzato e pulito."""
+    model.eval()
+    _dtype = next(model.parameters()).dtype
+    errors = {}
+
+    # Chiamata al modello con calcolo del grafo (necessario qualora ci sia il calcolo dello stretch)
+    with torch.set_grad_enabled(True):
+        xi = data["coords"].to(_dtype).clone().requires_grad_(True)
+        u_p, v_p, p_p, tau_p = physics.get_velocity(model, xi, create_graph=False)
+
+    preds = {
+        "u": u_p,
+        "p": p_p,
+        "tau_xx": tau_p[:, 0:1],
+        "tau_xy": tau_p[:, 1:2],
+        "tau_yy": tau_p[:, 2:3],
+    }
+    # Preleviamo le variabili esatte direttamente castate
+    exacts = {k: data[k].to(_dtype) for k in preds.keys()}
+
+    def _compute_rel_l2(pred, exact, mask=None):
+        """Helper interno per l'errore L2 relativo, con supporto opzionale per le maschere."""
+        p_flat, e_flat = pred.detach().view(-1), exact.view(-1)
+        if mask is not None:
+            p_flat, e_flat = p_flat[mask], e_flat[mask]
+
+        norm_e = torch.norm(e_flat, 2)
+        if norm_e > 1e-10:
+            return (torch.norm(p_flat - e_flat, 2) / norm_e).item()
+        return 0.0
+
+    # 1. Errori L2 Standard
+    for key in preds:
+        errors[key] = _compute_rel_l2(preds[key], exacts[key])
+
+    # 2. Errori L2 Mascherati (Zone ad alto stress)
+    tau_magnitude = torch.sqrt(
+        exacts["tau_xx"] ** 2 + exacts["tau_xy"] ** 2 + exacts["tau_yy"] ** 2
+    )
+    threshold = 0.05 * torch.max(tau_magnitude).item()
+    mask = (tau_magnitude >= threshold).view(-1)
+
+    # Fallback sicuro se lo stress è universalmente basso
+    if not mask.any():
+        mask = torch.ones_like(mask, dtype=torch.bool)
+
+    for key in ["tau_xx", "tau_xy", "tau_yy"]:
+        errors[f"{key}_masked"] = _compute_rel_l2(preds[key], exacts[key], mask=mask)
+
+    # 3. Calcolo Stretch (Se presente nei dati)
+    # Rimosso il try...except generico. Meglio che il codice crashi in modo rumoroso
+    # se manca una shape o un gradiente, piuttosto che restituire dati falsi.
+    if data.get("true_stretch") is not None:
+        with torch.set_grad_enabled(True):
+            # Assumendo che u_p e v_p abbiano mantenuto il grafo.
+            # Ricalcoliamo i gradienti per la deformazione
+            grad_u = torch.autograd.grad(
+                u_p.sum(), xi, create_graph=False, retain_graph=True
+            )[0]
+            grad_v = torch.autograd.grad(v_p.sum(), xi, create_graph=False)[0]
+
+            D_xx = grad_u[:, 0]
+            D_xy = 0.5 * (grad_u[:, 1] + grad_v[:, 0])
+            D_yy = grad_v[:, 1]
+
+            pred_stretch = torch.sqrt(D_xx**2 + 2 * D_xy**2 + D_yy**2).view(-1)
+            true_stretch = data["true_stretch"].to(_dtype).view(-1)
+
+            norm_str = torch.norm(true_stretch, 2)
+            errors["stretch"] = (
+                (torch.norm(pred_stretch - true_stretch, 2) / norm_str).item()
+                if norm_str > 1e-10
+                else 0.0
+            )
+
+    return errors
