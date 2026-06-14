@@ -69,7 +69,7 @@ def _sample_boundary_groups(xy_bc, target_bc, boundary_metadata, batch_size, dev
         new_metadata
     )
 
-def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, validation_grid, collocation_points, loss_history, plots_dir):
+def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, validation_grid, collocation_points, loss_history, plots_dir, stress_exact_grids=None):
     _device = next(model.parameters()).device
     epochs = cfg.epochs
     half_epochs = epochs+1
@@ -244,7 +244,26 @@ def _run_adam_phase(model, physics_problem, cfg, data_internal, data_boundary, v
                 mean_txx = loss_dict.get('mean_abs_f_txx', torch.tensor(0.0)).item()
                 mean_tyy = loss_dict.get('mean_abs_f_tyy', torch.tensor(0.0)).item()
                 mean_txy = loss_dict.get('mean_abs_f_txy', torch.tensor(0.0)).item()
-                pbar.write(f"Epoch {epoch+1:05d} | |f_txx|: {mean_txx:.3e} | |f_tyy|: {mean_tyy:.3e} | |f_txy|: {mean_txy:.3e}")
+                
+                stretch_str = ""
+                if stress_exact_grids is not None and 'Stretch_norm' in stress_exact_grids:
+                    try:
+                        with torch.set_grad_enabled(True):
+                            xi = validation_grid[0].clone().to(next(model.parameters()).dtype).requires_grad_(True)
+                            up, vp, _, _ = physics_problem.get_velocity(model, xi)
+                            grad_u = torch.autograd.grad(up, xi, grad_outputs=torch.ones_like(up), create_graph=False, retain_graph=True)[0]
+                            grad_v = torch.autograd.grad(vp, xi, grad_outputs=torch.ones_like(vp), create_graph=False, retain_graph=False)[0]
+                            D_xx, D_xy = grad_u[:, 0], 0.5 * (grad_u[:, 1] + grad_v[:, 0])
+                            D_yy = grad_v[:, 1]
+                            pred_stretch = torch.sqrt(D_xx**2 + 2*D_xy**2 + D_yy**2)
+                            true_stretch = stress_exact_grids['Stretch_norm'].view(-1)
+                            l2_stretch = (torch.norm(pred_stretch - true_stretch, 2) / torch.norm(true_stretch, 2)).item()
+                            stretch_str = f" | L2(Stretch): {l2_stretch*100:.1f}%"
+                            loss_history.losses.setdefault('l2_stretch', []).append(l2_stretch)
+                    except Exception as e:
+                        stretch_str = f" | [Stretch Err]"
+                        
+                pbar.write(f"Epoch {epoch+1:05d} | |f_txx|: {mean_txx:.3e} | |f_tyy|: {mean_tyy:.3e} | |f_txy|: {mean_txy:.3e}{stretch_str}")
             if (epoch + 1) % cfg.plot_every == 0:
                 generate_epoch_diagnostic_plot(model, physics_problem, xy_grid, T_exact_grid, triang, epoch, plots_dir, cfg.plot_every, cfg.val_label, plot_files)
     pbar.close()
@@ -394,7 +413,7 @@ def _run_lbfgs_phase(model, physics_problem, cfg, data_internal, data_boundary, 
 def train_ViscoelasticPINN(model, config, data_internal, data_boundary, validation_grid, physics_problem, collocation_points, plots_dir, final_dir, stress_exact_grids=None):
     os.makedirs(plots_dir, exist_ok=True); os.makedirs(final_dir, exist_ok=True)
     loss_history = TrainingHistory()
-    loss_history, plot_files, ld, lbc, lp, bpw = _run_adam_phase(model, physics_problem, config, data_internal, data_boundary, validation_grid, collocation_points, loss_history, plots_dir)
+    loss_history, plot_files, ld, lbc, lp, bpw = _run_adam_phase(model, physics_problem, config, data_internal, data_boundary, validation_grid, collocation_points, loss_history, plots_dir, stress_exact_grids)
     loss_history = _run_lbfgs_phase(model, physics_problem, config, data_internal, data_boundary, collocation_points, loss_history, ld, lbc, lp, bpw)
     
     print("Training completato. Generazione artifacts...")

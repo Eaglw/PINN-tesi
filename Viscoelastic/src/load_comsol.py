@@ -705,6 +705,27 @@ def prepare_training_data(dataset_path, comsol_params, initial_dtype, device, va
         'tau_yy': tau_yy_exact
     }
     
+    # Try loading true gradients if available
+    possible_grad_paths = [
+        os.path.join(os.path.dirname(dataset_path), "true_gradients.npz"),
+        os.path.join(os.path.dirname(os.path.dirname(dataset_path)), "visco-easy", "true_gradients.npz"),
+        os.path.join(os.path.dirname(os.path.dirname(dataset_path)), "Viscoelastic", "true_gradients.npz")
+    ]
+    for grad_path in possible_grad_paths:
+        if os.path.exists(grad_path):
+            try:
+                npz_data = np.load(grad_path)
+                stress_exact_grids['u_x'] = torch.tensor(npz_data['u_x'], dtype=initial_dtype, device=device).reshape(-1, 1)
+                stress_exact_grids['u_y'] = torch.tensor(npz_data['u_y'], dtype=initial_dtype, device=device).reshape(-1, 1)
+                stress_exact_grids['v_x'] = torch.tensor(npz_data['v_x'], dtype=initial_dtype, device=device).reshape(-1, 1)
+                stress_exact_grids['v_y'] = torch.tensor(npz_data['v_y'], dtype=initial_dtype, device=device).reshape(-1, 1)
+                stress_exact_grids['Stretch_norm'] = torch.tensor(npz_data['Stretch_norm'], dtype=initial_dtype, device=device).reshape(-1, 1)
+                print(f"  [INFO] Caricati gradienti cinematici ground-truth da {os.path.basename(grad_path)}")
+                break
+            except Exception as e:
+                print(f"  [WARNING] Errore nel caricare gradienti da {grad_path}: {e}")
+                
+    
     # Varianze per normalizzazione
     sigma2_u   = max(u_exact.var().item(), variance_eps)
     sigma2_v   = max(v_exact.var().item(), variance_eps)

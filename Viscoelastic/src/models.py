@@ -1,15 +1,38 @@
 import torch
 import torch.nn as nn
+import numpy as np
+
+class FourierFeatures(nn.Module):
+    def __init__(self, in_dim=2, mapping_size=64, sigma=10.0):
+        super().__init__()
+        B = torch.randn(mapping_size, in_dim) * sigma
+        self.register_buffer("B", B)
+
+    def forward(self, x):
+        x_proj = 2 * np.pi * x @ self.B.T
+        return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
 
 class FCN(nn.Module):
-    """Rete Neurale a Connessioni Complete (Fully Connected Network)"""
-    def __init__(self, layers, activation_fn=nn.Tanh):
+    """Rete Neurale a Connessioni Complete (Fully Connected Network) con supporto RFF"""
+    def __init__(self, layers, activation_fn=nn.SiLU, use_rff=True, rff_mapping_size=64, rff_sigma=10.0):
         super().__init__()
+        self.use_rff = use_rff
         self.activation = activation_fn()
+        
+        if self.use_rff:
+            self.encoder = FourierFeatures(in_dim=layers[0], mapping_size=rff_mapping_size, sigma=rff_sigma)
+            in_dim = rff_mapping_size * 2
+        else:
+            self.encoder = nn.Identity()
+            in_dim = layers[0]
+            
         self.fcs = nn.ModuleList()
-        for i in range(len(layers) - 1):
+        self.fcs.append(nn.Linear(in_dim, layers[1]))
+        for i in range(1, len(layers) - 1):
             self.fcs.append(nn.Linear(layers[i], layers[i+1]))
+            
     def forward(self, x):
+        x = self.encoder(x)
         for layer in self.fcs[:-1]:
             x = self.activation(layer(x))
         return self.fcs[-1](x) 

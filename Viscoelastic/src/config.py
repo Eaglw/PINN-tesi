@@ -2,6 +2,12 @@ import torch
 from dataclasses import dataclass, field
 
 @dataclass
+class NetworkConfig:
+    use_rff: bool = True
+    rff_mapping_size: int = 64
+    rff_sigma: float = 10.0
+
+@dataclass
 class TrainingConfig:
     epochs: int = 1000
     base_lr: float = 1e-3
@@ -14,6 +20,7 @@ class TrainingConfig:
     grad_clip_norm: float = 5.0
     param_clip_norm: float = 1.0
     param_lr_factor: float = 0.1
+    w_grad: float = 0.0
     minibatch_internal: int = 1024
     minibatch_boundary: int = 256
     dynamic_weighting: bool = True
