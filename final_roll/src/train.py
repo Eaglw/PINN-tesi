@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from src.utils import convert_to_fp64
+from src.utils import convert_to_fp64, get_optimal_chunk_size
 from src.physics import compute_l2_errors
 
 class SimpleHistory:
@@ -203,8 +203,8 @@ def train(model, physics, data):
     # USE_LBFGS = True
     # CHUNK_SIZE_ADAM = 5000
     # CHUNK_SIZE_LBFGS = 1000  # <- Più basso di Adam a causa della Line Search e della History
-    half_epochs = int(ADAM_EPOCHS * 1.1)
-
+    half_epochs = int(ADAM_EPOCHS * 0.5)
+    #half_epochs = 10
     def configure_staged_phase(epoch):
         """Modifica i flag requires_grad dei sottomodelli. Chiamata SOLO ai cambi di fase."""
         if not STAGED_TRAINING:
@@ -276,26 +276,32 @@ def train(model, physics, data):
             yc = labels[i : i + chunk_size] if labels is not None else None
             w_chunk = xc.shape[0] / points.shape[0]
 
+            # Estrazione cinematica UNIFICATA
+            xph = xc.clone().requires_grad_(True)
+            u, v, p, tau = physics.get_velocity(model, xph)
+            
+            chunk_total_loss = 0.0
+
             # --- 1. DATA LOSS ---
             if yc is not None:
-                dl = physics.data_loss(model, xc, yc, var_w)
+                dl = physics.data_loss(u, v, yc, var_w)
                 d_loss_accum += dl.item() * w_chunk
-                # Backward immediato: calcola gradiente, lo accumula, e distrugge il grafo 'dl'
-                (W_DATA * dl * w_chunk).backward()
+                chunk_total_loss = chunk_total_loss + W_DATA * dl * w_chunk
 
             # --- 2. PDE LOSS ---
-            xph = xc.clone().requires_grad_(True)
             if is_lbfgs:
-                lm, lc = physics.compute_pde_losses(model, xph)
+                lm, lc = physics.compute_pde_losses(xph, u, v, p, tau, w_mom, w_con)
                 loss_m_val += lm.item() * w_chunk
                 loss_c_val += lc.item() * w_chunk
                 pl = (w_mom * lm) + (w_con * lc)
             else:
-                pl = physics.pde_loss_weighted(model, xph, w_mom, w_con)
+                pl = physics.pde_loss_weighted(xph, u, v, p, tau, w_mom, w_con)
 
             p_loss_accum += pl.item() * w_chunk
-            # Backward immediato: calcola derivate di ordine superiore e distrugge il grafo 'pl'
-            (W_PHYSICS * pl * w_chunk).backward()
+            chunk_total_loss = chunk_total_loss + W_PHYSICS * pl * w_chunk
+            
+            # Unico backward per il chunk corrente: distrugge il grafo intermediario
+            chunk_total_loss.backward()
 
         # --- 3. BOUNDARY LOSS ---
         # Le condizioni al contorno hanno solitamente pochi punti, non serve chunking
@@ -348,6 +354,10 @@ def train(model, physics, data):
             print(
                 f"\n{'=' * 60}\nFASE 2 ADAM (Dinamica): {ADAM_EPOCHS - half_epochs} epoche\n{'=' * 60}"
             )
+            # Ricalcolo chunk size per la fase 2
+            global CHUNK_SIZE_ADAM
+            CHUNK_SIZE_ADAM = get_optimal_chunk_size(phase=2)
+
             active_bcs, w_mom, w_con = configure_staged_phase(
                 epoch
             )  # Ricalcolo layer attivi
@@ -391,28 +401,29 @@ def train(model, physics, data):
             physics.clamp_params()
         scheduler.step()
 
-        # Logging della History (eseguito ogni 10 epoche)
-        if (
-            (epoch + 1) % PRINT_EVERY // 10 == 0
-            or epoch == 0
-            or (STAGED_TRAINING and (epoch + 1) == half_epochs)
-        ):
-            params = physics.log_params()
-            with torch.no_grad():
-                l2_errs = compute_l2_errors(model, physics, data)
+        # Condizioni di logging separate
+        log_loss = ((epoch + 1) % 10 == 0) or (epoch == 0) or (STAGED_TRAINING and (epoch + 1) == half_epochs)
+        log_l2 = ((epoch + 1) % max(1, ADAM_EPOCHS // 40) == 0) or (epoch == 0) or (STAGED_TRAINING and (epoch + 1) == half_epochs)
 
-            history.update(
-                epoch,
-                {
-                    "total": tot_loss,
-                    "data": d_loss_accum,
-                    "bc": b_loss_val,
-                    "pde": p_loss_accum,
-                    "param_mu_s": params["mu_s"],
-                    "param_mu_p": params["mu_p"],
-                    "param_lam": params["lam"],
-                    "param_eps": params["eps"],
-                    "param_alpha": params["alpha"],
+        if log_loss:
+            params = physics.log_params()
+            loss_dict = {
+                "total": tot_loss,
+                "data": d_loss_accum,
+                "bc": b_loss_val,
+                "pde": p_loss_accum,
+                "param_mu_s": params["mu_s"],
+                "param_mu_p": params["mu_p"],
+                "param_lam": params["lam"],
+                "param_eps": params["eps"],
+                "param_alpha": params["alpha"],
+            }
+            
+            if log_l2:
+                with torch.no_grad():
+                    l2_errs = compute_l2_errors(model, physics, data)
+                
+                loss_dict.update({
                     "l2_u": l2_errs["u"],
                     "l2_p": l2_errs["p"],
                     "l2_tau_xx": l2_errs["tau_xx"],
@@ -421,8 +432,9 @@ def train(model, physics, data):
                     "l2_tau_xx_masked": l2_errs["tau_xx_masked"],
                     "l2_tau_xy_masked": l2_errs["tau_xy_masked"],
                     "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
-                },
-            )
+                })
+
+            history.update(epoch, loss_dict)
 
         pbar.set_postfix(
             {

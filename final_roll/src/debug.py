@@ -6,7 +6,7 @@ def test_random_points(model, physics, data, num_points=10):
     model.eval()
     _dtype = next(model.parameters()).dtype
 
-    with torch.no_grad():
+    with torch.set_grad_enabled(True):
         idx_rand = torch.randperm(data["coords"].shape[0])[:num_points]
         xi = data["coords"][idx_rand].to(_dtype).clone()
 

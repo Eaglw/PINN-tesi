@@ -17,6 +17,7 @@ from src.debug import test_random_points, debug_physics_magnitudes
 from src.physics import Physics, evaluate_final_losses, compute_l2_errors
 from src.train import CombinedModel, initialize_last_layer_zero, init_weights_xavier, train
 from src.utils import load_data, plot_fields, plot_high_stress_regions
+from src.utils import get_optimal_chunk_size
 
 import src.debug
 import src.physics
@@ -57,6 +58,8 @@ torch.cuda.manual_seed_all(SEED)
 
 DEVICE = torch.device("cuda")
 
+optim_chunk = get_optimal_chunk_size(phase=1)
+
 # ============================================================================
 # 2. COSTANTI E CONFIGURAZIONI GLOBALI
 # ============================================================================
@@ -64,9 +67,9 @@ DEVICE = torch.device("cuda")
 # --- Opzioni di Controllo ---
 STAGED_TRAINING = True  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
 INVERSE_PROBLEM = False  # True: semi-inverso, False: diretto
-USE_LBFGS = False  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
-CHUNK_SIZE_ADAM = 7000  # Aumenta per velocità, diminuisci se satura la VRAM
-CHUNK_SIZE_LBFGS = 2000  # Dimensione chunk per L-BFGS (solitamente inferiore ad Adam)
+USE_LBFGS = True  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
+CHUNK_SIZE_ADAM = optim_chunk  # Aumenta per velocità, diminuisci se satura la VRAM
+CHUNK_SIZE_LBFGS = get_optimal_chunk_size(phase=3)  # Dimensione chunk per L-BFGS (solitamente inferiore ad Adam)
 
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
@@ -97,7 +100,7 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS = 800
+ADAM_EPOCHS = 100
 LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)  # 10% di epoche Adam
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -161,6 +164,7 @@ if __name__ == "__main__":
         H_ref=data["H"],
         var_weights=data["var_weights"],
         inverse_mode=INVERSE_PROBLEM,
+        tau_scale=data["tau_scale"],
     ).to(DEVICE)
 
     # Recap Configurazione

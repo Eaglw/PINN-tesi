@@ -520,7 +520,7 @@ def plot_high_stress_regions(predictions, data, save_path):
         plot_configs = [
             (ex, f"{fn} True (High Stress)", "plasma", None, None, None),
             (pr, f"{fn} Pred (High Stress)", "plasma", None, None, None),
-            (ratio, f"{fn} Pred/True Ratio", "bwr", -2.0, 2.0, "Ratio"),
+            (ratio, f"{fn} Pred/True Ratio", "bwr", -1.0, 3.0, "Ratio"),
         ]
 
         for col, (data_arr, title, c_map, c_min, c_max, cb_label) in enumerate(
@@ -537,3 +537,51 @@ def plot_high_stress_regions(predictions, data, save_path):
     fig.savefig(save_path, dpi=150)
     plt.close(fig)
     print(f"    -> High-stress scatter salvato in {save_path}")
+
+def get_optimal_chunk_size(
+    phase=1,
+    safety_factor=0.8, 
+    default_cpu_chunk=5000,
+    min_chunk=1000,
+    max_chunk=50000
+):
+    """
+    Calcola la dimensione ottimale del chunk in base alla VRAM totale disponibile
+    e alla fase di addestramento.
+    """
+    if not torch.cuda.is_available():
+        print(f"  [VRAM Check] Nessuna GPU trovata. Uso chunk size di default per CPU: {default_cpu_chunk}")
+        return default_cpu_chunk
+
+    try:
+        # Usa la memoria totale del dispositivo per avere un calcolo invariante
+        # rispetto alla VRAM temporaneamente occupata in quel momento
+        total_vram = torch.cuda.get_device_properties(0).total_memory
+        
+        # Riserviamo solo una frazione (safety_factor) della VRAM totale
+        usable_vram = total_vram * safety_factor
+        
+        # Stime basate su test empirici (24GB GPU, 50k chunk)
+        if phase == 1:
+            bytes_per_point_estimate = 245000  # ~11.5 GB per 50k punti
+        elif phase == 2:
+            bytes_per_point_estimate = 490000  # ~23.0 GB per 50k punti
+        else:
+            bytes_per_point_estimate = 1500000 # Fase 3 (L-BFGS FP64): stima molto prudente
+            
+        # Calcolo chunk size
+        calculated_chunk = int(usable_vram / bytes_per_point_estimate)
+        
+        # Limitiamo i valori estremi per stabilità
+        optimal_chunk = max(min_chunk, min(calculated_chunk, max_chunk))
+        
+        total_gb = total_vram / (1024**3)
+        print(f"  [VRAM Check Fase {phase}] VRAM Totale GPU: {total_gb:.1f} GB")
+        print(f"  [VRAM Check Fase {phase}] Chunk size stimato: {calculated_chunk} -> Limitato a: {optimal_chunk}")
+        
+        return optimal_chunk
+        
+    except Exception as e:
+        print(f"  [WARNING] Impossibile calcolare la VRAM dinamicamente ({e}). Uso fallback: {default_cpu_chunk}")
+        return default_cpu_chunkhunk
+

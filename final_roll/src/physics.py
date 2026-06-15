@@ -6,12 +6,13 @@ from src.utils import weighted_mse
 class Physics(nn.Module):
     """PDE adimensionali + boundary conditions. Supporta modalità diretta o inversa."""
 
-    def __init__(self, U_ref, H_ref, var_weights=None, inverse_mode=True):
+    def __init__(self, U_ref, H_ref, var_weights=None, inverse_mode=True, tau_scale=1.0):
         super().__init__()
         self.U_ref = U_ref
         self.H_ref = H_ref
         self.var_weights = var_weights
         self.inverse_mode = inverse_mode
+        self.tau_scale = tau_scale
 
         # Registrazione dinamica dei parametri fisici
         params_setup = {
@@ -66,20 +67,15 @@ class Physics(nn.Module):
         beta_poly = self.mu_p / mu_tot
         return Re, Wi, beta, beta_poly, self.eps, self.alpha
 
-    def compute_residuals(self, model, x, w_momentum=1.0, w_constitutive=1.0):
+    def compute_residuals(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0):
         """Calcola i residui PDE adimensionali saltando i calcoli se i pesi sono nulli."""
         Re, Wi, beta, beta_poly, eps, alpha = self._nondim()
 
-        # Reti indipendenti per disconnettere i grafi
-        psi = model.model_psi(x)
-        p = model.model_p(x) * model.p_scale
-        tau = model.model_tau(x) * model.tau_scale
+        # Estrazione tensori di stress passati come argomento
         tau_xx, tau_xy, tau_yy = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
 
         # --- Cinematica ---
-        grad_psi = self._grad(psi, x)
-        u, v = grad_psi[:, 1:2], -grad_psi[:, 0:1]
-
+        # u e v sono già passati come argomento, estraiamo subito le derivate prime
         grad_u = self._grad(u, x)
         u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
 
@@ -169,19 +165,19 @@ class Physics(nn.Module):
 
             # Bilanciamento Loss PDE
             f_txx, f_tyy, f_txy = (
-                f_txx / model.tau_scale,
-                f_tyy / model.tau_scale,
-                f_txy / model.tau_scale,
+                f_txx / self.tau_scale,
+                f_tyy / self.tau_scale,
+                f_txy / self.tau_scale,
             )
         else:
             f_txx = f_tyy = f_txy = torch.zeros_like(u)
 
         return f_u, f_v, f_txx, f_tyy, f_txy
 
-    def compute_pde_losses(self, model, x, w_momentum=1.0, w_constitutive=1.0):
+    def compute_pde_losses(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0):
         """Calcola separatamente loss momentum e constitutive."""
         f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(
-            model, x, w_momentum, w_constitutive
+            x, u, v, p, tau, w_momentum, w_constitutive
         )
 
         loss_m = 0.5 * (f_u**2 + f_v**2).mean()
@@ -190,18 +186,17 @@ class Physics(nn.Module):
 
         return loss_m, loss_c
 
-    def pde_loss_weighted(self, model, x, w_momentum, w_constitutive):
+    def pde_loss_weighted(self, x, u, v, p, tau, w_momentum, w_constitutive):
         """Loss PDE pesata per staged training."""
-        loss_m, loss_c = self.compute_pde_losses(model, x, w_momentum, w_constitutive)
+        loss_m, loss_c = self.compute_pde_losses(x, u, v, p, tau, w_momentum, w_constitutive)
         return w_momentum * loss_m + w_constitutive * loss_c
 
-    def pde_loss(self, model, x):
+    def pde_loss(self, x, u, v, p, tau):
         """Loss PDE con pesi di default."""
-        return self.pde_loss_weighted(model, x, W_MOMENTUM, W_CONSTITUTIVE)
+        return self.pde_loss_weighted(x, u, v, p, tau, W_MOMENTUM, W_CONSTITUTIVE)
 
-    def data_loss(self, model, x, uv_target, var_w):
+    def data_loss(self, u, v, uv_target, var_w):
         """Loss dati: solo u, v."""
-        u, v, _, _ = self.get_velocity(model, x)
         loss_u = weighted_mse(u, uv_target[:, 0:1], var_w["u"])
         loss_v = weighted_mse(v, uv_target[:, 1:2], var_w["v"])
         return 0.5 * (loss_u + loss_v)
@@ -330,13 +325,16 @@ def evaluate_final_losses(model, physics, data, chunk_size=2000):
             yc = uv_all[i : i + chunk_size]
             w = xc.shape[0] / total_points
 
+            # Estrazione unificata della cinematica
+            xph = xc.clone().requires_grad_(True)
+            u, v, p, tau = physics.get_velocity(model, xph)
+
             # Data Loss
-            dl = physics.data_loss(model, xc, yc, var_w)
+            dl = physics.data_loss(u, v, yc, var_w)
             metrics["d_loss"] += dl.item() * w
 
             # PDE Residuals
-            xph = xc.clone().requires_grad_(True)
-            f_u, f_v, f_txx, f_tyy, f_txy = physics.compute_residuals(model, xph)
+            f_u, f_v, f_txx, f_tyy, f_txy = physics.compute_residuals(xph, u, v, p, tau)
 
             metrics["loss_m"] += (0.5 * (f_u**2 + f_v**2).mean()).item() * w
             metrics["loss_c"] += (
