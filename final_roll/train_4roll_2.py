@@ -23,6 +23,23 @@ import src.physics
 import src.train
 import src.utils
 
+import builtins
+
+# --- Logging automatico di tutti i print (Globale) ---
+_original_print = builtins.print
+global_log_path = None
+
+def custom_print(*args, **kwargs):
+    _original_print(*args, **kwargs)
+    if global_log_path is not None:
+        sep = kwargs.get('sep', ' ')
+        end = kwargs.get('end', '\n')
+        text = sep.join(map(str, args)) + end
+        with open(global_log_path, 'a', encoding='utf-8') as f:
+            f.write(text)
+
+builtins.print = custom_print
+
 # ============================================================================
 # 1. SETUP AMBIENTE E PYTORCH
 # ============================================================================
@@ -80,7 +97,7 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS = 20000
+ADAM_EPOCHS = 800
 LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)  # 10% di epoche Adam
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -109,7 +126,7 @@ config_name = f"{DATASET_PATH.stem}_L{layers_str}_E{ADAM_EPOCHS}_{ACTIVATION.__n
 OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-LOG_FILE_PATH = OUTPUT_DIR / "train_log.txt"
+global_log_path = OUTPUT_DIR / "train_log.txt"
 
 # Iniezione dinamica dei parametri globali nei moduli di src per risolvere la mancanza di config
 for module in [src.debug, src.physics, src.train, src.utils]:

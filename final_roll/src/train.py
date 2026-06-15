@@ -393,7 +393,7 @@ def train(model, physics, data):
 
         # Logging della History (eseguito ogni 10 epoche)
         if (
-            (epoch + 1) % 10 == 0
+            (epoch + 1) % PRINT_EVERY // 10 == 0
             or epoch == 0
             or (STAGED_TRAINING and (epoch + 1) == half_epochs)
         ):

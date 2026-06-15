@@ -4,22 +4,17 @@ This project focuses on the research and application of Physics-Informed Neural 
 
 ## Project Structure
 
-- **`Viscoelastic/`**: Core module containing the viscoelastic fluid PINN implementation.
-    - `Viscoelastic_main.py`: Entry point for running experiments (grid searches, forward, semi-inverse, or inverse solvers).
-    - `results.csv`: Log file tracking performance metrics and physical parameters across runs.
-    - `experiments_weighted/`: Output directory for generated logs, model checkpoints, and plots.
-    - `src/`: Main source files:
-        - `models.py`: Defines the Neural Network architectures (FCN and `ViscoelasticCombinedModel` which coordinates separate networks for $\psi$, $p$, and $\tau$).
-        - `config.py`: Training parameters (`TrainingConfig`), learning rate schedulers, and network/parameter freezing helpers.
-        - `Viscoelastic_physics.py`: Adimensional PDE physics constraints (momentum equations, constitutive equations for Oldroyd-B, PTT, Giesekus), and boundary condition rules.
-        - `load_comsol.py`: Data loader and processing for COMSOL datasets.
-        - `trainer.py`: Implementation of the staged optimization loop (Adam phase followed by L-BFGS refinement).
-- **`COMSOL/`**: Storage folder for COMSOL reference datasets (e.g., `Oldroyd.csv`).
-- **`func/`**: Shared utility functions.
-    - `graphic_func.py`: Matplotlib plotting scripts for 2D visualizations, error maps, and comparisons.
-    - `history_tracker.py`: Tracks and plots loss terms and parameter trajectories.
-- **`models/`**: Directory for saving trained model states.
-- **`plots/`**: Location for quick or general plots.
+- **`final_roll/`**: Active working folder containing the current viscoelastic fluid PINN implementation for the four-roll mill.
+    - `train_4roll_2.py`: Main entry point for training and running current experiments.
+    - `src/`: Core source code module:
+        - `train.py`: Implementation of the model architecture (`CombinedModel`) and the training process.
+        - `physics.py`: Viscoelastic physics definition, including losses, adimensional parameters, and boundary conditions.
+        - `utils.py`: Utility functions for loading COMSOL data and plotting fields.
+        - `debug.py`: Helper tools for debugging magnitudes and random point evaluations.
+    - `output_4rollmill/`: Directory where results, plots, logs, and models are saved.
+- **`Prep-tests/`**: Archival directory containing old tests, code drafts, and backups (e.g., Newtonian flows, 2D Heat equations, and previous Viscoelastic PINN experiments).
+- **`scratch/`**: Workspace folder dedicated to quick tests, exploratory scripts, and temporary experiments. Definitive and production code should not reside here.
+- **`COMSOL/`**: Storage folder for COMSOL reference datasets (e.g., `4roll/4_roll_mill.csv`).
 
 ## Setup & Installation
 
@@ -39,21 +34,33 @@ Key libraries: `torch`, `numpy`, `matplotlib`, `tqdm`, `pandas`.
 
 ## Running the Experiments
 
-### Viscoelastic PINN Solver
-Run the main grid search or configuration training:
+### Viscoelastic PINN Solver (4-Roll Mill)
+Run the main script from the `final_roll` folder or set the `PYTHONPATH` environment variable:
 ```powershell
-.\venv\Scripts\python Viscoelastic/Viscoelastic_main.py
+# Option 1: Navigate to final_roll and run the script
+cd final_roll
+..\venv\Scripts\python train_4roll_2.py
+cd ..
+
+# Option 2: Set PYTHONPATH from the root directory
+$env:PYTHONPATH="final_roll;."
+.\venv\Scripts\python final_roll/train_4roll_2.py
 ```
 
 ## Development Conventions
 
-### 1. Precision & Numerical Stability
+### 1. File Placement & Workflow
+- **`final_roll/`**: Only clean, production-ready, or verified modifications to the core PINN script and components must be checked into this directory.
+- **`scratch/`**: All random tests, trial-and-error scripts, temporary plots, and draft implementations must be kept in this directory. 
+- **`Prep-tests/`**: Contains historical, deprecated, or archived tests. Do not work directly in this folder.
+
+### 2. Precision & Numerical Stability
 - **Staged Precision Strategy**: 
     - Fase 1: Fast exploration with **Adam @ FP32** (leverages TF32 on Ampere GPUs).
     - Fase 2: Physical refinement with **L-BFGS @ FP64** for scientific-grade precision.
 - **Default Type**: `torch.set_default_dtype(torch.float64)` is used during L-BFGS and final inference.
 
-### 2. Architecture & Physics Standards
+### 3. Architecture & Physics Standards
 - **Stream-Function Formulation**: The network predicts the stream function $\psi$ instead of velocity components $u$ and $v$ directly, automatically satisfying the incompressibility constraint:
   $$u = \frac{\partial \psi}{\partial y}, \quad v = -\frac{\partial \psi}{\partial x}$$
 - **Separate Network Heads**:
@@ -62,7 +69,7 @@ Run the main grid search or configuration training:
   - `model_tau` predicts extra-stress tensor components $\tau = (\tau_{xx}, \tau_{xy}, \tau_{yy})$ (dimension: 3 outputs).
 - **Constitutive Models**: Supports Oldroyd-B, PTT (Phan-Thien-Tanner), and Giesekus formulations through Weissenberg ($Wi$), Reynolds ($Re$), viscosity ratio ($\beta$), and model parameters ($\epsilon, \alpha$).
 
-### 3. Staged Training Strategy (ViscoelasticNet Framework)
+### 4. Staged Training Strategy (ViscoelasticNet Framework)
 To ensure optimization stability, training is split into distinct stages:
 1. **Phase 1 (Adam)**: Train only $\psi$ (velocity fields) and stress tensor $\tau$, while pressure $p$ is frozen.
 2. **Phase 2 (Adam)**: Train $\psi$ and pressure $p$, keeping stress parameters adjusted or frozen depending on settings.
