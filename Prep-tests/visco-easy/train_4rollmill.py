@@ -106,10 +106,10 @@ GUESS_ALPHA = 0.0
 
 # --- Architettura NN ---
 HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
-ACTIVATION = nn.Tanh
+ACTIVATION = nn.SiLU
 
 # --- Training ---
-ADAM_EPOCHS = 1000*5
+ADAM_EPOCHS = 10000
 LBFGS_MAX_ITERS = int(0.1*ADAM_EPOCHS) # 10% di epoche Adam
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -204,35 +204,14 @@ def load_data():
 
     # Output scales
     p_scale = max(float(np.abs(p_nd).max()), 1.0)
-    tau_scale = max(float(max(np.abs(txx_nd).max(), np.abs(txy_nd).max(), np.abs(tyy_nd).max())), 1.0)
+    tau_scale = 170.0  # Magnitudo di riferimento statica per gli stress viscoelastici nel 4-roll mill
 
     # --- 2d. Varianze per normalizzazione ---
     var_weights = {
         'u': max(u_t.var().item(), VARIANCE_EPS),
         'v': max(v_t.var().item(), VARIANCE_EPS),
         'p': max(p_t.var().item(), VARIANCE_EPS),
-        'tau_xx': max(txx_t.var().item(), VARIANCE_EPS),
-        'tau_xy': max(txy_t.var().item(), VARIANCE_EPS),
-        'tau_yy': max(tyy_t.var().item(), VARIANCE_EPS),
     }
-
-    # --- 2e. Triangolazione per i plot ---
-    x_np = coords[:, 0].cpu().numpy()
-    y_np = coords[:, 1].cpu().numpy()
-    triang = mtri.Triangulation(x_np, y_np)
-    try:
-        triangles = triang.triangles
-        x_tri, y_tri = x_np[triangles], y_np[triangles]
-        l1 = np.hypot(x_tri[:, 0] - x_tri[:, 1], y_tri[:, 0] - y_tri[:, 1])
-        l2 = np.hypot(x_tri[:, 1] - x_tri[:, 2], y_tri[:, 1] - y_tri[:, 2])
-        l3 = np.hypot(x_tri[:, 2] - x_tri[:, 0], y_tri[:, 2] - y_tri[:, 0])
-        max_edge = np.maximum(np.maximum(l1, l2), l3)
-        threshold = 5.0 * np.median(max_edge)
-        mask = max_edge > threshold
-        if mask.sum() > 0:
-            triang.set_mask(mask)
-    except Exception:
-        pass
 
     print(f"  Punti totali: {N}")
     print(f"  H={H:.6e}, U_ref={U_ref:.6e}, p_ref={p_ref:.6e}")
@@ -247,16 +226,29 @@ def load_data():
 
     print("=" * 60)
 
+    true_grad_path = BASE_DIR.parent / 'visco-easy' / 'true_gradients.npz'
+    if not true_grad_path.exists():
+        true_grad_path = BASE_DIR.parent / 'Viscoelastic' / 'true_gradients.npz'
+    true_stretch = None
+    if true_grad_path.exists():
+        try:
+            npz_data = np.load(str(true_grad_path))
+            true_stretch = torch.tensor(npz_data['Stretch_norm'], dtype=torch.float32, device=DEVICE).reshape(-1)
+            print(f"  [INFO] Caricati gradienti cinematici ground-truth da {true_grad_path.name}")
+        except Exception as e:
+            print(f"  [WARNING] Impossibile caricare gradienti: {e}")
+
     return {
         'coords': coords,
         'u': u_t, 'v': v_t, 'p': p_t,
         'tau_xx': txx_t, 'tau_xy': txy_t, 'tau_yy': tyy_t,
         'uv_data': torch.cat([u_t, v_t], dim=1),
+        'tau_data': torch.cat([txx_t, txy_t, tyy_t], dim=1),
         'var_weights': var_weights,
-        'triang': triang,
         'boundary_groups': boundary_groups,
         'U_ref': U_ref, 'H': H,
         'p_scale': p_scale, 'tau_scale': tau_scale,
+        'true_stretch': true_stretch
     }
 
 
@@ -489,17 +481,30 @@ def _extract_boundary_groups(coords, x_raw, y_raw, x_min, y_min, H, fields):
 # ============================================================================
 # 3. MODELLI NN
 # ============================================================================
+class FourierFeatures(nn.Module):
+    def __init__(self, in_dim=2, mapping_size=64, sigma=10.0):
+        super().__init__()
+        B = torch.randn(mapping_size, in_dim) * sigma
+        self.register_buffer("B", B)
+
+    def forward(self, x):
+        x_proj = 2 * np.pi * x @ self.B.T
+        return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
+
 class FCN(nn.Module):
-    """Fully Connected Network."""
+    """Fully Connected Network con RFF."""
     def __init__(self, n_input, n_output, hidden_layers):
         super().__init__()
-        layers_sizes = [n_input] + hidden_layers + [n_output]
+        self.encoder = FourierFeatures(in_dim=n_input, mapping_size=64, sigma=10.0)
+        in_dim = 64 * 2
+        layers_sizes = [in_dim] + hidden_layers + [n_output]
         self.fcs = nn.ModuleList()
         for i in range(len(layers_sizes) - 1):
             self.fcs.append(nn.Linear(layers_sizes[i], layers_sizes[i + 1]))
         self.act = ACTIVATION()
 
     def forward(self, x):
+        x = self.encoder(x)
         for layer in self.fcs[:-1]:
             x = self.act(layer(x))
         return self.fcs[-1](x)
@@ -530,9 +535,9 @@ def initialize_last_layer_zero(model):
 
 
 def init_weights_xavier(m):
-    """Inizializzazione dei pesi Xavier Normal e azzeramento dei bias con gain per Tanh."""
+    """Inizializzazione dei pesi Xavier Normal e azzeramento dei bias."""
     if isinstance(m, nn.Linear):
-        nn.init.xavier_normal_(m.weight, gain=nn.init.calculate_gain('tanh'))
+        nn.init.xavier_normal_(m.weight, gain=1.0)
         if m.bias is not None:
             nn.init.zeros_(m.bias)
 
@@ -669,6 +674,11 @@ class Physics(nn.Module):
             f_txx = f_PTT * tau_xx + Wi * upper_xx + (alpha * Wi / beta_poly) * (tau_xx**2 + tau_xy**2) - 2.0 * beta_poly * u_x
             f_tyy = f_PTT * tau_yy + Wi * upper_yy + (alpha * Wi / beta_poly) * (tau_xy**2 + tau_yy**2) - 2.0 * beta_poly * v_y
             f_txy = f_PTT * tau_xy + Wi * upper_xy + (alpha * Wi / beta_poly) * tau_xy * (tau_xx + tau_yy) - beta_poly * (u_y + v_x)
+            
+            # Applicazione Caso 1: Bilanciamento Loss PDE dividendo il residuo per tau_scale
+            f_txx = f_txx / model.tau_scale
+            f_tyy = f_tyy / model.tau_scale
+            f_txy = f_txy / model.tau_scale
         else:
             f_txx = torch.zeros_like(u)
             f_tyy = torch.zeros_like(u)
@@ -681,14 +691,11 @@ class Physics(nn.Module):
         f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(model, x, w_momentum, w_constitutive)
         loss_m = 0.5 * (f_u**2 + f_v**2).mean()
         
-        if self.var_weights is not None:
-            loss_c = (
-                (f_txx**2 / self.var_weights['tau_xx']) +
-                (f_tyy**2 / self.var_weights['tau_yy']) +
-                (f_txy**2 / self.var_weights['tau_xy'])
-            ).mean() / 3.0
-        else:
-            loss_c = (f_txx**2 + f_tyy**2 + f_txy**2).mean() / 3.0
+        # NON normalizziamo la PDE loss con la varianza del target.
+        # Nello stress (tau_xx), la varianza può essere enorme (es. ~2500), 
+        # il che deprime artificialmente la loss di svariati ordini di grandezza,
+        # causando un collasso a zero della predizione per "minimizzare" facilmente il residuo.
+        loss_c = (f_txx**2 + f_tyy**2 + f_txy**2).mean() / 3.0
             
         return loss_m, loss_c
 
@@ -706,7 +713,9 @@ class Physics(nn.Module):
         u, v, _, _ = self.get_velocity(model, x)
         loss_u = weighted_mse(u, uv_target[:, 0:1], var_w['u'])
         loss_v = weighted_mse(v, uv_target[:, 1:2], var_w['v'])
-        return 0.5 * (loss_u + loss_v)
+        loss_tot = 0.5 * (loss_u + loss_v)
+        
+        return loss_tot
 
     def boundary_loss(self, model, bc_data, var_w, active_bcs=None):
         """
@@ -933,7 +942,35 @@ def plot_fields(model, physics, data, save_path):
         'tau_xy': data['tau_xy'].cpu().view(-1),
         'tau_yy': data['tau_yy'].cpu().view(-1),
     }
-    triang = data['triang']
+    x_np = data['coords'][:, 0].cpu().numpy().astype(np.float64)
+    y_np = data['coords'][:, 1].cpu().numpy().astype(np.float64)
+    triang = mtri.Triangulation(x_np, y_np)
+    try:
+        # Trova centri e raggi dei 4 rulli basandosi sui boundary groups per mascherare solo l'interno dei rulli
+        rollers = []
+        for rname in ['Roll1', 'Roll2', 'Roll3', 'Roll4']:
+            if rname in data['boundary_groups']:
+                rxy = data['boundary_groups'][rname]['xy'].cpu().numpy()
+                rcenter = np.mean(rxy, axis=0)
+                rradius = np.mean(np.hypot(rxy[:, 0] - rcenter[0], rxy[:, 1] - rcenter[1]))
+                # Tolleranza del 98% sul raggio per non mascherare i triangoli proprio sul bordo fisico
+                rollers.append((rcenter, rradius * 0.98))
+        
+        if rollers:
+            triangles = triang.triangles
+            cx = np.mean(x_np[triangles], axis=1)
+            cy = np.mean(y_np[triangles], axis=1)
+            
+            mask = np.zeros(len(triangles), dtype=bool)
+            for rcenter, rradius in rollers:
+                dists = np.hypot(cx - rcenter[0], cy - rcenter[1])
+                mask = mask | (dists < rradius)
+                
+            if mask.sum() > 0:
+                triang.set_mask(mask)
+    except Exception as e:
+        print(f"  [DEBUG MASKING] Errore nel masking geometrico: {e}")
+
     field_names = ['u', 'p', 'tau_xx', 'tau_xy', 'tau_yy']
     cmaps_field = {
         'u': 'inferno',
@@ -980,6 +1017,68 @@ def plot_fields(model, physics, data, save_path):
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"  [PLOT] Campi salvati in {save_path}")
+
+def plot_high_stress_regions(model, physics, data, save_path):
+    """Test 2: Scatter plot of stress in high-stress regions only."""
+    model.eval()
+    _dtype = next(model.parameters()).dtype
+    with torch.set_grad_enabled(True):
+        x_in = data['coords'].to(_dtype).clone().requires_grad_(True)
+        _, _, _, tau_p = physics.get_velocity(model, x_in, create_graph=False)
+
+    tau_true = data['tau_data'].detach().cpu().numpy()
+    tau_pred = tau_p.detach().cpu().numpy()
+    
+    # Calculate magnitude of true stress to find high stress regions
+    mag_true = np.linalg.norm(tau_true, axis=1)
+    max_mag = mag_true.max()
+    # Mask for high stress: > 50% of maximum magnitude
+    mask = mag_true > 0.5 * max_mag
+    
+    if mask.sum() == 0:
+        print("  [PLOT] Nessun punto sopra il 50% dello stress massimo, skip high-stress plot.")
+        return
+
+    x_np = data['coords'][:, 0].cpu().numpy()[mask]
+    y_np = data['coords'][:, 1].cpu().numpy()[mask]
+    
+    t_true_masked = tau_true[mask]
+    t_pred_masked = tau_pred[mask]
+    
+    fig, axs = plt.subplots(3, 3, figsize=(18, 12))
+    field_names = ['tau_xx', 'tau_xy', 'tau_yy']
+    
+    for i, fn in enumerate(field_names):
+        ex = t_true_masked[:, i]
+        pr = t_pred_masked[:, i]
+        
+        # Avoid division by zero for the ratio
+        ratio = np.zeros_like(ex)
+        valid = np.abs(ex) > 1e-5
+        ratio[valid] = pr[valid] / ex[valid]
+        
+        # True
+        sc0 = axs[i, 0].scatter(x_np, y_np, c=ex, cmap='plasma', s=5)
+        axs[i, 0].set_title(f'{fn} True (High Stress)')
+        axs[i, 0].set_aspect('equal')
+        plt.colorbar(sc0, ax=axs[i, 0])
+        
+        # Pred
+        sc1 = axs[i, 1].scatter(x_np, y_np, c=pr, cmap='plasma', s=5)
+        axs[i, 1].set_title(f'{fn} Pred (High Stress)')
+        axs[i, 1].set_aspect('equal')
+        plt.colorbar(sc1, ax=axs[i, 1])
+        
+        # Ratio
+        sc2 = axs[i, 2].scatter(x_np, y_np, c=ratio, cmap='bwr', vmin=-2, vmax=2, s=5)
+        axs[i, 2].set_title(f'{fn} Pred/True Ratio')
+        axs[i, 2].set_aspect('equal')
+        plt.colorbar(sc2, ax=axs[i, 2], label='Ratio')
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"  [PLOT] Plot high-stress salvato in {save_path}")
 
 
 # ============================================================================
@@ -1114,6 +1213,7 @@ def train(model, physics, data):
         for i in range(0, total_points, chunk_size):
             xc = xy_all[i:i + chunk_size]
             yc = uv_all[i:i + chunk_size]
+            tc = data['tau_data'][i:i + chunk_size]
             w_chunk = xc.shape[0] / total_points
             
             # Data loss per questo chunk — backward immediato prima di costruire il grafo PDE
@@ -1183,7 +1283,7 @@ def train(model, physics, data):
                 print(
                     f"  [Epoch {epoch+1:>4d}/{ADAM_EPOCHS}] Detailed Status Report:\n"
                     f"    L2 Errors:         u={l2_errs['u']:.4f} | p={l2_errs['p']:.4f} | "
-                    f"tau_xx={l2_errs['tau_xx']:.4f} | tau_xy={l2_errs['tau_xy']:.4f} | tau_yy={l2_errs['tau_yy']:.4f}\n"
+                    f"tau_xx={l2_errs['tau_xx']:.4f} | tau_xy={l2_errs['tau_xy']:.4f} | tau_yy={l2_errs['tau_yy']:.4f} | Stretch={l2_errs.get('stretch', 0.0):.4f}\n"
                     f"    L2 Masked Stress:  tau_xx_masked={l2_errs['tau_xx_masked']:.4f} | tau_xy_masked={l2_errs['tau_xy_masked']:.4f} | tau_yy_masked={l2_errs['tau_yy_masked']:.4f}\n"
                     f"    Losses:            Data={losses_eval['Data Loss']:.2e} | BC={losses_eval['Boundary Loss']:.2e} (u={losses_eval['BC_u']:.2e}, v={losses_eval['BC_v']:.2e}, p={losses_eval['BC_p']:.2e})\n"
                     f"                       Momentum={losses_eval['Momentum Loss']:.2e} | Constitutive={losses_eval['Constitutive Loss']:.2e}\n"
@@ -1203,13 +1303,13 @@ def train(model, physics, data):
     pbar.close()
 
     # ==================================================================
-    # FASE L-BFGS: Joint Fine-Tuning (FP64)
+    # FASE L-BFGS: Joint Fine-Tuning (FP64) - DISABILITATA TEMPORANEAMENTE
     # ==================================================================
     print(f"\n{'='*60}")
-    print(f"FASE L-BFGS: {int(LBFGS_MAX_ITERS)} iterazioni (FP64)")
+    print(f"FASE L-BFGS: DISABILITATA (Saltata su richiesta)")
     print(f"{'='*60}")
 
-    # Cast a FP64 per precisione scientifica (centralizzato)
+    # Eseguiamo comunque il cast a FP64 per le metriche e i print finali
     convert_to_fp64(model, physics, data)
     
     # Aggiorna i riferimenti locali dopo il cast FP64
@@ -1217,134 +1317,13 @@ def train(model, physics, data):
     uv_all = data['uv_data']
     bc_data = data['boundary_groups']
 
-    # Controllo/Assert sui dtype prima di L-BFGS
-    for p_name, param in model.named_parameters():
-        assert param.dtype == torch.float64, f"[Assert FP64] Parametro {p_name} del modello non è float64: {param.dtype}"
-    for p_name, param in physics.named_parameters():
-        assert param.dtype == torch.float64, f"[Assert FP64] Parametro {p_name} della fisica non è float64: {param.dtype}"
-    for b_name, buf in physics.named_buffers():
-        assert buf.dtype == torch.float64, f"[Assert FP64] Buffer {b_name} della fisica non è float64: {buf.dtype}"
-    assert xy_all.dtype == torch.float64, f"[Assert FP64] Dati xy_all non sono float64: {xy_all.dtype}"
-    assert uv_all.dtype == torch.float64, f"[Assert FP64] Dati uv_all non sono float64: {uv_all.dtype}"
-    for gname, gd in bc_data.items():
-        assert gd['xy'].dtype == torch.float64, f"[Assert FP64] BC {gname} xy non è float64"
-        assert gd['norm'].dtype == torch.float64, f"[Assert FP64] BC {gname} norm non è float64"
-        for fname, fval in gd['fields'].items():
-            assert fval.dtype == torch.float64, f"[Assert FP64] BC {gname} field {fname} non è float64"
-
-    # Report di debug dtypes
-    print(f"\n[DEBUG REPORT PRE-L-BFGS]")
-    print(f"  - Modello: convertito a {next(model.parameters()).dtype}")
-    print(f"  - Fisica:  convertito a {physics.mu_s.dtype}")
-    print(f"  - coords:  {xy_all.dtype} (shape: {xy_all.shape})")
-    print(f"  - uv_data: {uv_all.dtype} (shape: {uv_all.shape})")
-    print(f"  - BC data dtypes:")
-    for gname, gd in bc_data.items():
-        fields_str = ", ".join([f"{k}:{v.dtype}" for k, v in gd['fields'].items()])
-        print(f"    * {gname:<13s} -> xy: {gd['xy'].dtype} | norm: {gd['norm'].dtype} | fields: [{fields_str}]")
-
-    # Tutti i modelli attivi
-    for p in model.parameters():
-        p.requires_grad = True
-        
-    if physics.inverse_mode:
-        physics.mu_s.requires_grad_(True)
-        physics.mu_p.requires_grad_(True)
-        physics.lam.requires_grad_(True)
-        all_params = list(model.parameters()) + [physics.mu_s, physics.mu_p, physics.lam]
-    else:
-        all_params = list(model.parameters())
-
-    optimizer_lbfgs = torch.optim.LBFGS(
-        all_params, lr=1.0, max_iter=int(LBFGS_MAX_ITERS),
-        tolerance_grad=1e-9, tolerance_change=1e-12,
-        history_size=300, line_search_fn="strong_wolfe"
-    )
-
-    # Punti collocazione per la PDE (full batch)
-    xph_full = xy_all.clone().requires_grad_(True)
-    chunk_size = 2000
-    l_it = [0]
-    pbar = tqdm(total=int(LBFGS_MAX_ITERS), desc="L-BFGS", mininterval=2.0)
-
-    def closure():
-        optimizer_lbfgs.zero_grad()
-
-        # Costruzione della loss dati come tensore scalare vivo (backward immediato per risparmiare memoria)
-        loss_data = torch.tensor(0.0, device=DEVICE, dtype=torch.float64)
-        for i in range(0, xy_all.shape[0], chunk_size):
-            xc = xy_all[i:i + chunk_size]
-            yc = uv_all[i:i + chunk_size]
-            dl = physics.data_loss(model, xc, yc, var_w)
-            w = xc.shape[0] / xy_all.shape[0]
-            chunk_loss = W_DATA * dl * w
-            loss_data = loss_data + chunk_loss
-            chunk_loss.backward()
-
-        # Loss BC
-        loss_bc = physics.boundary_loss(model, bc_data, var_w, active_bcs=None)
-        loss_bc_weighted = W_BC * loss_bc
-        loss_bc_weighted.backward()
-
-        # Costruzione della loss PDE come tensore scalare vivo (backward immediato per evitare OOM)
-        loss_pde = torch.tensor(0.0, device=DEVICE, dtype=torch.float64)
-        loss_m_val = 0.0
-        loss_c_val = 0.0
-        
-        for i in range(0, xph_full.shape[0], chunk_size):
-            xc = xph_full[i:i + chunk_size]
-            w = xc.shape[0] / xph_full.shape[0]
-            
-            # Calcola le loss locali
-            loss_m, loss_c = physics.compute_pde_losses(model, xc)
-            loss_m_val += loss_m.item() * w
-            loss_c_val += loss_c.item() * w
-            
-            chunk_loss = W_PHYSICS * (W_MOMENTUM * loss_m + W_CONSTITUTIVE * loss_c) * w
-            loss_pde = loss_pde + chunk_loss
-            chunk_loss.backward()
-
-        # Loss totale come tensore vivo connesso al grafo
-        total_loss = loss_data + loss_bc_weighted + loss_pde
-        total_val = total_loss.item()
-
-        if l_it[0] % 10 == 0 or l_it[0] == int(LBFGS_MAX_ITERS) - 1:
-            params = physics.log_params()
-            with torch.no_grad():
-                l2_errs = compute_l2_errors(model, physics, data)
-
-            history.update(ADAM_EPOCHS + l_it[0], {
-                'total': total_val,
-                'data': (loss_data / W_DATA).item(),
-                'bc': loss_bc.item(),
-                'pde': (loss_pde / W_PHYSICS).item(),
-                'loss_momentum': loss_m_val,
-                'loss_constitutive': loss_c_val,
-                'param_mu_s': params['mu_s'],
-                'param_mu_p': params['mu_p'],
-                'param_lam': params['lam'],
-                'param_eps': params['eps'],
-                'param_alpha': params['alpha'],
-                'l2_u': l2_errs['u'],
-                'l2_p': l2_errs['p'],
-                'l2_tau_xx': l2_errs['tau_xx'],
-                'l2_tau_xy': l2_errs['tau_xy'],
-                'l2_tau_yy': l2_errs['tau_yy'],
-                'l2_tau_xx_masked': l2_errs['tau_xx_masked'],
-                'l2_tau_xy_masked': l2_errs['tau_xy_masked'],
-                'l2_tau_yy_masked': l2_errs['tau_yy_masked'],
-            })
-
-        l_it[0] += 1
-        pbar.update(1)
-        pbar.set_postfix({'Loss': f'{total_val:.2e}'})
-
-        return total_loss
-
-    optimizer_lbfgs.step(closure)
-    if physics.inverse_mode:
-        physics.clamp_params()
-    pbar.close()
+    # L-BFGS disabilitato
+    # optimizer_lbfgs = torch.optim.LBFGS(
+    #     all_params, lr=1.0, max_iter=int(LBFGS_MAX_ITERS),
+    #     tolerance_grad=1e-9, tolerance_change=1e-12,
+    #     history_size=300, line_search_fn="strong_wolfe"
+    # )
+    # ... L-BFGS closure skipped ...
 
     return history
 
@@ -1461,6 +1440,18 @@ def compute_l2_errors(model, physics, data):
     exacts = {'u': data['u'], 'p': data['p'], 'tau_xx': data['tau_xx'], 'tau_xy': data['tau_xy'], 'tau_yy': data['tau_yy']}
 
     errors = {}
+    if data.get('true_stretch') is not None:
+        try:
+            grad_u = torch.autograd.grad(u_p, xi, grad_outputs=torch.ones_like(u_p), create_graph=False, retain_graph=True)[0]
+            grad_v = torch.autograd.grad(v_p, xi, grad_outputs=torch.ones_like(v_p), create_graph=False, retain_graph=False)[0]
+            D_xx, D_xy = grad_u[:, 0], 0.5 * (grad_u[:, 1] + grad_v[:, 0])
+            D_yy = grad_v[:, 1]
+            pred_stretch = torch.sqrt(D_xx**2 + 2*D_xy**2 + D_yy**2).view(-1)
+            t_str = data['true_stretch'].to(_dtype).view(-1)
+            norm_str = torch.norm(t_str, 2)
+            errors['stretch'] = (torch.norm(pred_stretch - t_str, 2) / norm_str).item() if norm_str > 1e-10 else 0.0
+        except Exception:
+            pass
     for fn in preds:
         pr = preds[fn].detach().view(-1)
         ex = exacts[fn].to(pr.dtype).view(-1)
@@ -1566,12 +1557,128 @@ if __name__ == '__main__':
     print(f"\nL2 Relative Errors:")
     for fn, err in errors.items():
         print(f"  {fn:>8s}: {err:.6f}")
+        
+    print(f"\nMean Absolute Values (Pred vs True):")
+    model.eval()
+    _dtype = next(model.parameters()).dtype
+    with torch.set_grad_enabled(True):
+        xi_mean = data['coords'].to(_dtype).clone().requires_grad_(True)
+        _, _, _, tau_p = physics.get_velocity(model, xi_mean, create_graph=False)
+        tau_p = tau_p.detach()
+        for i, fn in enumerate(['tau_xx', 'tau_xy', 'tau_yy']):
+            print(f"  {fn:>8s} pred: {tau_p[:, i].abs().mean().item():.6f} | true: {data[fn].abs().mean().item():.6f}")
 
     # 5. Plot
     history.plot_losses(str(OUTPUT_DIR / 'loss_history.png'))
     history.plot_params(str(OUTPUT_DIR / 'params_evolution.png'))
     history.plot_l2_errors(str(OUTPUT_DIR / 'l2_errors_history.png'))
     plot_fields(model, physics, data, str(OUTPUT_DIR / 'fields_comparison.png'))
+    plot_high_stress_regions(model, physics, data, str(OUTPUT_DIR / 'high_stress_regions.png'))
+
+    # 6. Test 10 punti casuali per lo stress in unità fisiche
+    print(f"\n{'='*60}")
+    print("TEST 10 PUNTI CASUALI (Stress tau_xx in unità adimensionali/fisiche)")
+    print(f"{'='*60}")
+    model.eval()
+    _dtype = next(model.parameters()).dtype
+    with torch.set_grad_enabled(True):
+        idx_rand = torch.randperm(data['coords'].shape[0])[:10]
+        xi = data['coords'][idx_rand].to(_dtype).clone().requires_grad_(True)
+        _, _, _, tau_p = physics.get_velocity(model, xi, create_graph=False)
+        
+        tau_xx_pred = tau_p[:, 0].detach().cpu().numpy()
+        tau_xx_true = data['tau_xx'][idx_rand].view(-1).cpu().numpy()
+        
+        for i in range(10):
+            print(f"Point {i+1:2d}:")
+            print(f"  COMSOL = {tau_xx_true[i]:.4f}")
+            print(f"  PINN   = {tau_xx_pred[i]:.4f}")
+
+    # 7. Debug Terminologia Costitutiva e Momentum
+    print(f"\n{'='*60}")
+    print("TEST MAGNITUDO TERMINI COSTITUTIVA E MOMENTUM (Su 2000 punti)")
+    print(f"{'='*60}")
+    with torch.set_grad_enabled(True):
+        idx_diag = torch.randperm(data['coords'].shape[0])[:2000]
+        x = data['coords'][idx_diag].to(_dtype).clone().requires_grad_(True)
+        psi = model.model_psi(x)
+        p = model.model_p(x) * model.p_scale
+        tau = model.model_tau(x) * model.tau_scale
+        tau_xx, tau_xy, tau_yy = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
+
+        grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=True)[0]
+        u, v = grad_psi[:, 1:2], -grad_psi[:, 0:1]
+
+        grad_u = torch.autograd.grad(u.sum(), x, create_graph=True)[0]
+        u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
+        
+        grad_v = torch.autograd.grad(v.sum(), x, create_graph=True)[0]
+        v_x, v_y = grad_v[:, 0:1], -u_x
+        
+        grad_p = torch.autograd.grad(p.sum(), x, create_graph=True)[0]
+        p_x, p_y = grad_p[:, 0:1], grad_p[:, 1:2]
+        
+        grad_u_x = torch.autograd.grad(u_x.sum(), x, create_graph=True)[0]
+        u_xx = grad_u_x[:, 0:1]
+        grad_u_y = torch.autograd.grad(u_y.sum(), x, create_graph=True)[0]
+        u_yy = grad_u_y[:, 1:2]
+        
+        grad_v_x = torch.autograd.grad(v_x.sum(), x, create_graph=True)[0]
+        v_xx = grad_v_x[:, 0:1]
+        v_yy = -grad_u_y[:, 0:1]
+
+        g_txx = torch.autograd.grad(tau_xx.sum(), x, create_graph=True, retain_graph=True)[0]
+        tau_xx_x, tau_xx_y = g_txx[:, 0:1], g_txx[:, 1:2]
+
+        g_txy = torch.autograd.grad(tau_xy.sum(), x, create_graph=True, retain_graph=True)[0]
+        tau_xy_x, tau_xy_y = g_txy[:, 0:1], g_txy[:, 1:2]
+
+        g_tyy = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0]
+        tau_yy_x, tau_yy_y = g_tyy[:, 0:1], g_tyy[:, 1:2]
+
+        upper_xx = u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy
+        upper_yy = u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy
+        upper_xy = u * tau_xy_x + v * tau_xy_y - u_x * tau_xy - u_y * tau_yy - tau_xx * v_x - tau_xy * v_y
+        
+        Re, Wi, beta, beta_poly, eps, alpha = physics._nondim()
+        
+        source_xx = -2.0 * beta_poly * u_x
+        source_yy = -2.0 * beta_poly * v_y
+        source_xy = -beta_poly * (u_y + v_x)
+
+        print("--- COSTITUTIVA ---")
+        print(f'  tau_xx term abs mean: {tau_xx.abs().mean().item():.6f}')
+        print(f'  Wi*upper_xx abs mean: {(Wi * upper_xx).abs().mean().item():.6f}')
+        print(f'  source_xx abs mean:   {source_xx.abs().mean().item():.6f}')
+        print('-'*60)
+        print(f'  tau_yy term abs mean: {tau_yy.abs().mean().item():.6f}')
+        print(f'  Wi*upper_yy abs mean: {(Wi * upper_yy).abs().mean().item():.6f}')
+        print(f'  source_yy abs mean:   {source_yy.abs().mean().item():.6f}')
+        print('-'*60)
+        print(f'  tau_xy term abs mean: {tau_xy.abs().mean().item():.6f}')
+        print(f'  Wi*upper_xy abs mean: {(Wi * upper_xy).abs().mean().item():.6f}')
+        print(f'  source_xy abs mean:   {source_xy.abs().mean().item():.6f}')
+        
+        div_tau_x = tau_xx_x + tau_xy_y
+        div_tau_y = tau_xy_x + tau_yy_y
+        pressure_x = p_x
+        pressure_y = p_y
+        viscous_x = beta * (u_xx + u_yy)
+        viscous_y = beta * (v_xx + v_yy)
+        advection_x = Re * (u * u_x + v * u_y)
+        advection_y = Re * (u * v_x + v * v_y)
+        
+        print("\n--- MOMENTUM X ---")
+        print(f"  div_tau_x abs mean:    {div_tau_x.abs().mean().item():.6f}")
+        print(f"  pressure_x abs mean:   {pressure_x.abs().mean().item():.6f}")
+        print(f"  viscous_x abs mean:    {viscous_x.abs().mean().item():.6f}")
+        print(f"  advection_x abs mean:  {advection_x.abs().mean().item():.6f}")
+        print("\n--- MOMENTUM Y ---")
+        print(f"  div_tau_y abs mean:    {div_tau_y.abs().mean().item():.6f}")
+        print(f"  pressure_y abs mean:   {pressure_y.abs().mean().item():.6f}")
+        print(f"  viscous_y abs mean:    {viscous_y.abs().mean().item():.6f}")
+        print(f"  advection_y abs mean:  {advection_y.abs().mean().item():.6f}")
+        print('='*60)
 
     print(f"\nPlot salvati in: {OUTPUT_DIR}")
     print("Done!")

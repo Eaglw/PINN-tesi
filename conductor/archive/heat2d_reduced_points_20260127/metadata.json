@@ -1,8 +1,0 @@
-{
-  "track_id": "heat2d_reduced_points_20260127",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-01-27T22:17:00Z",
-  "updated_at": "2026-01-27T22:17:00Z",
-  "description": "Espandere la Grid Search nel caso 2D heat diretto con numero ridotto di punti (~500) e aggiornamento logging."
-}

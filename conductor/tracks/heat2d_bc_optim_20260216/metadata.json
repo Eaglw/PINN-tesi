@@ -1,8 +1,0 @@
-{
-  "track_id": "heat2d_bc_optim_20260216",
-  "type": "refactor",
-  "status": "new",
-  "created_at": "2026-02-16T17:57:00Z",
-  "updated_at": "2026-02-16T17:57:00Z",
-  "description": "Optimize Heat2D Boundary Conditions by reducing point density, adding a safety margin from corners, and using exact physical targets (0/1) instead of the truncated analytical solution."
-}

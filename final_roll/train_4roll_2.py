@@ -80,7 +80,7 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS = 10
+ADAM_EPOCHS = 20000
 LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)  # 10% di epoche Adam
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -179,13 +179,13 @@ if __name__ == "__main__":
         print(f"  {fn:>8s}: {err:.6f}")
 
     # 5. Generazione Plot
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     history.plot_losses(str(OUTPUT_DIR / "loss_history.png"))
     history.plot_params(str(OUTPUT_DIR / "params_evolution.png"))
     history.plot_l2_errors(str(OUTPUT_DIR / "l2_errors_history.png"))
-    plot_fields(model, physics, data, str(OUTPUT_DIR / "fields_comparison.png"))
-    plot_high_stress_regions(
-        model, physics, data, str(OUTPUT_DIR / "high_stress_regions.png")
-    )
+    
+    from src.utils import generate_all_diagnostics
+    generate_all_diagnostics(model, physics, data, str(OUTPUT_DIR))
 
     # 6. Test di Validazione Fisica
     test_random_points(model, physics, data, num_points=10)

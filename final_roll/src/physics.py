@@ -390,24 +390,52 @@ def evaluate_final_losses(model, physics, data, chunk_size=2000):
     }
 
 
-def compute_l2_errors(model, physics, data):
-    """Calcola L2 relative errors per tutti i campi in modo vettorializzato e pulito."""
+def compute_l2_errors(model, physics, data, chunk_size=7000):
+    """Calcola L2 relative errors per tutti i campi in modo vettorializzato e pulito, processando in chunk."""
     model.eval()
     _dtype = next(model.parameters()).dtype
     errors = {}
 
-    # Chiamata al modello con calcolo del grafo (necessario qualora ci sia il calcolo dello stretch)
-    with torch.set_grad_enabled(True):
-        xi = data["coords"].to(_dtype).clone().requires_grad_(True)
-        u_p, v_p, p_p, tau_p = physics.get_velocity(model, xi, create_graph=False)
+    xi_all = data["coords"].to(_dtype)
+    total_points = xi_all.shape[0]
 
+    u_list, v_list, p_list, tau_p_list = [], [], [], []
+    compute_stretch = data.get("true_stretch") is not None
+    pred_stretch_list = [] if compute_stretch else None
+
+    # Esecuzione a chunk per evitare OOM (Out Of Memory) su 125k punti
+    with torch.set_grad_enabled(True):
+        for i in range(0, total_points, chunk_size):
+            xi = xi_all[i : i + chunk_size].clone().requires_grad_(True)
+            u_p, v_p, p_p, tau_p = physics.get_velocity(model, xi, create_graph=compute_stretch)
+
+            u_list.append(u_p.detach())
+            v_list.append(v_p.detach())
+            p_list.append(p_p.detach())
+            tau_p_list.append(tau_p.detach())
+
+            if compute_stretch:
+                grad_u = torch.autograd.grad(
+                    u_p.sum(), xi, create_graph=False, retain_graph=True
+                )[0]
+                grad_v = torch.autograd.grad(v_p.sum(), xi, create_graph=False)[0]
+
+                D_xx = grad_u[:, 0]
+                D_xy = 0.5 * (grad_u[:, 1] + grad_v[:, 0])
+                D_yy = grad_v[:, 1]
+
+                pred_str_chunk = torch.sqrt(D_xx**2 + 2 * D_xy**2 + D_yy**2)
+                pred_stretch_list.append(pred_str_chunk.detach())
+
+    tau_p_full = torch.cat(tau_p_list, dim=0)
     preds = {
-        "u": u_p,
-        "p": p_p,
-        "tau_xx": tau_p[:, 0:1],
-        "tau_xy": tau_p[:, 1:2],
-        "tau_yy": tau_p[:, 2:3],
+        "u": torch.cat(u_list, dim=0),
+        "p": torch.cat(p_list, dim=0),
+        "tau_xx": tau_p_full[:, 0:1],
+        "tau_xy": tau_p_full[:, 1:2],
+        "tau_yy": tau_p_full[:, 2:3],
     }
+    
     # Preleviamo le variabili esatte direttamente castate
     exacts = {k: data[k].to(_dtype) for k in preds.keys()}
 
@@ -441,29 +469,15 @@ def compute_l2_errors(model, physics, data):
         errors[f"{key}_masked"] = _compute_rel_l2(preds[key], exacts[key], mask=mask)
 
     # 3. Calcolo Stretch (Se presente nei dati)
-    # Rimosso il try...except generico. Meglio che il codice crashi in modo rumoroso
-    # se manca una shape o un gradiente, piuttosto che restituire dati falsi.
-    if data.get("true_stretch") is not None:
-        with torch.set_grad_enabled(True):
-            # Assumendo che u_p e v_p abbiano mantenuto il grafo.
-            # Ricalcoliamo i gradienti per la deformazione
-            grad_u = torch.autograd.grad(
-                u_p.sum(), xi, create_graph=False, retain_graph=True
-            )[0]
-            grad_v = torch.autograd.grad(v_p.sum(), xi, create_graph=False)[0]
+    if compute_stretch:
+        pred_stretch = torch.cat(pred_stretch_list, dim=0).view(-1)
+        true_stretch = data["true_stretch"].to(_dtype).view(-1)
 
-            D_xx = grad_u[:, 0]
-            D_xy = 0.5 * (grad_u[:, 1] + grad_v[:, 0])
-            D_yy = grad_v[:, 1]
-
-            pred_stretch = torch.sqrt(D_xx**2 + 2 * D_xy**2 + D_yy**2).view(-1)
-            true_stretch = data["true_stretch"].to(_dtype).view(-1)
-
-            norm_str = torch.norm(true_stretch, 2)
-            errors["stretch"] = (
-                (torch.norm(pred_stretch - true_stretch, 2) / norm_str).item()
-                if norm_str > 1e-10
-                else 0.0
-            )
+        norm_str = torch.norm(true_stretch, 2)
+        errors["stretch"] = (
+            (torch.norm(pred_stretch - true_stretch, 2) / norm_str).item()
+            if norm_str > 1e-10
+            else 0.0
+        )
 
     return errors

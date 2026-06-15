@@ -1,8 +1,0 @@
-{
-  "track_id": "heat2d_audit_20260122",
-  "type": "bug",
-  "status": "new",
-  "created_at": "2026-01-22T03:49:00Z",
-  "updated_at": "2026-01-22T03:49:00Z",
-  "description": "Check sulla correttezza delle equazioni implementate nel caso Heat2D PINN (soluzione analitica, BC e loss)."
-}

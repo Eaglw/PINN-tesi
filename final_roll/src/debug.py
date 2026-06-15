@@ -1,3 +1,5 @@
+import torch
+
 def test_random_points(model, physics, data, num_points=10):
     """Confronta le predizioni di tau_xx con la ground truth su punti casuali."""
     print(f"\n{'=' * 60}\nTEST {num_points} PUNTI CASUALI (Stress tau_xx)\n{'=' * 60}")

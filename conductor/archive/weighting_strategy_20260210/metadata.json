@@ -1,8 +1,0 @@
-{
-  "track_id": "weighting_strategy_20260210",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-02-10T16:20:00Z",
-  "updated_at": "2026-02-10T16:20:00Z",
-  "description": "Implement simple but effective dynamic weighting (LR Annealing) and static weighting (BC=1, PHYS=10, DATA=100) strategies in Heat2D_weighted_main.py"
-}

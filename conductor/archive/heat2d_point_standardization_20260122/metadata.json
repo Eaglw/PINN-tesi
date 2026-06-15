@@ -1,8 +1,0 @@
-{
-  "track_id": "heat2d_point_standardization_20260122",
-  "type": "chore",
-  "status": "new",
-  "created_at": "2026-01-22T22:11:00Z",
-  "updated_at": "2026-01-22T22:11:00Z",
-  "description": "Standardize the number and distribution of training points across all Heat2D cases (Random, Grid, PINN)."
-}

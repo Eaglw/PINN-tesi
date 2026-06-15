@@ -1,8 +1,0 @@
-{
-  "track_id": "heat2d_pure_physics_20260120",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-01-20T11:41:00Z",
-  "updated_at": "2026-01-20T11:41:00Z",
-  "description": "Voglio fare un ulteriore training avendo solo la fisica senza dati sperimentali, quindi una PINN che usi solo fisica e BC ovviamente."
-}

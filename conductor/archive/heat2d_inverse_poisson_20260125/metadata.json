@@ -1,8 +1,0 @@
-{
-  "track_id": "heat2d_inverse_poisson_20260125",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-01-25T15:30:00Z",
-  "updated_at": "2026-01-25T15:30:00Z",
-  "description": "Inverse problem solver for Heat2D (Poisson) estimating conductivity k with same geometry as direct case."
-}

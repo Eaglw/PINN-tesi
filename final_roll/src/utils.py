@@ -329,29 +329,42 @@ import numpy as np
 import torch
 
 
-def generate_all_diagnostics(model, physics, data, save_dir):
+def generate_all_diagnostics(model, physics, data, save_dir, chunk_size=7000):
     """
     Esegue l'inferenza spaziale UNA SOLA VOLTA e smista i dati ai plotter specializzati.
     Pattern 'Data Provider' per abbattere l'overhead sulla GPU.
+    Processato in chunk per evitare picchi di VRAM e OOM.
     """
     model.eval()
     _dtype = next(model.parameters()).dtype
 
     print("\n  [DIAGNOSTICA] Esecuzione inferenza e generazione grafici in corso...")
 
-    # 1. Inferenza Unica (Niente calcolo gradienti PDE)
-    with torch.no_grad():
-        x_in = data["coords"].to(_dtype)
-        u_p, v_p, p_p, tau_p = physics.get_velocity(model, x_in, create_graph=False)
+    x_in_all = data["coords"].to(_dtype)
+    total_points = x_in_all.shape[0]
 
-        # Pacchetto predizioni disaccoppiato dal modello
-        predictions = {
-            "u": u_p,
-            "p": p_p,
-            "tau_xx": tau_p[:, 0],
-            "tau_xy": tau_p[:, 1],
-            "tau_yy": tau_p[:, 2],
-        }
+    u_list, p_list, tau_p_list = [], [], []
+
+    # 1. Inferenza Unica (A chunk)
+    with torch.set_grad_enabled(True):
+        for i in range(0, total_points, chunk_size):
+            x_in = x_in_all[i : i + chunk_size].clone().requires_grad_(True)
+            u_p, v_p, p_p, tau_p = physics.get_velocity(model, x_in, create_graph=False)
+            
+            u_list.append(u_p.detach())
+            p_list.append(p_p.detach())
+            tau_p_list.append(tau_p.detach())
+
+    tau_p_full = torch.cat(tau_p_list, dim=0)
+
+    # Pacchetto predizioni disaccoppiato dal modello
+    predictions = {
+        "u": torch.cat(u_list, dim=0),
+        "p": torch.cat(p_list, dim=0),
+        "tau_xx": tau_p_full[:, 0],
+        "tau_xy": tau_p_full[:, 1],
+        "tau_yy": tau_p_full[:, 2],
+    }
 
     # 2. Distribuzione dei dati ai plotter
     plot_fields(predictions, data, save_path=f"{save_dir}/global_fields.png")
