@@ -6,13 +6,14 @@ from src.utils import weighted_mse
 class Physics(nn.Module):
     """PDE adimensionali + boundary conditions. Supporta modalità diretta o inversa."""
 
-    def __init__(self, U_ref, H_ref, var_weights=None, inverse_mode=True, tau_scale=1.0):
+    def __init__(self, U_ref, H_ref, var_weights=None, inverse_mode=True, tau_scale=1.0, p_scale=50.0):
         super().__init__()
         self.U_ref = U_ref
         self.H_ref = H_ref
         self.var_weights = var_weights
         self.inverse_mode = inverse_mode
         self.tau_scale = tau_scale
+        self.p_scale = p_scale
 
         # Registrazione dinamica dei parametri fisici
         params_setup = {
@@ -127,6 +128,10 @@ class Physics(nn.Module):
                 - beta * (v_xx + v_yy)
                 - (tau_xy_x + tau_yy_y)
             )
+
+            # Bilanciamento Loss Momentum
+            f_u = f_u / self.p_scale
+            f_v = f_v / self.p_scale
         else:
             f_u = f_v = torch.zeros_like(u)
 

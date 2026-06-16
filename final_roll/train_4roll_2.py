@@ -168,6 +168,7 @@ if __name__ == "__main__":
         var_weights=data["var_weights"],
         inverse_mode=INVERSE_PROBLEM,
         tau_scale=data["tau_scale"],
+        p_scale=data["p_scale"],
     ).to(DEVICE)
 
     # Recap Configurazione
