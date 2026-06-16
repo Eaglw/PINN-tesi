@@ -4,6 +4,11 @@ import numpy as np
 import torch
 from scipy.spatial import cKDTree
 
+import matplotlib.pyplot as plt
+import matplotlib.tri as mtri
+import numpy as np
+import torch
+
 
 def convert_to_fp64(model, physics, data):
     """
@@ -312,21 +317,31 @@ def _extract_boundary_groups(
         print(
             "\n  [WARNING] Nessun gruppo riconducibile a 'PressurePoint' trovato nei boundary groups."
         )
-        print(
-            "  [WARNING] Ricorda di applicare un ancoraggio per la pressione (Dirichlet) o un profilo"
-        )
-        print(
-            "  [WARNING] definito nel calcolo della loss per evitare che il problema Navier-Stokes"
-        )
-        print("  [WARNING] risulti mal posto (pressione fluttuante).")
+        if boundary_groups:
+            # Preleviamo il primo gruppo disponibile (es. 'Walls')
+            first_group_name = list(boundary_groups.keys())[0]
+            first_group = boundary_groups[first_group_name]
+            
+            # Creiamo il PressurePoint prendendo il primo nodo di questo gruppo
+            boundary_groups["PressurePoint"] = {
+                "indices": first_group["indices"][0:1],
+                "xy": first_group["xy"][0:1],
+                "norm": first_group["norm"][0:1],
+                "fields": {k: v[0:1] for k, v in first_group["fields"].items()},
+            }
+            print(f"  [INFO] Creato 'PressurePoint' automatico usando 1 nodo da '{first_group_name}' per ancorare la pressione.")
+        else:
+            print(
+                "  [WARNING] Ricorda di applicare un ancoraggio per la pressione (Dirichlet) o un profilo"
+            )
+            print(
+                "  [WARNING] definito nel calcolo della loss per evitare che il problema Navier-Stokes"
+            )
+            print("  [WARNING] risulti mal posto (pressione fluttuante).")
 
     return boundary_groups
 
 
-import matplotlib.pyplot as plt
-import matplotlib.tri as mtri
-import numpy as np
-import torch
 
 
 def generate_all_diagnostics(model, physics, data, save_dir, chunk_size=7000):

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from src.utils import convert_to_fp64, get_optimal_chunk_size
+from src.utils import convert_to_fp64
 from src.physics import compute_l2_errors
 
 class SimpleHistory:
@@ -203,7 +203,7 @@ def train(model, physics, data):
     # USE_LBFGS = True
     # CHUNK_SIZE_ADAM = 5000
     # CHUNK_SIZE_LBFGS = 1000  # <- Più basso di Adam a causa della Line Search e della History
-    half_epochs = int(ADAM_EPOCHS * 0.5)
+    half_epochs = int(ADAM_EPOCHS * 0.6)
     #half_epochs = 10
     def configure_staged_phase(epoch):
         """Modifica i flag requires_grad dei sottomodelli. Chiamata SOLO ai cambi di fase."""
@@ -354,9 +354,9 @@ def train(model, physics, data):
             print(
                 f"\n{'=' * 60}\nFASE 2 ADAM (Dinamica): {ADAM_EPOCHS - half_epochs} epoche\n{'=' * 60}"
             )
-            # Ricalcolo chunk size per la fase 2
+            # Aggiornamento chunk size per la fase 2 usando il valore pre-calcolato
             global CHUNK_SIZE_ADAM
-            CHUNK_SIZE_ADAM = get_optimal_chunk_size(phase=2)
+            CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE2
 
             active_bcs, w_mom, w_con = configure_staged_phase(
                 epoch

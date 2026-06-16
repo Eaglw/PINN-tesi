@@ -58,18 +58,21 @@ torch.cuda.manual_seed_all(SEED)
 
 DEVICE = torch.device("cuda")
 
-optim_chunk = get_optimal_chunk_size(phase=1)
-
 # ============================================================================
 # 2. COSTANTI E CONFIGURAZIONI GLOBALI
 # ============================================================================
+
+# Calcolo dei chunk ottimali all'avvio per ridurre i log durante il training
+CHUNK_SIZE_ADAM_PHASE1 = get_optimal_chunk_size(phase=1)
+CHUNK_SIZE_ADAM_PHASE2 = get_optimal_chunk_size(phase=2)
+CHUNK_SIZE_LBFGS_PHASE3 = get_optimal_chunk_size(phase=3)
 
 # --- Opzioni di Controllo ---
 STAGED_TRAINING = True  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
 INVERSE_PROBLEM = False  # True: semi-inverso, False: diretto
 USE_LBFGS = True  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
-CHUNK_SIZE_ADAM = optim_chunk  # Aumenta per velocità, diminuisci se satura la VRAM
-CHUNK_SIZE_LBFGS = get_optimal_chunk_size(phase=3)  # Dimensione chunk per L-BFGS (solitamente inferiore ad Adam)
+CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE1  # Aumenta per velocità, diminuisci se satura la VRAM
+CHUNK_SIZE_LBFGS = CHUNK_SIZE_LBFGS_PHASE3  # Dimensione chunk per L-BFGS (solitamente inferiore ad Adam)
 
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
@@ -100,7 +103,7 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS = 100
+ADAM_EPOCHS = 1000*20
 LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)  # 10% di epoche Adam
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
