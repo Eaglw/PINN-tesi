@@ -232,17 +232,28 @@ def train(model, physics, data):
             return ["u", "v", "p"], W_MOMENTUM, 0.0
 
     def build_optimizer(steps_remaining):
-        """Costruisce Adam e lo Scheduler, gestendo l'inclusione dei parametri fisici."""
-        net_params = [p for p in model.parameters() if p.requires_grad]
+        """Costruisce Adam e lo Scheduler, gestendo l'inclusione dei parametri fisici e LR differenziati in Fase 2."""
+        
+        # Rilevamento dinamico Fase 2: se la pressione è sbloccata, siamo in Fase 2
+        is_phase2 = any(p.requires_grad for p in model.model_p.parameters())
+        
+        if is_phase2:
+            psi_params = [p for p in model.model_psi.parameters() if p.requires_grad]
+            other_net_params = [p for p in model.model_p.parameters() if p.requires_grad] + \
+                               [p for p in model.model_tau.parameters() if p.requires_grad]
+            
+            groups = [
+                {"params": psi_params, "lr": 1e-5},
+                {"params": other_net_params, "lr": BASE_LR}
+            ]
+        else:
+            net_params = [p for p in model.parameters() if p.requires_grad]
+            groups = [{"params": net_params, "lr": BASE_LR}]
 
         if physics.inverse_mode:
             phys_params = [p for p in physics.parameters() if p.requires_grad]
-            groups = [
-                {"params": net_params, "lr": BASE_LR},
-                {"params": phys_params, "lr": BASE_LR * PARAM_LR_FACTOR},
-            ]
-        else:
-            groups = [{"params": net_params, "lr": BASE_LR}]
+            if phys_params:
+                groups.append({"params": phys_params, "lr": BASE_LR * PARAM_LR_FACTOR})
 
         opt = torch.optim.Adam(groups, eps=ADAM_EPS)
         sch = torch.optim.lr_scheduler.CosineAnnealingLR(
