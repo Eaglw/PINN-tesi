@@ -70,7 +70,7 @@ CHUNK_SIZE_LBFGS_PHASE3 = get_optimal_chunk_size(phase=3)
 # --- Opzioni di Controllo ---
 STAGED_TRAINING = True  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
 INVERSE_PROBLEM = False  # True: semi-inverso, False: diretto
-USE_LBFGS = True  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
+USE_LBFGS = False  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
 CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE1  # Aumenta per velocità, diminuisci se satura la VRAM
 CHUNK_SIZE_LBFGS = CHUNK_SIZE_LBFGS_PHASE3  # Dimensione chunk per L-BFGS (solitamente inferiore ad Adam)
 
@@ -103,7 +103,7 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS = 1000*20
+ADAM_EPOCHS = 1000*40
 LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)  # 10% di epoche Adam
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
