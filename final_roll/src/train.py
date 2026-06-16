@@ -198,11 +198,6 @@ def train(model, physics, data):
     bc_data = data["boundary_groups"]
     total_points = xy_all.shape[0]
 
-    # --- CONFIGURAZIONI DINAMICHE ---
-    # NOTA: Queste dovrebbero idealmente provenire da un file config globale
-    # USE_LBFGS = True
-    # CHUNK_SIZE_ADAM = 5000
-    # CHUNK_SIZE_LBFGS = 1000  # <- Più basso di Adam a causa della Line Search e della History
     half_epochs = int(ADAM_EPOCHS * 0.6)
     #half_epochs = 10
     def configure_staged_phase(epoch):
@@ -226,7 +221,7 @@ def train(model, physics, data):
             for p in model.parameters():
                 p.requires_grad = False
             for p in model.model_psi.parameters():
-                p.requires_grad = True
+                p.requires_grad = False
             for p in model.model_p.parameters():
                 p.requires_grad = True
             return ["u", "v", "p"], W_MOMENTUM, 0.0
