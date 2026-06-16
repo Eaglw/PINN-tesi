@@ -325,3 +325,9 @@
 - Aggiornata la pagina Topic [[Nondimensionalization]] con l'analisi dimensionale dettagliata e il riscalamento viscoso (Viscous Scaling) delle equazioni di Navier-Stokes e del modello costitutivo PTT-Giesekus.
 - Aggiornata la pagina Method [[VRAM_Optimization]] inserendo l'ottimizzazione basata sul Teorema di Schwarz per il calcolo di $v_{yy} = -u_{yx}$, riducendo il branching del grafo di autograd per le derivate di terzo ordine.
 - Aggiornata la pagina Method [[ViscoelasticNet_Full model]] per referenziare l'analisi dimensionale e descrivere l'ottimizzazione del calcolo delle derivate.
+
+## [2026-06-16] update_wiki | Inserimento Cosine Annealing LR
+- Creata la pagina di metodo [[Cosine_Annealing_LR]] per documentare l'apprendimento non lineare cosinusoidale del learning rate.
+- Documentate la formula chiusa da paper SGDR e la formula ricorsiva ottimizzata in PyTorch, evidenziando il comportamento senza restart.
+- Aggiornato l'indice generale [[00_Index]].
+

@@ -52,6 +52,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[FCN]]: Fully Connected Network
 - [[Tapered_Architectures]]: Funnel-style networks
 - [[Dynamic_Weighting]]: Learning rate annealing for loss balance
+- [[Cosine_Annealing_LR]]: Cosine annealing learning rate scheduling
 - [[Staged_Precision_Strategy]]: Hybrid FP32/FP64 training
 - [[Staged_Training_Procedure]]: Decoupled multi-phase training strategy
 - [[DeepXDE]]: Multi-backend PIML library
