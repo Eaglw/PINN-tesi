@@ -87,9 +87,10 @@ class SimpleHistory:
     def plot_l2_errors(self, save_path):
         """Plot evoluzione errori L2 globali e mascherati."""
         fig, ax = plt.subplots(figsize=(10, 5))
-        keys_plot = ['l2_u', 'l2_p', 'l2_tau_xx', 'l2_tau_xy', 'l2_tau_yy', 'l2_tau_xx_masked', 'l2_tau_xy_masked', 'l2_tau_yy_masked']
+        keys_plot = ['l2_u', 'l2_v', 'l2_p', 'l2_tau_xx', 'l2_tau_xy', 'l2_tau_yy', 'l2_tau_xx_masked', 'l2_tau_xy_masked', 'l2_tau_yy_masked']
         colors = {
             'l2_u': 'blue',
+            'l2_v': 'deepskyblue',
             'l2_p': 'green',
             'l2_tau_xx': 'red',
             'l2_tau_xy': 'orange',
@@ -177,7 +178,14 @@ def initialize_last_layer_zero(model):
 def init_weights_xavier(m, activation_name="tanh"):
     """Inizializzazione dei pesi Xavier Normal dinamica basata sull'attivazione."""
     if isinstance(m, nn.Linear):
-        # gain calcolato in base alla stringa passata (es. 'tanh', 'relu')
+        # Gestisce classi di attivazione convertendole in stringa
+        if not isinstance(activation_name, str):
+            activation_name = activation_name.__name__
+        
+        activation_name = activation_name.lower()
+        if activation_name == 'silu':
+            activation_name = 'relu'
+            
         gain = nn.init.calculate_gain(activation_name)
         nn.init.xavier_normal_(m.weight, gain=gain)
         if m.bias is not None:
@@ -295,13 +303,10 @@ def train(model, physics, data):
                 chunk_total_loss = chunk_total_loss + W_DATA * dl * w_chunk
 
             # --- 2. PDE LOSS ---
-            if is_lbfgs:
-                lm, lc = physics.compute_pde_losses(xph, u, v, p, tau, w_mom, w_con)
-                loss_m_val += lm.item() * w_chunk
-                loss_c_val += lc.item() * w_chunk
-                pl = (w_mom * lm) + (w_con * lc)
-            else:
-                pl = physics.pde_loss_weighted(xph, u, v, p, tau, w_mom, w_con)
+            lm, lc = physics.compute_pde_losses(xph, u, v, p, tau, w_mom, w_con)
+            loss_m_val += lm.item() * w_chunk
+            loss_c_val += lc.item() * w_chunk
+            pl = (w_mom * lm) + (w_con * lc)
 
             p_loss_accum += pl.item() * w_chunk
             chunk_total_loss = chunk_total_loss + W_PHYSICS * pl * w_chunk
@@ -426,11 +431,14 @@ def train(model, physics, data):
             }
             
             if log_l2:
+                model.eval()
                 with torch.no_grad():
                     l2_errs = compute_l2_errors(model, physics, data)
+                model.train()
                 
                 loss_dict.update({
                     "l2_u": l2_errs["u"],
+                    "l2_v": l2_errs["v"],
                     "l2_p": l2_errs["p"],
                     "l2_tau_xx": l2_errs["tau_xx"],
                     "l2_tau_xy": l2_errs["tau_xy"],
@@ -534,6 +542,7 @@ def train(model, physics, data):
                     "param_eps": params["eps"],
                     "param_alpha": params["alpha"],
                     "l2_u": l2_errs["u"],
+                    "l2_v": l2_errs["v"],
                     "l2_p": l2_errs["p"],
                     "l2_tau_xx": l2_errs["tau_xx"],
                     "l2_tau_xy": l2_errs["tau_xy"],

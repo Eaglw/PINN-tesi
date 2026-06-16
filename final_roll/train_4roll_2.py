@@ -49,14 +49,15 @@ os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 torch.set_default_dtype(torch.float32)
 torch.set_float32_matmul_precision("high")  # Abilita TF32 per matmul (Ampere+)
-torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.benchmark = False  # GPU con input size fissi: benchmark seleziona l'algoritmo più veloce
 
 # Fissiamo i seed per la riproducibilità
 SEED = 123
+np.random.seed(SEED)
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 
-DEVICE = torch.device("cuda")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ============================================================================
 # 2. COSTANTI E CONFIGURAZIONI GLOBALI
@@ -103,17 +104,14 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS = 1000*40
+ADAM_EPOCHS = 100
 LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)  # 10% di epoche Adam
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
 GRAD_CLIP_NORM = 5.0
 PARAM_CLIP_NORM = 1.0
-MINIBATCH_INTERNAL = 2048
-MINIBATCH_BOUNDARY = 256
 WARMUP_UNLOCK_EPOCH = int(0.2 * ADAM_EPOCHS)
-PRINT_EVERY = max(1, ADAM_EPOCHS // 4)
 
 # --- Pesi Funzione di Loss ---
 W_BC = 2.0
@@ -157,7 +155,7 @@ if __name__ == "__main__":
         DEVICE
     )
     for submodel in [model.model_psi, model.model_p, model.model_tau]:
-        submodel.apply(init_weights_xavier)
+        submodel.apply(lambda m: init_weights_xavier(m, activation_name=ACTIVATION))
 
     initialize_last_layer_zero(model.model_p)
     initialize_last_layer_zero(model.model_tau)
@@ -204,7 +202,6 @@ if __name__ == "__main__":
         print(f"  {fn:>8s}: {err:.6f}")
 
     # 5. Generazione Plot
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     history.plot_losses(str(OUTPUT_DIR / "loss_history.png"))
     history.plot_params(str(OUTPUT_DIR / "params_evolution.png"))
     history.plot_l2_errors(str(OUTPUT_DIR / "l2_errors_history.png"))

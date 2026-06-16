@@ -433,6 +433,7 @@ def compute_l2_errors(model, physics, data, chunk_size=7000):
     tau_p_full = torch.cat(tau_p_list, dim=0)
     preds = {
         "u": torch.cat(u_list, dim=0),
+        "v": torch.cat(v_list, dim=0),
         "p": torch.cat(p_list, dim=0),
         "tau_xx": tau_p_full[:, 0:1],
         "tau_xy": tau_p_full[:, 1:2],

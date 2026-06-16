@@ -6,9 +6,6 @@ from scipy.spatial import cKDTree
 
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
-import numpy as np
-import torch
-
 
 def convert_to_fp64(model, physics, data):
     """
@@ -358,7 +355,7 @@ def generate_all_diagnostics(model, physics, data, save_dir, chunk_size=7000):
     x_in_all = data["coords"].to(_dtype)
     total_points = x_in_all.shape[0]
 
-    u_list, p_list, tau_p_list = [], [], []
+    u_list, v_list, p_list, tau_p_list = [], [], [], []
 
     # 1. Inferenza Unica (A chunk)
     with torch.set_grad_enabled(True):
@@ -367,6 +364,7 @@ def generate_all_diagnostics(model, physics, data, save_dir, chunk_size=7000):
             u_p, v_p, p_p, tau_p = physics.get_velocity(model, x_in, create_graph=False)
             
             u_list.append(u_p.detach())
+            v_list.append(v_p.detach())
             p_list.append(p_p.detach())
             tau_p_list.append(tau_p.detach())
 
@@ -375,6 +373,7 @@ def generate_all_diagnostics(model, physics, data, save_dir, chunk_size=7000):
     # Pacchetto predizioni disaccoppiato dal modello
     predictions = {
         "u": torch.cat(u_list, dim=0),
+        "v": torch.cat(v_list, dim=0),
         "p": torch.cat(p_list, dim=0),
         "tau_xx": tau_p_full[:, 0],
         "tau_xy": tau_p_full[:, 1],
@@ -398,6 +397,7 @@ def plot_fields(predictions, data, save_path):
 
     preds = {
         "u": _to_np(predictions["u"]),
+        "v": _to_np(predictions["v"]),
         "p": _to_np(predictions["p"]),
         "tau_xx": _to_np(predictions["tau_xx"]),
         "tau_xy": _to_np(predictions["tau_xy"]),
@@ -405,6 +405,7 @@ def plot_fields(predictions, data, save_path):
     }
     exacts = {
         "u": _to_np(data["u"]),
+        "v": _to_np(data["v"]),
         "p": _to_np(data["p"]),
         "tau_xx": _to_np(data["tau_xx"]),
         "tau_xy": _to_np(data["tau_xy"]),
@@ -438,9 +439,10 @@ def plot_fields(predictions, data, save_path):
     except Exception as e:
         print(f"  [WARNING] Errore nel masking geometrico per il plotting: {e}")
 
-    field_names = ["u", "p", "tau_xx", "tau_xy", "tau_yy"]
+    field_names = ["u", "v", "p", "tau_xx", "tau_xy", "tau_yy"]
     cmaps = {
         "u": "inferno",
+        "v": "inferno",
         "p": "viridis",
         "tau_xx": "plasma",
         "tau_xy": "plasma",
@@ -598,5 +600,5 @@ def get_optimal_chunk_size(
         
     except Exception as e:
         print(f"  [WARNING] Impossibile calcolare la VRAM dinamicamente ({e}). Uso fallback: {default_cpu_chunk}")
-        return default_cpu_chunkhunk
+        return default_cpu_chunk
 
