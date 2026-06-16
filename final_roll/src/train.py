@@ -221,7 +221,7 @@ def train(model, physics, data):
             for p in model.parameters():
                 p.requires_grad = False
             for p in model.model_psi.parameters():
-                p.requires_grad = False
+                p.requires_grad = True
             for p in model.model_p.parameters():
                 p.requires_grad = True
             return ["u", "v", "p"], W_MOMENTUM, 0.0
