@@ -43,6 +43,7 @@ builtins.print = custom_print
 # 1. SETUP AMBIENTE E PYTORCH
 # ============================================================================
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 torch.set_default_dtype(torch.float32)
 torch.set_float32_matmul_precision("high")
@@ -57,14 +58,14 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ============================================================================
 # 2. COSTANTI E CONFIGURAZIONI GLOBALI
 # ============================================================================
-CHUNK_SIZE_ADAM_PHASE1 = 45000
-CHUNK_SIZE_ADAM_PHASE2 = 45000
+CHUNK_SIZE_ADAM_PHASE1 = 200000
+CHUNK_SIZE_ADAM_PHASE2 = 24000
 CHUNK_SIZE_LBFGS_PHASE3 = get_optimal_chunk_size(phase=3)
 
 # --- Opzioni di Controllo ---
 STAGED_TRAINING = False # Not used in StressOnly logic but kept for compatibility
 INVERSE_PROBLEM = False
-USE_LBFGS = True 
+USE_LBFGS = True
 CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE1
 CHUNK_SIZE_LBFGS = CHUNK_SIZE_LBFGS_PHASE3
 
