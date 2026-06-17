@@ -50,6 +50,7 @@ os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 torch.set_default_dtype(torch.float32)
 torch.set_float32_matmul_precision("high")  # Abilita TF32 per matmul (Ampere+)
 torch.backends.cudnn.benchmark = False  # GPU con input size fissi: benchmark seleziona l'algoritmo più veloce
+torch.cuda.set_allocator_settings(expandable_segments=False)
 
 # Fissiamo i seed per la riproducibilità
 SEED = 123

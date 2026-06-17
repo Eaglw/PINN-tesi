@@ -558,7 +558,7 @@ def get_optimal_chunk_size(
     safety_factor=0.7, 
     default_cpu_chunk=5000,
     min_chunk=1000,
-    max_chunk=50000
+    max_chunk=70000
 ):
     """
     Calcola la dimensione ottimale del chunk in base alla VRAM totale disponibile
