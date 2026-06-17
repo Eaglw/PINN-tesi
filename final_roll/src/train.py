@@ -222,7 +222,7 @@ def train(model, physics, data):
                 p.requires_grad = True
             for p in model.model_tau.parameters():
                 p.requires_grad = True
-            return ["u", "v", "p", "tau_xx", "tau_xy", "tau_yy"], W_MOMENTUM, W_CONSTITUTIVE
+            return ["u", "v", "tau_xx", "tau_xy", "tau_yy"], 0.0, W_CONSTITUTIVE
         else:
             # Fase 2: Dinamica (Congela Sforzi)
             for p in model.parameters():
@@ -231,7 +231,7 @@ def train(model, physics, data):
                 p.requires_grad = True
             for p in model.model_p.parameters():
                 p.requires_grad = True
-            return ["u", "v", "p", "tau_xx", "tau_xy", "tau_yy"], W_MOMENTUM, W_CONSTITUTIVE
+            return ["u", "v", "p"], W_MOMENTUM, 0.0
 
 
 
