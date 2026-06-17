@@ -238,8 +238,8 @@ def train(model, physics, data):
     def build_optimizer(steps_remaining):
         """Costruisce Adam e lo Scheduler, gestendo l'inclusione dei parametri fisici e LR differenziati in Fase 2."""
         
-        # Rilevamento dinamico Fase 2: se la pressione è sbloccata, siamo in Fase 2
-        is_phase2 = any(p.requires_grad for p in model.model_p.parameters())
+        # Rilevamento dinamico Fase 2: solo se STAGED_TRAINING è True e la pressione è sbloccata
+        is_phase2 = STAGED_TRAINING and any(p.requires_grad for p in model.model_p.parameters())
         
         if is_phase2:
             psi_params = [p for p in model.model_psi.parameters() if p.requires_grad]
