@@ -184,9 +184,8 @@ class Physics(nn.Module):
         f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(
             x, u, v, p, tau, w_momentum, w_constitutive
         )
-
-        loss_m = 0.5 * (f_u**2 + f_v**2).mean()
-        # Non normalizzato sulla varianza per evitare il collasso a zero dello stress
+        #divido per numero componenti
+        loss_m = (f_u**2 + f_v**2).mean() / 2.0
         loss_c = (f_txx**2 + f_tyy**2 + f_txy**2).mean() / 3.0
 
         return loss_m, loss_c
@@ -204,7 +203,9 @@ class Physics(nn.Module):
         """Loss dati: solo u, v."""
         loss_u = weighted_mse(u, uv_target[:, 0:1], var_w["u"])
         loss_v = weighted_mse(v, uv_target[:, 1:2], var_w["v"])
+        return 0 
         return 0.5 * (loss_u + loss_v)
+
 
     def boundary_loss(self, model, bc_data, var_w, active_bcs=None):
         """Calcola le loss per i gruppi al contorno."""

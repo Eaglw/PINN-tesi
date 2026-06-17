@@ -339,8 +339,6 @@ def _extract_boundary_groups(
     return boundary_groups
 
 
-
-
 def generate_all_diagnostics(model, physics, data, save_dir, chunk_size=7000):
     """
     Esegue l'inferenza spaziale UNA SOLA VOLTA e smista i dati ai plotter specializzati.
