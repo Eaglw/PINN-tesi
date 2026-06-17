@@ -115,7 +115,7 @@ WARMUP_UNLOCK_EPOCH = int(0.2 * ADAM_EPOCHS)
 # --- Pesi Funzione di Loss ---
 W_BC = 2.0
 W_PHYSICS = 3.0
-W_DATA = 1.0
+W_DATA = 0.0
 W_MOMENTUM = 1.0
 W_CONSTITUTIVE = 1.0
 VARIANCE_EPS = 1e-4

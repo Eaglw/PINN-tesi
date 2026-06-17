@@ -459,6 +459,7 @@ def train(model, physics, data):
             {
                 "Loss": f"{tot_loss:.2e}",
                 "Data": f"{d_loss_accum:.2e}",
+                "BC": f"{b_loss_val:.2e}",
                 "PDE": f"{p_loss_accum:.2e}",
                 "LR": f"{optimizer.param_groups[0]['lr']:.2e}",
             }
@@ -527,7 +528,8 @@ def train(model, physics, data):
 
         loss_tensor = torch.tensor(tot_loss, device=DEVICE)
 
-        if l_it[0] % 10 == 0 or l_it[0] == int(LBFGS_MAX_ITERS) - 1:
+        log_lbfgs = (l_it[0] % max(1, int(LBFGS_MAX_ITERS) // 100) == 0) or (l_it[0] == int(LBFGS_MAX_ITERS) - 1)
+        if log_lbfgs:
             params = physics.log_params()
             
             print(f"\n[L-BFGS Iter {l_it[0]}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
@@ -566,7 +568,14 @@ def train(model, physics, data):
 
         l_it[0] += 1
         pbar_lbfgs.update(1)
-        pbar_lbfgs.set_postfix({"Loss": f"{tot_loss:.2e}"})
+        pbar_lbfgs.set_postfix(
+            {
+                "Loss": f"{tot_loss:.2e}",
+                "Data": f"{d_loss_accum:.2e}",
+                "BC": f"{b_loss_val:.2e}",
+                "PDE": f"{p_loss_accum:.2e}",
+            }
+        )
 
         return loss_tensor
 

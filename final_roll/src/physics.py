@@ -336,7 +336,7 @@ def evaluate_final_losses(model, physics, data, chunk_size=2000):
 
             # Data Loss
             dl = physics.data_loss(u, v, yc, var_w)
-            metrics["d_loss"] += dl.item() * w * 0
+            metrics["d_loss"] += dl.item() * w
 
             # PDE Residuals
             f_u, f_v, f_txx, f_tyy, f_txy = physics.compute_residuals(xph, u, v, p, tau)
