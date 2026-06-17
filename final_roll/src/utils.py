@@ -557,7 +557,7 @@ def plot_high_stress_regions(predictions, data, save_path):
 
 def get_optimal_chunk_size(
     phase=1,
-    safety_factor=0.8, 
+    safety_factor=0.7, 
     default_cpu_chunk=5000,
     min_chunk=1000,
     max_chunk=50000
