@@ -184,9 +184,9 @@ def train_stress_only(model, physics, data):
             p_c = p_all[i : i + CHUNK_SIZE_ADAM_PHASE1]
             w_chunk = xc.shape[0] / xy_all.shape[0]
             
-            xph = xc.clone().requires_grad_(True)
-            # create_graph=False perché non usiamo le PDE e non deriviamo gradienti superiori a quelli del batch
-            u, v, p_pred, _ = physics.get_velocity(model, xph, create_graph=False)
+            # create_graph=True è OBBLIGATORIO anche qui, perché u e v sono derivate di psi.
+            # Per backpropagare l'errore di u e v sui pesi di model_psi serve la derivata seconda!
+            u, v, p_pred, _ = physics.get_velocity(model, xph, create_graph=True)
             
             loss_uv, loss_p = custom_data_loss(u, v, p_pred, uv_c, p_c, var_w)
             chunk_total_loss = (loss_uv + loss_p) * w_chunk
