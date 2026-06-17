@@ -184,6 +184,7 @@ def train_stress_only(model, physics, data):
             p_c = p_all[i : i + CHUNK_SIZE_ADAM_PHASE1]
             w_chunk = xc.shape[0] / xy_all.shape[0]
             
+            xph = xc.clone().requires_grad_(True)
             # create_graph=True è OBBLIGATORIO anche qui, perché u e v sono derivate di psi.
             # Per backpropagare l'errore di u e v sui pesi di model_psi serve la derivata seconda!
             u, v, p_pred, _ = physics.get_velocity(model, xph, create_graph=True)
