@@ -214,26 +214,26 @@ def train(model, physics, data):
             for p in model.parameters():
                 p.requires_grad = True
             return None, W_MOMENTUM, W_CONSTITUTIVE
-        # if epoch < half_epochs:
-        #     # Fase 1: Cinematica e Reologia (Congela Pressione)
-        #     for p in model.parameters():
-        #         p.requires_grad = False
-        #     for p in model.model_psi.parameters():
-        #         p.requires_grad = True
-        #     for p in model.model_tau.parameters():
-        #         p.requires_grad = True
-        #     return ["u", "v", "tau_xx", "tau_xy", "tau_yy"], 0.0, W_CONSTITUTIVE
-        # else:
-        #     # Fase 2: Dinamica (Congela Sforzi)
-        #     for p in model.parameters():
-        #         p.requires_grad = False
-        #     for p in model.model_psi.parameters():
-        #         p.requires_grad = True
-        #     for p in model.model_p.parameters():
-        #         p.requires_grad = True
-        #     return ["u", "v", "p"], W_MOMENTUM, 0.0
+        if epoch < half_epochs:
+            # Fase 1: Cinematica e Reologia (Congela Pressione)
+            for p in model.parameters():
+                p.requires_grad = False
+            for p in model.model_psi.parameters():
+                p.requires_grad = True
+            for p in model.model_tau.parameters():
+                p.requires_grad = True
+            return ["u", "v", "p", "tau_xx", "tau_xy", "tau_yy"], W_MOMENTUM, W_CONSTITUTIVE
+        else:
+            # Fase 2: Dinamica (Congela Sforzi)
+            for p in model.parameters():
+                p.requires_grad = False
+            for p in model.model_psi.parameters():
+                p.requires_grad = True
+            for p in model.model_p.parameters():
+                p.requires_grad = True
+            return ["u", "v", "p", "tau_xx", "tau_xy", "tau_yy"], W_MOMENTUM, W_CONSTITUTIVE
 
-        
+
 
     def build_optimizer(steps_remaining):
         """Costruisce Adam e lo Scheduler, gestendo l'inclusione dei parametri fisici e LR differenziati in Fase 2."""
