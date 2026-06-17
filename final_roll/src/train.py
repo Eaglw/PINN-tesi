@@ -431,13 +431,12 @@ def train(model, physics, data):
                 "param_alpha": params["alpha"],
             }
             
-            print(f"\n[Epoch {epoch}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
-            
             if log_l2:
+                print(f"\n[Epoch {epoch}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
                 model.eval()
                 with torch.no_grad():
                     l2_errs = compute_l2_errors(model, physics, data)
-                    print(f"\n[Epoch {epoch}] L2 Errors:")
+                    print(f"[Epoch {epoch}] L2 Errors:")
                     for k, v in l2_errs.items():
                         print(f"  {k}: {v:.4e}")
                 model.train()
@@ -535,7 +534,7 @@ def train(model, physics, data):
 
             with torch.no_grad():
                 l2_errs = compute_l2_errors(model, physics, data)
-                print(f"\n[L-BFGS Iter {l_it[0]}] L2 Errors:")
+                print(f"[L-BFGS Iter {l_it[0]}] L2 Errors:")
                 for k, v in l2_errs.items():
                     print(f"  {k}: {v:.4e}")
 
