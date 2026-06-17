@@ -97,8 +97,9 @@ HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS = 1000*100
-LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)
+ADAM_EPOCHS = 1000*40
+#LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)
+LBFGS_MAX_ITERS=1000
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
@@ -144,7 +145,7 @@ def train_stress_only(model, physics, data):
     p_all = data["p"]
     var_w = data["var_weights"]
     
-    half_epochs = int(ADAM_EPOCHS * 0.5)
+    half_epochs = int(ADAM_EPOCHS * 0.7)
 
     # Assicuriamoci che i parametri fisici non vengano trainati in questo approccio diretto
     if physics.inverse_mode:
