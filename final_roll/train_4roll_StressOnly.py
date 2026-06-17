@@ -201,8 +201,27 @@ def train_stress_only(model, physics, data):
         tot_loss = d_loss_uv_accum + d_loss_p_accum
 
         log_loss = ((epoch + 1) % 10 == 0) or (epoch == 0) or ((epoch + 1) == half_epochs)
+        log_l2 = ((epoch + 1) % max(1, ADAM_EPOCHS // 40) == 0) or (epoch == 0) or ((epoch + 1) == half_epochs)
+        
         if log_loss:
             loss_dict = {"total": tot_loss, "data": d_loss_uv_accum + d_loss_p_accum, "data_uv": d_loss_uv_accum, "data_p": d_loss_p_accum}
+            
+            if log_l2:
+                print(f"\n[Epoch {epoch}] Phase 1 (Data) | Loss Tot: {tot_loss:.4e} | UV: {d_loss_uv_accum:.4e} | P: {d_loss_p_accum:.4e}")
+                model.eval()
+                with torch.no_grad():
+                    l2_errs = compute_l2_errors(model, physics, data)
+                    print(f"[Epoch {epoch}] L2 Errors:")
+                    for k, v in l2_errs.items():
+                        print(f"  {k}: {v:.4e}")
+                model.train()
+                
+                loss_dict.update({
+                    "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"],
+                    "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"],
+                    "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
+                })
+
             history.update(epoch, loss_dict)
             
         pbar1.set_postfix({"L_uv": f"{d_loss_uv_accum:.2e}", "L_p": f"{d_loss_p_accum:.2e}"})
@@ -252,8 +271,27 @@ def train_stress_only(model, physics, data):
         tot_pde = W_PHYSICS * (p_loss_m_accum + p_loss_c_accum)
         
         log_loss = ((epoch + 1) % 10 == 0) or (epoch == 0) or ((epoch + 1) == (ADAM_EPOCHS - half_epochs))
+        log_l2 = ((epoch + 1) % max(1, ADAM_EPOCHS // 40) == 0) or (epoch == 0) or ((epoch + 1) == (ADAM_EPOCHS - half_epochs))
+        
         if log_loss:
             loss_dict = {"total": tot_pde, "pde": tot_pde, "loss_momentum": p_loss_m_accum, "loss_constitutive": p_loss_c_accum}
+            
+            if log_l2:
+                print(f"\n[Epoch {half_epochs + epoch}] Phase 2 (PDE) | Loss Tot: {tot_pde:.4e} | Mom: {p_loss_m_accum:.4e} | Con: {p_loss_c_accum:.4e}")
+                model.eval()
+                with torch.no_grad():
+                    l2_errs = compute_l2_errors(model, physics, data)
+                    print(f"[Epoch {half_epochs + epoch}] L2 Errors:")
+                    for k, v in l2_errs.items():
+                        print(f"  {k}: {v:.4e}")
+                model.train()
+                
+                loss_dict.update({
+                    "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"],
+                    "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"],
+                    "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
+                })
+
             history.update(half_epochs + epoch, loss_dict)
             
         pbar2.set_postfix({"L_mom": f"{p_loss_m_accum:.2e}", "L_con": f"{p_loss_c_accum:.2e}"})
@@ -307,13 +345,31 @@ def train_stress_only(model, physics, data):
             tot_pde = W_PHYSICS * (p_loss_m_accum + p_loss_c_accum)
             loss_tensor = torch.tensor(tot_pde, device=DEVICE)
 
-            if (l_it[0] % max(1, int(LBFGS_MAX_ITERS) // 100) == 0) or (l_it[0] == int(LBFGS_MAX_ITERS) - 1):
-                history.update(ADAM_EPOCHS + l_it[0], {
+            log_lbfgs = (l_it[0] % max(1, int(LBFGS_MAX_ITERS) // 100) == 0) or (l_it[0] == int(LBFGS_MAX_ITERS) - 1)
+            if log_lbfgs:
+                loss_dict = {
                     "total": tot_pde,
                     "pde": tot_pde,
                     "loss_momentum": p_loss_m_accum,
                     "loss_constitutive": p_loss_c_accum
+                }
+                
+                print(f"\n[L-BFGS Iter {l_it[0]}] Loss Tot: {tot_pde:.4e} | Mom: {p_loss_m_accum:.4e} | Con: {p_loss_c_accum:.4e}")
+                model.eval()
+                with torch.no_grad():
+                    l2_errs = compute_l2_errors(model, physics, data)
+                    print(f"[L-BFGS Iter {l_it[0]}] L2 Errors:")
+                    for k, v in l2_errs.items():
+                        print(f"  {k}: {v:.4e}")
+                model.train()
+                
+                loss_dict.update({
+                    "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"],
+                    "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"],
+                    "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
                 })
+                
+                history.update(ADAM_EPOCHS + l_it[0], loss_dict)
                 
             l_it[0] += 1
             pbar_lbfgs.update(1)
