@@ -203,7 +203,6 @@ class Physics(nn.Module):
         """Loss dati: solo u, v."""
         loss_u = weighted_mse(u, uv_target[:, 0:1], var_w["u"])
         loss_v = weighted_mse(v, uv_target[:, 1:2], var_w["v"])
-        return 0 
         return 0.5 * (loss_u + loss_v)
 
 
@@ -337,7 +336,7 @@ def evaluate_final_losses(model, physics, data, chunk_size=2000):
 
             # Data Loss
             dl = physics.data_loss(u, v, yc, var_w)
-            metrics["d_loss"] += dl.item() * w
+            metrics["d_loss"] += dl.item() * w * 0
 
             # PDE Residuals
             f_u, f_v, f_txx, f_tyy, f_txy = physics.compute_residuals(xph, u, v, p, tau)

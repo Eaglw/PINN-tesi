@@ -63,8 +63,8 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ============================================================================
 
 # Calcolo dei chunk ottimali all'avvio per ridurre i log durante il training
-CHUNK_SIZE_ADAM_PHASE1 = get_optimal_chunk_size(phase=1)
-CHUNK_SIZE_ADAM_PHASE2 = get_optimal_chunk_size(phase=2)
+CHUNK_SIZE_ADAM_PHASE1 = 45000
+CHUNK_SIZE_ADAM_PHASE2 = 45000
 CHUNK_SIZE_LBFGS_PHASE3 = get_optimal_chunk_size(phase=3)
 
 # --- Opzioni di Controllo ---
