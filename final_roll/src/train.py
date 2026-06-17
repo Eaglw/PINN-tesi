@@ -431,7 +431,7 @@ def train(model, physics, data):
                 "param_alpha": params["alpha"],
             }
             
-            print(f"[Epoch {epoch}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
+            print(f"\n[Epoch {epoch}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
             
             if log_l2:
                 model.eval()
@@ -531,7 +531,7 @@ def train(model, physics, data):
         if l_it[0] % 10 == 0 or l_it[0] == int(LBFGS_MAX_ITERS) - 1:
             params = physics.log_params()
             
-            print(f"[L-BFGS Iter {l_it[0]}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
+            print(f"\n[L-BFGS Iter {l_it[0]}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
 
             with torch.no_grad():
                 l2_errs = compute_l2_errors(model, physics, data)
