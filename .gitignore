@@ -19,7 +19,7 @@ train_log.txt
 __pycache__/
 *.py[codz]
 *$py.class
-
+*.pth
 # C extensions
 *.so
 

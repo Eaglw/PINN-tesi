@@ -1,0 +1,23 @@
+filters:
+  and:
+    - file.inFolder("Runs")
+    - file.ext == "md"
+views:
+  - type: table
+    name: Tabella
+    order:
+      - date
+      - inverse_problem
+      - file.name
+      - epochs
+      - type
+      - dataset
+      - status
+    sort:
+      - property: type
+        direction: DESC
+      - property: date
+        direction: ASC
+    columnSize:
+      note.inverse_problem: 88
+      note.epochs: 82

@@ -650,34 +650,66 @@ def export_run_to_obsidian(source_dir: str, config_name: str, config_details: di
         dataset_name = config_details.get("dataset", "unknown")
         
         with open(md_file_path, "w", encoding="utf-8") as f:
-            f.write("---\\n")
-            f.write(f"date: {date_str}\\n")
-            f.write(f"status: {status}\\n")
-            f.write("type: training\\n")
-            f.write(f"inverse_problem: {inv_prob}\\n")
-            f.write(f"dataset: {dataset_name}\\n")
-            f.write(f"epochs: {epochs}\\n")
-            f.write("---\\n\\n")
-            f.write(f"# {run_folder_name}\\n\\n")
-            f.write("## 📝 Dettagli Configurazione\\n")
+            f.write("---\n")
+            f.write(f"date: {date_str}\n")
+            f.write(f"inverse_problem: {inv_prob}\n")
+            f.write(f"dataset: {dataset_name}\n")
+            f.write(f"epochs: {epochs}\n")
+            f.write("---\n\n")
+            f.write(f"# {run_folder_name}\n\n")
+            f.write("## 📝 Dettagli Configurazione\n")
             for k, v in config_details.items():
-                f.write(f"- **{k}**: {v}\\n")
+                f.write(f"- **{k}**: {v}\n")
             
-            f.write("\\n## 📊 Risultati Finali\\n")
-            for k, v in results_details.items():
-                if k != "status":
-                    f.write(f"- **{k}**: {v}\\n")
+            f.write("\n## 📊 Risultati Finali\n")
+            
+            params = {k.replace("Param ", ""): v for k, v in results_details.items() if k.startswith("Param ")}
+            losses = {k.replace("Loss ", ""): v for k, v in results_details.items() if k.startswith("Loss ")}
+            errors = {k.replace("Error ", ""): v for k, v in results_details.items() if k.startswith("Error ")}
+            others = {k: v for k, v in results_details.items() if not k.startswith("Param ") and not k.startswith("Loss ") and not k.startswith("Error ") and k != "status"}
+            
+            if params:
+                f.write("\n### 🔹 Parametri e Numeri Adimensionali\n")
+                f.write("| Parametro | Valore |\n")
+                f.write("|---|---|\n")
+                for k, v in params.items():
+                    f.write(f"| **{k}** | {v} |\n")
                     
-            f.write("\\n## 🖼️ Plot Generati\\n")
+            if losses:
+                f.write("\n### 🔹 Metriche di Loss\n")
+                f.write("| Metrica | Valore |\n")
+                f.write("|---|---|\n")
+                for k, v in losses.items():
+                    f.write(f"| **{k}** | {v} |\n")
+                    
+            if errors:
+                f.write("\n### 🔹 Errori Relativi L2\n")
+                f.write("| Variabile | Errore L2 |\n")
+                f.write("|---|---|\n")
+                for k, v in errors.items():
+                    f.write(f"| **{k}** | {v} |\n")
+                    
+            if others:
+                f.write("\n### 🔹 Altri Risultati\n")
+                for k, v in others.items():
+                    f.write(f"- **{k}**: {v}\n")
+                    
+            f.write("\n## 🖼️ Plot Generati\n")
             images = [img for img in os.listdir(dest_dir) if img.endswith('.png')]
             for img in sorted(images):
-                f.write(f"![[{img}]]\\n")
+                f.write(f"![[{img}]]\n")
                 
-            f.write("\\n## 📌 Note e Conclusioni\\n")
-            f.write("- \\n")
+            txt_files = [txt for txt in os.listdir(dest_dir) if txt.endswith('.txt')]
+            if txt_files:
+                f.write("\n## 📜 Log della Run\n")
+                for txt in sorted(txt_files):
+                    f.write(f"- [[{txt}]]\n")
+                
+            f.write("\n## 📌 Note e Conclusioni\n")
+            f.write("- \n")
             
-        print(f"\\n  [OBSIDIAN] Run esportata con successo in: {dest_dir}")
+        print(f"\n  [OBSIDIAN] Run esportata con successo in: {dest_dir}")
         
     except Exception as e:
-        print(f"\\n  [WARNING] Errore durante l'esportazione su Obsidian: {e}")
+        print(f"\n  [WARNING] Errore durante l'esportazione su Obsidian: {e}")
 
