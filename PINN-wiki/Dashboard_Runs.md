@@ -7,18 +7,8 @@ tags: [dashboard, runs]
 Questa dashboard raccoglie automaticamente tutti i file di log generati dai training (presenti nella cartella `Runs/`). Le run sono ordinate per data (dalla più recente).
 
 > [!NOTE] 
-> Questa tabella è generata tramite il plugin **Dataview**. Assicurati di averlo installato e attivato.
-
-```dataview
-TABLE 
-    status AS "Status", 
-    type AS "Tipologia", 
-    inverse_problem AS "Inverso?", 
-    dataset AS "Dataset",
-    epochs AS "Epoche"
-FROM "Runs"
-SORT date DESC
-```
+> Questa dashboard è pensata per essere utilizzata con **Obsidian Bases** (o plugin simili come Database Folder / Projects). 
+> Puoi creare o configurare qui la vista tabellare che punterà alla cartella `Runs/`, in cui ogni Run è archiviata e indicizzata dalle proprie Properties (YAML frontmatter).
 
 ## Struttura della Cartella `Runs/`
 Per ogni training completato, troverai una cartella denominata `Run_XXX_ConfigName`. All'interno vi è:
