@@ -146,7 +146,7 @@ def convert_to_fp32(model, physics, data):
     model.float()
     physics.float()
 
-def train_stress_only(model, physics, data):
+def train_stress_only(model, physics, data, save_dir=None):
     """
     Loop di training custom separato in quattro fasi:
     1. Adam 1 (FP32): allena psi e p solo su Dati Comsol.
@@ -240,6 +240,18 @@ def train_stress_only(model, physics, data):
                     "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
                 })
 
+                if save_dir is not None:
+                    chk_path = os.path.join(save_dir, "checkpoint.pth")
+                    torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': model.state_dict(),
+                        'physics_state_dict': physics.state_dict(),
+                        'optimizer_state_dict': opt_phase1.state_dict(),
+                        'scheduler_state_dict': sch_phase1.state_dict(),
+                        'history_state_dict': history.state_dict()
+                    }, chk_path)
+                    print(f"  [Checkpoint] Salvato in: {chk_path}")
+
             history.update(epoch, loss_dict)
             
         pbar1.set_postfix({"L_uv": f"{d_loss_uv_accum:.2e}", "L_p": f"{d_loss_p_accum:.2e}"})
@@ -326,6 +338,17 @@ def train_stress_only(model, physics, data):
                     "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
                 })
                 
+                if save_dir is not None:
+                    chk_path = os.path.join(save_dir, "checkpoint.pth")
+                    torch.save({
+                        'epoch': offset + l_it_1[0],
+                        'model_state_dict': model.state_dict(),
+                        'physics_state_dict': physics.state_dict(),
+                        'optimizer_state_dict': optimizer_lbfgs_1.state_dict(),
+                        'history_state_dict': history.state_dict()
+                    }, chk_path)
+                    print(f"  [Checkpoint] Salvato in: {chk_path}")
+                
                 history.update(offset + l_it_1[0], loss_dict)
                 
             l_it_1[0] += 1
@@ -408,6 +431,18 @@ def train_stress_only(model, physics, data):
                     "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
                 })
 
+                if save_dir is not None:
+                    chk_path = os.path.join(save_dir, "checkpoint.pth")
+                    torch.save({
+                        'epoch': offset + epoch,
+                        'model_state_dict': model.state_dict(),
+                        'physics_state_dict': physics.state_dict(),
+                        'optimizer_state_dict': opt_phase2.state_dict(),
+                        'scheduler_state_dict': sch_phase2.state_dict(),
+                        'history_state_dict': history.state_dict()
+                    }, chk_path)
+                    print(f"  [Checkpoint] Salvato in: {chk_path}")
+
             history.update(offset + epoch, loss_dict)
             
         pbar2.set_postfix({"L_mom": f"{p_loss_m_accum:.2e}", "L_con": f"{p_loss_c_accum:.2e}"})
@@ -486,6 +521,17 @@ def train_stress_only(model, physics, data):
                     "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
                 })
                 
+                if save_dir is not None:
+                    chk_path = os.path.join(save_dir, "checkpoint.pth")
+                    torch.save({
+                        'epoch': offset + l_it[0],
+                        'model_state_dict': model.state_dict(),
+                        'physics_state_dict': physics.state_dict(),
+                        'optimizer_state_dict': optimizer_lbfgs.state_dict(),
+                        'history_state_dict': history.state_dict()
+                    }, chk_path)
+                    print(f"  [Checkpoint] Salvato in: {chk_path}")
+
                 history.update(offset + l_it[0], loss_dict)
                 
             l_it[0] += 1
@@ -545,7 +591,7 @@ if __name__ == "__main__":
     print(f"\nModello: {total_params:,} parametri totali")
 
     # 3. Training
-    history = train_stress_only(model, physics, data)
+    history = train_stress_only(model, physics, data, save_dir=OUTPUT_DIR)
 
     # 4. Report Risultati Finali
     params = physics.log_params()
