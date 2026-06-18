@@ -208,7 +208,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
     Training completo PINN: Adam (staged/non-staged) + L-BFGS (FP64).
     Implementazione ottimizzata per il contenimento della VRAM.
     """
-    global CHUNK_SIZE_ADAM
+    global CHUNK_SIZE_ADAM, CHUNK_SIZE_LBFGS
     history = SimpleHistory()
 
     start_epoch = 0
@@ -296,7 +296,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
         return opt, sch
 
     def compute_and_backward_losses(
-        active_bcs, w_mom, w_con, points, labels, is_lbfgs=False
+        active_bcs, w_mom, w_con, points, labels, is_lbfgs=False, chunk_size_override=None
     ):
         """
         Motore di calcolo centralizzato con Accumulazione dei Gradienti in Chunk.
@@ -314,7 +314,10 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
         d_loss_accum, p_loss_accum, loss_m_val, loss_c_val = 0.0, 0.0, 0.0, 0.0
 
         # Selezione dinamica del chunk size (L-BFGS necessita di chunk più piccoli)
-        chunk_size = CHUNK_SIZE_LBFGS if is_lbfgs else CHUNK_SIZE_ADAM
+        if chunk_size_override is not None:
+            chunk_size = chunk_size_override
+        else:
+            chunk_size = CHUNK_SIZE_LBFGS if is_lbfgs else CHUNK_SIZE_ADAM
 
         for i in range(0, points.shape[0], chunk_size):
             xc = points[i : i + chunk_size]
@@ -368,13 +371,21 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
             f"\n{'=' * 60}\nFASE ADAM UNICA (Tutto Attivo): {ADAM_EPOCHS} epoche\n{'=' * 60}"
         )
 
+    from src.utils import get_optimal_chunk_size
     # Configurazione di base per l'epoca di partenza
     if STAGED_TRAINING and start_epoch >= half_epochs:
-        CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE2
         active_bcs, w_mom, w_con = configure_staged_phase(start_epoch)
         if physics.inverse_mode:
             for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha]:
                 p.requires_grad_(False)
+        CHUNK_SIZE_ADAM = get_optimal_chunk_size(
+            phase=2, model=model,
+            test_closure=lambda c: compute_and_backward_losses(
+                active_bcs=active_bcs, w_mom=w_mom, w_con=w_con,
+                points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
+                is_lbfgs=False, chunk_size_override=c
+            )
+        )
     else:
         active_bcs, w_mom, w_con = configure_staged_phase(start_epoch)
         if physics.inverse_mode:
@@ -384,6 +395,14 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
             else:
                 for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
                     getattr(physics, pname).requires_grad_(False)
+        CHUNK_SIZE_ADAM = get_optimal_chunk_size(
+            phase=1, model=model,
+            test_closure=lambda c: compute_and_backward_losses(
+                active_bcs=active_bcs, w_mom=w_mom, w_con=w_con,
+                points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
+                is_lbfgs=False, chunk_size_override=c
+            )
+        )
 
     # Calcolo step rimanenti per lo scheduler iniziale
     steps_rem = (half_epochs - start_epoch) if (STAGED_TRAINING and start_epoch < half_epochs) else (ADAM_EPOCHS - start_epoch)
@@ -419,8 +438,6 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
             print(
                 f"\n{'=' * 60}\nFASE 2 ADAM (Dinamica): {ADAM_EPOCHS - half_epochs} epoche\n{'=' * 60}"
             )
-            # Aggiornamento chunk size per la fase 2 usando il valore pre-calcolato
-            CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE2
 
             active_bcs, w_mom, w_con = configure_staged_phase(
                 epoch
@@ -434,6 +451,16 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
                     physics.alpha,
                 ]:
                     p.requires_grad_(False)
+                    
+            from src.utils import get_optimal_chunk_size
+            CHUNK_SIZE_ADAM = get_optimal_chunk_size(
+                phase=2, model=model,
+                test_closure=lambda c: compute_and_backward_losses(
+                    active_bcs=active_bcs, w_mom=w_mom, w_con=w_con,
+                    points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
+                    is_lbfgs=False, chunk_size_override=c
+                )
+            )
             optimizer, scheduler = build_optimizer(ADAM_EPOCHS - half_epochs)
 
         model.train()
@@ -575,6 +602,17 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
 
     l_it = [0]
     pbar_lbfgs = tqdm(total=int(LBFGS_MAX_ITERS), desc="L-BFGS", mininterval=2.0)
+
+    from src.utils import get_optimal_chunk_size
+    global CHUNK_SIZE_LBFGS
+    CHUNK_SIZE_LBFGS = get_optimal_chunk_size(
+        phase=3, model=model,
+        test_closure=lambda c: compute_and_backward_losses(
+            active_bcs=None, w_mom=W_MOMENTUM, w_con=W_CONSTITUTIVE,
+            points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
+            is_lbfgs=True, chunk_size_override=c
+        )
+    )
 
     def closure():
         optimizer_lbfgs.zero_grad()

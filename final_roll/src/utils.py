@@ -556,47 +556,101 @@ def plot_high_stress_regions(predictions, data, save_path):
 
 def get_optimal_chunk_size(
     phase=1,
-    safety_factor=0.7, 
+    safety_factor=0.90, 
     default_cpu_chunk=5000,
     min_chunk=1000,
-    max_chunk=70000
+    max_chunk=150000,
+    model=None,
+    test_closure=None
 ):
     """
-    Calcola la dimensione ottimale del chunk in base alla VRAM totale disponibile
-    e alla fase di addestramento.
+    Calcola la dimensione ottimale del chunk usando un 'Incremental Safe Probe'.
+    Aumenta gradualmente il chunk misurando l'esatta memoria fisica "reserved" (presa dal SO).
+    Evita i picchi mostruosi della ricerca binaria che innescano lo swapping su Windows.
+    Effettua una ricerca fine con passi decrescenti per massimizzare l'utilizzo senza sforare.
     """
     if not torch.cuda.is_available():
-        print(f"  [VRAM Check] Nessuna GPU trovata. Uso chunk size di default per CPU: {default_cpu_chunk}")
+        print(f"  [VRAM Check] Nessuna GPU trovata. Uso chunk size: {default_cpu_chunk}")
         return default_cpu_chunk
 
     try:
-        # Usa la memoria totale del dispositivo per avere un calcolo invariante
-        # rispetto alla VRAM temporaneamente occupata in quel momento
-        total_vram = torch.cuda.get_device_properties(0).total_memory
+        free_vram, total_vram = torch.cuda.mem_get_info()
+        os_used_vram = total_vram - free_vram - torch.cuda.memory_reserved()
+        pytorch_budget = total_vram - os_used_vram
         
-        # Riserviamo solo una frazione (safety_factor) della VRAM totale
-        usable_vram = total_vram * safety_factor
+        # Target di memoria fisica costante (10.5 GB richiesto dall'utente)
+        # Cap di sicurezza al 95% della VRAM totale in caso di GPU più piccole
+        target_vram = min(10.5 * (1024**3), total_vram * 0.95)
         
-        # Stime basate su test empirici (24GB GPU, 50k chunk)
-        if phase == 1:
-            bytes_per_point_estimate = 245000  # ~11.5 GB per 50k punti
-        elif phase == 2:
-            bytes_per_point_estimate = 490000  # ~23.0 GB per 50k punti
-        else:
-            bytes_per_point_estimate = 1500000 # Fase 3 (L-BFGS FP64): stima molto prudente
+        if model is not None and test_closure is not None:
+            print(f"  [VRAM Check Fase {phase}] VRAM Totale: {total_vram/1024**3:.1f} GB | Target Fisso: {target_vram/1024**3:.2f} GB")
+            print(f"  [VRAM Check Fase {phase}] Probe Incrementale Sicuro in corso...")
+
+            c = min_chunk
+            best_chunk = min_chunk
+            steps_to_try = [5000, 2000, 1000]
+            step_idx = 0
+
+            while c <= max_chunk and step_idx < len(steps_to_try):
+                model.zero_grad(set_to_none=True)
+                torch.cuda.empty_cache()
+                
+                exceeded = False
+                res = 0
+                try:
+                    test_closure(c)
+                    res = torch.cuda.memory_reserved()
+                except RuntimeError as e:
+                    if "out of memory" in str(e).lower():
+                        exceeded = True
+                    else:
+                        raise e
+                
+                if res > target_vram:
+                    exceeded = True
+                    
+                if exceeded:
+                    if c == min_chunk:
+                        print(f"  [VRAM Check Fase {phase}] OOM sfiorato anche al min_chunk. Mi fermo.")
+                        break
+                        
+                    # Mostriamo il tentativo fallito per far capire all'utente la ricerca
+                    if res > 0:
+                        print(f"  [VRAM Check] Testato c={c} -> SFORATO (Reserved: {res/1024**3:.2f} GB > Target {target_vram/1024**3:.2f} GB)")
+                    else:
+                        print(f"  [VRAM Check] Testato c={c} -> SFORATO (Out Of Memory)")
+
+                    # Riduzione dello step
+                    step_idx += 1
+                    if step_idx < len(steps_to_try):
+                        c = best_chunk + steps_to_try[step_idx]
+                        continue
+                    else:
+                        break
+                else:
+                    best_chunk = c
+                    print(f"  [VRAM Check] Testato c={c} -> Reserved: {res/1024**3:.2f} GB")
+                    c += steps_to_try[step_idx]
+
+            model.zero_grad(set_to_none=True)
+            torch.cuda.empty_cache()
             
-        # Calcolo chunk size
-        calculated_chunk = int(usable_vram / bytes_per_point_estimate)
-        
-        # Limitiamo i valori estremi per stabilità
+            print(f"  [VRAM Check Fase {phase}] Chunk ottimale sicuro: {best_chunk}")
+            return best_chunk
+
+        # Fallback statico
+        if phase == 1:
+            bytes_per_point_estimate = 245000
+        elif phase == 2:
+            bytes_per_point_estimate = 490000
+        else:
+            bytes_per_point_estimate = 1500000
+            
+        calculated_chunk = int(target_vram / bytes_per_point_estimate)
         optimal_chunk = max(min_chunk, min(calculated_chunk, max_chunk))
-        
-        total_gb = total_vram / (1024**3)
-        print(f"  [VRAM Check Fase {phase}] VRAM Totale GPU: {total_gb:.1f} GB")
-        print(f"  [VRAM Check Fase {phase}] Chunk size stimato: {calculated_chunk} -> Limitato a: {optimal_chunk}")
-        
+        print(f"  [VRAM Check Fase {phase}] (Statico) Chunk: {optimal_chunk}")
         return optimal_chunk
-        
+
     except Exception as e:
         print(f"  [WARNING] Impossibile calcolare la VRAM dinamicamente ({e}). Uso fallback: {default_cpu_chunk}")
         return default_cpu_chunk

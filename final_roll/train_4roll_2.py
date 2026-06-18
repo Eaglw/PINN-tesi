@@ -62,18 +62,14 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # 2. COSTANTI E CONFIGURAZIONI GLOBALI
 # ============================================================================
 
-# Calcolo dei chunk ottimali all'avvio per ridurre i log durante il training
-CHUNK_SIZE_ADAM_PHASE1 = 45000
-CHUNK_SIZE_ADAM_PHASE2 = 45000
-CHUNK_SIZE_LBFGS_PHASE3 = get_optimal_chunk_size(phase=3)
+
 
 # --- Opzioni di Controllo ---
 EXPORT_TO_OBSIDIAN = True  # True: esporta i log e i plot nel vault Obsidian a fine run
-STAGED_TRAINING = False  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
+STAGED_TRAINING = True  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
 INVERSE_PROBLEM = False  # True: semi-inverso, False: diretto
-USE_LBFGS = False  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
-CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE1  # Aumenta per velocità, diminuisci se satura la VRAM
-CHUNK_SIZE_LBFGS = CHUNK_SIZE_LBFGS_PHASE3  # Dimensione chunk per L-BFGS (solitamente inferiore ad Adam)
+USE_LBFGS = True  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
+DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 
 # --- Checkpointing ---
 RESUME_CHECKPOINT = None  # Es. "output_4rollmill/config_name/checkpoint.pth" per riprendere
@@ -85,7 +81,7 @@ DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
 MU_P_TRUE = 0.9  # Viscosità polimerica [Pa·s]
-LAM_TRUE = 1.0  # Tempo di rilassamento [s]
+LAM_TRUE = 0.05  # Tempo di rilassamento [s]
 EPS_TRUE = 0.0  # Parametro PTT
 ALPHA_TRUE = 0.0  # Parametro Giesekus
 RHO = 1000.0  # Densità [kg/m³]
@@ -108,7 +104,7 @@ ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
 ADAM_EPOCHS = 1000*100
-LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)  # 10% di epoche Adam
+LBFGS_MAX_ITERS = int(0.05 * ADAM_EPOCHS)  # 10% di epoche Adam
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
@@ -146,10 +142,11 @@ if __name__ == "__main__":
     print(f"Device: {DEVICE} | Dtype: {torch.get_default_dtype()}")
     print(f"Dataset: {DATASET_PATH}\n")
     print("=" * 60)
-    print("DEBUG REPORT CONFIGURAZIONE INIZIALE:")
-    print("  - Formula Weighted MSE: Mean( ((pred - target) ** 2) / var )")
-    print("  - Definizione U_ref:    max(sqrt(u_raw**2 + v_raw**2))")
-    print("=" * 60)
+    if DEBUG_MODE:
+        print("DEBUG REPORT CONFIGURAZIONE INIZIALE:")
+        print("  - Formula Weighted MSE: Mean( ((pred - target) ** 2) / var )")
+        print("  - Definizione U_ref:    max(sqrt(u_raw**2 + v_raw**2))")
+        print("=" * 60)
 
     # 1. Caricamento Dati
     data = load_data()
@@ -220,8 +217,9 @@ if __name__ == "__main__":
     generate_all_diagnostics(model, physics, data, str(OUTPUT_DIR))
 
     # 6. Test di Validazione Fisica
-    test_random_points(model, physics, data, num_points=10)
-    debug_physics_magnitudes(model, physics, data, num_points=2000)
+    if DEBUG_MODE:
+        test_random_points(model, physics, data, num_points=10)
+        debug_physics_magnitudes(model, physics, data, num_points=2000)
 
 
     if EXPORT_TO_OBSIDIAN:
