@@ -68,6 +68,7 @@ CHUNK_SIZE_ADAM_PHASE2 = 45000
 CHUNK_SIZE_LBFGS_PHASE3 = get_optimal_chunk_size(phase=3)
 
 # --- Opzioni di Controllo ---
+EXPORT_TO_OBSIDIAN = True  # True: esporta i log e i plot nel vault Obsidian a fine run
 STAGED_TRAINING = False  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
 INVERSE_PROBLEM = False  # True: semi-inverso, False: diretto
 USE_LBFGS = False  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
@@ -212,4 +213,36 @@ if __name__ == "__main__":
     test_random_points(model, physics, data, num_points=10)
     debug_physics_magnitudes(model, physics, data, num_points=2000)
 
-    print(f"\n[OK] Esecuzione terminata. Plot salvati in: {OUTPUT_DIR}")
+
+    if EXPORT_TO_OBSIDIAN:
+        from src.utils import export_run_to_obsidian
+        config_details = {
+            "dataset": DATASET_PATH.name,
+            "epochs": ADAM_EPOCHS,
+            "inverse_problem": INVERSE_PROBLEM,
+            "staged_training": STAGED_TRAINING,
+            "activation": ACTIVATION.__name__,
+            "network": layers_str,
+            "lbfgs": USE_LBFGS
+        }
+        
+        results_details = {
+            "status": "completed"
+        }
+        for p_name in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+            if p_name in params:
+                results_details[f"Param {p_name}"] = f"{params[p_name]:.6f}"
+                
+        for k, v in final_losses.items():
+            results_details[f"Loss {k}"] = f"{v:.6e}"
+            
+        for fn, err in errors.items():
+            results_details[f"Error {fn}"] = f"{err:.6f}"
+            
+        export_run_to_obsidian(
+            source_dir=str(OUTPUT_DIR),
+            config_name=config_name,
+            config_details=config_details,
+            results_details=results_details
+        )
+        print(f"\n[OK] Esecuzione terminata. Plot salvati in: {OUTPUT_DIR}")
