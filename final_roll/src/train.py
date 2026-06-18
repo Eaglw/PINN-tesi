@@ -484,13 +484,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
             }
             
             if log_l2:
-                print(f"\n[Epoch {epoch}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
+                print(f"\n[Epoch {epoch+1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
                 model.eval()
                 with torch.no_grad():
                     l2_errs = compute_l2_errors(model, physics, data)
-                    print(f"[Epoch {epoch}] L2 Errors:")
-                    for k, v in l2_errs.items():
-                        print(f"  {k}: {v:.4e}")
+                    print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
+                    print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
                 model.train()
                 
                 loss_dict.update({
@@ -504,10 +503,6 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
                     "l2_tau_xy_masked": l2_errs["tau_xy_masked"],
                     "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
                 })
-
-                print(f"\n[Epoch {epoch+1}] L2 Errors:")
-                print(f"  u: {l2_errs['u']:.6f} | p: {l2_errs['p']:.6f}")
-                print(f"  tau_xx: {l2_errs['tau_xx']:.6f} | tau_xy: {l2_errs['tau_xy']:.6f} | tau_yy: {l2_errs['tau_yy']:.6f}")
 
                 if save_dir is not None:
                     chk_path = os.path.join(save_dir, "checkpoint.pth")
@@ -606,13 +601,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
 
             with torch.no_grad():
                 l2_errs = compute_l2_errors(model, physics, data)
-                print(f"[L-BFGS Iter {l_it[0]}] L2 Errors:")
-                for k, v in l2_errs.items():
-                    print(f"  {k}: {v:.4e}")
-
-            print(f"\n[L-BFGS Iter {l_it[0]}] L2 Errors:")
-            print(f"  u: {l2_errs['u']:.6f} | p: {l2_errs['p']:.6f}")
-            print(f"  tau_xx: {l2_errs['tau_xx']:.6f} | tau_xy: {l2_errs['tau_xy']:.6f} | tau_yy: {l2_errs['tau_yy']:.6f}")
+                print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
+                print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
 
             if save_dir is not None:
                 chk_path = os.path.join(save_dir, "checkpoint.pth")

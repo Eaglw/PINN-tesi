@@ -697,6 +697,8 @@ def export_run_to_obsidian(source_dir: str, config_name: str, config_details: di
             f.write("\n## 🖼️ Plot Generati\n")
             images = [img for img in os.listdir(dest_dir) if img.endswith('.png')]
             for img in sorted(images):
+                title = img.replace(".png", "").replace("_", " ").title()
+                f.write(f"\n### {title}\n")
                 f.write(f"![[{img}]]\n")
                 
             txt_files = [txt for txt in os.listdir(dest_dir) if txt.endswith('.txt')]
