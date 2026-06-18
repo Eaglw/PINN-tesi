@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -10,6 +11,16 @@ class SimpleHistory:
     def __init__(self):
         self.epochs = []
         self.losses = {}
+
+    def state_dict(self):
+        return {
+            'epochs': self.epochs,
+            'losses': self.losses
+        }
+
+    def load_state_dict(self, state_dict):
+        self.epochs = state_dict['epochs']
+        self.losses = state_dict['losses']
 
     def update(self, epoch, loss_dict):
         self.epochs.append(epoch)
@@ -192,12 +203,31 @@ def init_weights_xavier(m, activation_name="tanh"):
             nn.init.zeros_(m.bias)
 
 
-def train(model, physics, data):
+def train(model, physics, data, resume_checkpoint=None, save_dir=None):
     """
     Training completo PINN: Adam (staged/non-staged) + L-BFGS (FP64).
     Implementazione ottimizzata per il contenimento della VRAM.
     """
+    global CHUNK_SIZE_ADAM
     history = SimpleHistory()
+
+    start_epoch = 0
+    loaded_opt_state = None
+    loaded_sch_state = None
+
+    if resume_checkpoint is not None and os.path.exists(resume_checkpoint):
+        print(f"\n[Checkpoint] Caricamento da: {resume_checkpoint}")
+        chk = torch.load(resume_checkpoint, map_location=DEVICE)
+        
+        model.load_state_dict(chk['model_state_dict'])
+        physics.load_state_dict(chk['physics_state_dict'])
+        history.load_state_dict(chk['history_state_dict'])
+        
+        loaded_opt_state = chk.get('optimizer_state_dict', None)
+        loaded_sch_state = chk.get('scheduler_state_dict', None)
+        
+        start_epoch = chk.get('epoch', 0) + 1
+        print(f"[Checkpoint] Ripresa dall'epoca {start_epoch}")
 
     # --- ESTRAZIONE DATI ---
     xy_all = data["coords"]
@@ -338,18 +368,41 @@ def train(model, physics, data):
             f"\n{'=' * 60}\nFASE ADAM UNICA (Tutto Attivo): {ADAM_EPOCHS} epoche\n{'=' * 60}"
         )
 
-    # Configurazione di base per l'epoca 0 (eseguita UNA sola volta)
-    active_bcs, w_mom, w_con = configure_staged_phase(0)
+    # Configurazione di base per l'epoca di partenza
+    if STAGED_TRAINING and start_epoch >= half_epochs:
+        CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE2
+        active_bcs, w_mom, w_con = configure_staged_phase(start_epoch)
+        if physics.inverse_mode:
+            for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha]:
+                p.requires_grad_(False)
+    else:
+        active_bcs, w_mom, w_con = configure_staged_phase(start_epoch)
+        if physics.inverse_mode:
+            if start_epoch >= WARMUP_UNLOCK_EPOCH:
+                for p in [physics.mu_s, physics.mu_p, physics.lam]:
+                    p.requires_grad_(True)
+            else:
+                for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+                    getattr(physics, pname).requires_grad_(False)
 
-    if physics.inverse_mode:
-        for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
-            getattr(physics, pname).requires_grad_(False)
+    # Calcolo step rimanenti per lo scheduler iniziale
+    steps_rem = (half_epochs - start_epoch) if (STAGED_TRAINING and start_epoch < half_epochs) else (ADAM_EPOCHS - start_epoch)
+    optimizer, scheduler = build_optimizer(steps_rem)
 
-    optimizer, scheduler = build_optimizer(
-        half_epochs if STAGED_TRAINING else ADAM_EPOCHS
-    )
+    if loaded_opt_state is not None:
+        try:
+            optimizer.load_state_dict(loaded_opt_state)
+            print("[Checkpoint] Optimizer state ripristinato con successo.")
+        except Exception as e:
+            print(f"[Checkpoint] Avviso: Impossibile ripristinare optimizer state (possibile cambio di fase): {e}")
 
-    pbar = tqdm(range(ADAM_EPOCHS), desc="Adam", mininterval=2.0)
+    if loaded_sch_state is not None:
+        try:
+            scheduler.load_state_dict(loaded_sch_state)
+        except Exception:
+            pass
+
+    pbar = tqdm(range(start_epoch, ADAM_EPOCHS), desc="Adam", mininterval=2.0)
     for epoch in pbar:
         # Sblocco parametri fisici (Warmup Problema Inverso)
         if physics.inverse_mode and epoch == WARMUP_UNLOCK_EPOCH:
@@ -367,7 +420,6 @@ def train(model, physics, data):
                 f"\n{'=' * 60}\nFASE 2 ADAM (Dinamica): {ADAM_EPOCHS - half_epochs} epoche\n{'=' * 60}"
             )
             # Aggiornamento chunk size per la fase 2 usando il valore pre-calcolato
-            global CHUNK_SIZE_ADAM
             CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE2
 
             active_bcs, w_mom, w_con = configure_staged_phase(
@@ -453,6 +505,22 @@ def train(model, physics, data):
                     "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
                 })
 
+                print(f"\n[Epoch {epoch+1}] L2 Errors:")
+                print(f"  u: {l2_errs['u']:.6f} | p: {l2_errs['p']:.6f}")
+                print(f"  tau_xx: {l2_errs['tau_xx']:.6f} | tau_xy: {l2_errs['tau_xy']:.6f} | tau_yy: {l2_errs['tau_yy']:.6f}")
+
+                if save_dir is not None:
+                    chk_path = os.path.join(save_dir, "checkpoint.pth")
+                    torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': model.state_dict(),
+                        'physics_state_dict': physics.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'scheduler_state_dict': scheduler.state_dict(),
+                        'history_state_dict': history.state_dict()
+                    }, chk_path)
+                    print(f"  [Checkpoint] Salvato in: {chk_path}")
+
             history.update(epoch, loss_dict)
 
         pbar.set_postfix(
@@ -464,6 +532,8 @@ def train(model, physics, data):
                 "LR": f"{optimizer.param_groups[0]['lr']:.2e}",
             }
         )
+
+
 
     pbar.close()
 
@@ -539,6 +609,21 @@ def train(model, physics, data):
                 print(f"[L-BFGS Iter {l_it[0]}] L2 Errors:")
                 for k, v in l2_errs.items():
                     print(f"  {k}: {v:.4e}")
+
+            print(f"\n[L-BFGS Iter {l_it[0]}] L2 Errors:")
+            print(f"  u: {l2_errs['u']:.6f} | p: {l2_errs['p']:.6f}")
+            print(f"  tau_xx: {l2_errs['tau_xx']:.6f} | tau_xy: {l2_errs['tau_xy']:.6f} | tau_yy: {l2_errs['tau_yy']:.6f}")
+
+            if save_dir is not None:
+                chk_path = os.path.join(save_dir, "checkpoint.pth")
+                torch.save({
+                    'epoch': ADAM_EPOCHS + l_it[0],
+                    'model_state_dict': model.state_dict(),
+                    'physics_state_dict': physics.state_dict(),
+                    'optimizer_state_dict': optimizer_lbfgs.state_dict(),
+                    'history_state_dict': history.state_dict()
+                }, chk_path)
+                print(f"  [Checkpoint] Salvato in: {chk_path}")
 
             history.update(
                 ADAM_EPOCHS + l_it[0],

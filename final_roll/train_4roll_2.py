@@ -75,6 +75,9 @@ USE_LBFGS = False  # True: esegue la seconda fase con L-BFGS, False: si ferma ad
 CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE1  # Aumenta per velocità, diminuisci se satura la VRAM
 CHUNK_SIZE_LBFGS = CHUNK_SIZE_LBFGS_PHASE3  # Dimensione chunk per L-BFGS (solitamente inferiore ad Adam)
 
+# --- Checkpointing ---
+RESUME_CHECKPOINT = None  # Es. "output_4rollmill/config_name/checkpoint.pth" per riprendere
+
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
@@ -111,6 +114,7 @@ ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
 GRAD_CLIP_NORM = 5.0
 PARAM_CLIP_NORM = 1.0
+
 WARMUP_UNLOCK_EPOCH = int(0.2 * ADAM_EPOCHS)
 
 # --- Pesi Funzione di Loss ---
@@ -180,7 +184,13 @@ if __name__ == "__main__":
     print(f" Valori veri: mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, lam={LAM_TRUE}")
 
     # 3. Training
-    history = train(model, physics, data)
+    history = train(
+        model, 
+        physics, 
+        data, 
+        resume_checkpoint=RESUME_CHECKPOINT,
+        save_dir=OUTPUT_DIR
+    )
 
     # 4. Report Risultati Finali
     params = physics.log_params()
