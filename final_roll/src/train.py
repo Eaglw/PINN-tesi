@@ -195,7 +195,7 @@ def init_weights_xavier(m, activation_name="tanh"):
             nn.init.zeros_(m.bias)
 
 
-def train(model, physics, data, resume_checkpoint=None, save_dir=None, save_every=5000):
+def train(model, physics, data, resume_checkpoint=None, save_dir=None):
     """
     Training completo PINN: Adam (staged/non-staged) + L-BFGS (FP64).
     Implementazione ottimizzata per il contenimento della VRAM.
@@ -501,6 +501,18 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, save_ever
                 print(f"  u: {l2_errs['u']:.6f} | p: {l2_errs['p']:.6f}")
                 print(f"  tau_xx: {l2_errs['tau_xx']:.6f} | tau_xy: {l2_errs['tau_xy']:.6f} | tau_yy: {l2_errs['tau_yy']:.6f}")
 
+                if save_dir is not None:
+                    chk_path = os.path.join(save_dir, "checkpoint.pth")
+                    torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': model.state_dict(),
+                        'physics_state_dict': physics.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'scheduler_state_dict': scheduler.state_dict(),
+                        'history_state_dict': history.state_dict()
+                    }, chk_path)
+                    print(f"  [Checkpoint] Salvato in: {chk_path}")
+
             history.update(epoch, loss_dict)
 
         pbar.set_postfix(
@@ -512,19 +524,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, save_ever
             }
         )
 
-        if save_dir is not None and (epoch + 1) % save_every == 0:
-            chk_dir = os.path.join(save_dir, "checkpoints")
-            os.makedirs(chk_dir, exist_ok=True)
-            chk_path = os.path.join(chk_dir, f"chk_{epoch+1}.pth")
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'physics_state_dict': physics.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'history_state_dict': history.state_dict()
-            }, chk_path)
-            print(f"\n[Checkpoint] Salvato: {chk_path}")
+
 
     pbar.close()
 
@@ -597,6 +597,17 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, save_ever
             print(f"\n[L-BFGS Iter {l_it[0]}] L2 Errors:")
             print(f"  u: {l2_errs['u']:.6f} | p: {l2_errs['p']:.6f}")
             print(f"  tau_xx: {l2_errs['tau_xx']:.6f} | tau_xy: {l2_errs['tau_xy']:.6f} | tau_yy: {l2_errs['tau_yy']:.6f}")
+
+            if save_dir is not None:
+                chk_path = os.path.join(save_dir, "checkpoint.pth")
+                torch.save({
+                    'epoch': ADAM_EPOCHS + l_it[0],
+                    'model_state_dict': model.state_dict(),
+                    'physics_state_dict': physics.state_dict(),
+                    'optimizer_state_dict': optimizer_lbfgs.state_dict(),
+                    'history_state_dict': history.state_dict()
+                }, chk_path)
+                print(f"  [Checkpoint] Salvato in: {chk_path}")
 
             history.update(
                 ADAM_EPOCHS + l_it[0],

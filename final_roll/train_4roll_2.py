@@ -75,8 +75,7 @@ CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE1  # Aumenta per velocità, diminuisci se
 CHUNK_SIZE_LBFGS = CHUNK_SIZE_LBFGS_PHASE3  # Dimensione chunk per L-BFGS (solitamente inferiore ad Adam)
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = None  # Es. "output_4rollmill/config_name/checkpoints/chk_5000.pth" per riprendere
-SAVE_CHECKPOINT_EVERY = 5000  # Salva ogni N epoche
+RESUME_CHECKPOINT = None  # Es. "output_4rollmill/config_name/checkpoint.pth" per riprendere
 
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
@@ -191,8 +190,7 @@ if __name__ == "__main__":
         physics, 
         data, 
         resume_checkpoint=RESUME_CHECKPOINT,
-        save_dir=OUTPUT_DIR,
-        save_every=SAVE_CHECKPOINT_EVERY
+        save_dir=OUTPUT_DIR
     )
 
     # 4. Report Risultati Finali
