@@ -104,7 +104,8 @@ ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
 ADAM_EPOCHS = 1000*100
-LBFGS_MAX_ITERS = int(0.05 * ADAM_EPOCHS)  # 10% di epoche Adam
+#LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)  # 10% di epoche Adam
+LBFGS_MAX_ITERS = 1000
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
