@@ -66,7 +66,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # --- Opzioni di Controllo ---
 EXPORT_TO_OBSIDIAN = True  # True: esporta i log e i plot nel vault Obsidian a fine run
-STAGED_TRAINING = True  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
+STAGED_TRAINING = False  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
 INVERSE_PROBLEM = False  # True: semi-inverso, False: diretto
 USE_LBFGS = True  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
 DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
