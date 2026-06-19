@@ -58,11 +58,12 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ============================================================================
 # 2. COSTANTI E CONFIGURAZIONI GLOBALI
 # ============================================================================
-CHUNK_SIZE_ADAM_PHASE1 = 200000
-CHUNK_SIZE_ADAM_PHASE2 = 24000
+CHUNK_SIZE_ADAM_PHASE1 = get_optimal_chunk_size(phase=1)
+CHUNK_SIZE_ADAM_PHASE2 = get_optimal_chunk_size(phase=2)
 CHUNK_SIZE_LBFGS_PHASE3 = get_optimal_chunk_size(phase=3)
 
 # --- Opzioni di Controllo ---
+EXPORT_TO_OBSIDIAN = True  # True: esporta i log e i plot nel vault Obsidian a fine run
 STAGED_TRAINING = False # Not used in StressOnly logic but kept for compatibility
 INVERSE_PROBLEM = False
 USE_LBFGS = True
@@ -97,9 +98,10 @@ HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS = 1000*40
-#LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)
-LBFGS_MAX_ITERS=1000
+ADAM_EPOCHS_PHASE1 = 50000
+LBFGS_ITERS_PHASE1 = 5000
+ADAM_EPOCHS_PHASE2 = 30000
+LBFGS_ITERS_PHASE2 = 3000
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
@@ -155,13 +157,13 @@ def train_stress_only(model, physics, data, save_dir=None):
     4. L-BFGS 2 (FP64): raffinamento solo su tau su PDEs (psi e p congelati).
     """
     history = SimpleHistory()
+    global CHUNK_SIZE_ADAM_PHASE1, CHUNK_SIZE_ADAM_PHASE2, CHUNK_SIZE_LBFGS
     
     xy_all = data["coords"]
     uv_all = data["uv_data"]
     p_all = data["p"]
     var_w = data["var_weights"]
     
-    half_epochs = int(ADAM_EPOCHS * 0.7)
     offset = 0
 
     # Assicuriamoci che i parametri fisici non vengano trainati in questo approccio diretto
@@ -172,8 +174,18 @@ def train_stress_only(model, physics, data, save_dir=None):
     # ------------------------------------------------------------------
     # FASE 1: ADAM 1 (Data-only: Velocity & Pressure) - FP32
     # ------------------------------------------------------------------
-    print(f"\n{'=' * 60}\nFASE 1: ADAM 1 (Data Only: Velocity & Pressure) - {half_epochs} epoche (FP32)\n{'=' * 60}")
+    print(f"\n{'=' * 60}\nFASE 1: ADAM 1 (Data Only: Velocity & Pressure) - {ADAM_EPOCHS_PHASE1} epoche (FP32)\n{'=' * 60}")
     
+    def closure_test_phase1(c):
+        xc = xy_all[:c].clone().requires_grad_(True)
+        uv_c = uv_all[:c]
+        p_c = p_all[:c]
+        u, v, p_pred, _ = physics.get_velocity(model, xc, create_graph=True)
+        loss_uv, loss_p = custom_data_loss(u, v, p_pred, uv_c, p_c, var_w)
+        ((loss_uv + loss_p) * 1.0).backward()
+
+    CHUNK_SIZE_ADAM_PHASE1 = get_optimal_chunk_size(phase=1, model=model, test_closure=closure_test_phase1)
+
     # Congela tau, attiva psi e p
     for p_param in model.parameters():
         p_param.requires_grad = False
@@ -186,9 +198,9 @@ def train_stress_only(model, physics, data, save_dir=None):
         {"params": model.model_psi.parameters(), "lr": BASE_LR},
         {"params": model.model_p.parameters(), "lr": BASE_LR}
     ], eps=ADAM_EPS)
-    sch_phase1 = torch.optim.lr_scheduler.CosineAnnealingLR(opt_phase1, T_max=half_epochs, eta_min=1e-6)
+    sch_phase1 = torch.optim.lr_scheduler.CosineAnnealingLR(opt_phase1, T_max=ADAM_EPOCHS_PHASE1, eta_min=1e-6)
 
-    pbar1 = tqdm(range(half_epochs), desc="Adam Phase 1 (Data)", mininterval=2.0)
+    pbar1 = tqdm(range(ADAM_EPOCHS_PHASE1), desc="Adam Phase 1 (Data)", mininterval=2.0)
     for epoch in pbar1:
         model.train()
         opt_phase1.zero_grad(set_to_none=True)
@@ -218,8 +230,8 @@ def train_stress_only(model, physics, data, save_dir=None):
 
         tot_loss = d_loss_uv_accum + d_loss_p_accum
 
-        log_loss = ((epoch + 1) % 10 == 0) or (epoch == 0) or ((epoch + 1) == half_epochs)
-        log_l2 = ((epoch + 1) % max(1, ADAM_EPOCHS // 40) == 0) or (epoch == 0) or ((epoch + 1) == half_epochs)
+        log_loss = ((epoch + 1) % 10 == 0) or (epoch == 0) or ((epoch + 1) == ADAM_EPOCHS_PHASE1)
+        log_l2 = ((epoch + 1) % max(1, ADAM_EPOCHS_PHASE1 // 40) == 0) or (epoch == 0) or ((epoch + 1) == ADAM_EPOCHS_PHASE1)
         
         if log_loss:
             loss_dict = {"total": tot_loss, "data": d_loss_uv_accum + d_loss_p_accum, "data_uv": d_loss_uv_accum, "data_p": d_loss_p_accum}
@@ -256,19 +268,29 @@ def train_stress_only(model, physics, data, save_dir=None):
             
         pbar1.set_postfix({"L_uv": f"{d_loss_uv_accum:.2e}", "L_p": f"{d_loss_p_accum:.2e}"})
     pbar1.close()
-    offset += half_epochs
+    offset += ADAM_EPOCHS_PHASE1
 
     # ------------------------------------------------------------------
     # FASE 1.5: L-BFGS 1 (Data-only: Velocity & Pressure) - FP64
     # ------------------------------------------------------------------
     if USE_LBFGS:
-        print(f"\n{'=' * 60}\nFASE 1.5 L-BFGS: Refinamento psi e p - {int(LBFGS_MAX_ITERS)} iterazioni (FP64)\n{'=' * 60}")
+        print(f"\n{'=' * 60}\nFASE 1.5 L-BFGS: Refinamento psi e p - {int(LBFGS_ITERS_PHASE1)} iterazioni (FP64)\n{'=' * 60}")
         convert_to_fp64(model, physics, data)
         xy_all = data["coords"]
         uv_all = data["uv_data"]
         p_all = data["p"]
         var_w = data["var_weights"]
         
+        def closure_test_phase1_5(c):
+            xc = xy_all[:c].clone().requires_grad_(True)
+            uv_c = uv_all[:c]
+            p_c = p_all[:c]
+            u, v, p_pred, _ = physics.get_velocity(model, xc, create_graph=True)
+            loss_uv, loss_p = custom_data_loss(u, v, p_pred, uv_c, p_c, var_w)
+            ((loss_uv + loss_p) * 1.0).backward()
+
+        CHUNK_SIZE_LBFGS = get_optimal_chunk_size(phase=1, model=model, test_closure=closure_test_phase1_5)
+
         # Sblocca solo psi e p
         for p_param in model.parameters():
             p_param.requires_grad = False
@@ -280,7 +302,7 @@ def train_stress_only(model, physics, data, save_dir=None):
         optimizer_lbfgs_1 = torch.optim.LBFGS(
             list(model.model_psi.parameters()) + list(model.model_p.parameters()),
             lr=1.0,
-            max_iter=int(LBFGS_MAX_ITERS),
+            max_iter=int(LBFGS_ITERS_PHASE1),
             tolerance_grad=1e-9,
             tolerance_change=1e-12,
             history_size=300,
@@ -288,7 +310,7 @@ def train_stress_only(model, physics, data, save_dir=None):
         )
 
         l_it_1 = [0]
-        pbar_lbfgs_1 = tqdm(total=int(LBFGS_MAX_ITERS), desc="L-BFGS 1 (Data)", mininterval=2.0)
+        pbar_lbfgs_1 = tqdm(total=int(LBFGS_ITERS_PHASE1), desc="L-BFGS 1 (Data)", mininterval=2.0)
 
         def closure_1():
             optimizer_lbfgs_1.zero_grad()
@@ -314,7 +336,7 @@ def train_stress_only(model, physics, data, save_dir=None):
             tot_loss = d_loss_uv_accum + d_loss_p_accum
             loss_tensor = torch.tensor(tot_loss, device=DEVICE)
 
-            log_lbfgs = (l_it_1[0] % max(1, int(LBFGS_MAX_ITERS) // 100) == 0) or (l_it_1[0] == int(LBFGS_MAX_ITERS) - 1)
+            log_lbfgs = (l_it_1[0] % max(1, int(LBFGS_ITERS_PHASE1) // 100) == 0) or (l_it_1[0] == int(LBFGS_ITERS_PHASE1) - 1)
             if log_lbfgs:
                 loss_dict = {
                     "total": tot_loss,
@@ -363,7 +385,7 @@ def train_stress_only(model, physics, data, save_dir=None):
     # ------------------------------------------------------------------
     # FASE 2: ADAM 2 (PDE-only: Stress Tensor) - FP32
     # ------------------------------------------------------------------
-    print(f"\n{'=' * 60}\nFASE 2: ADAM 2 (PDE Only: Stress) - {ADAM_EPOCHS - half_epochs} epoche (FP32)\n{'=' * 60}")
+    print(f"\n{'=' * 60}\nFASE 2: ADAM 2 (PDE Only: Stress) - {ADAM_EPOCHS_PHASE2} epoche (FP32)\n{'=' * 60}")
     
     # Ritorna a FP32
     convert_to_fp32(model, physics, data)
@@ -372,6 +394,14 @@ def train_stress_only(model, physics, data, save_dir=None):
     p_all = data["p"]
     var_w = data["var_weights"]
 
+    def closure_test_phase2(c):
+        xc = xy_all[:c].clone().requires_grad_(True)
+        u, v, p_pred, tau_pred = physics.get_velocity(model, xc, create_graph=True)
+        loss_m, loss_c = physics.compute_pde_losses(xc, u, v, p_pred, tau_pred, w_momentum=W_MOMENTUM, w_constitutive=W_CONSTITUTIVE)
+        (W_PHYSICS * (loss_m + loss_c) * 1.0).backward()
+
+    CHUNK_SIZE_ADAM_PHASE2 = get_optimal_chunk_size(phase=2, model=model, test_closure=closure_test_phase2)
+
     # Congela psi e p, attiva tau
     for p_param in model.parameters():
         p_param.requires_grad = False
@@ -379,9 +409,9 @@ def train_stress_only(model, physics, data, save_dir=None):
         p_param.requires_grad = True
 
     opt_phase2 = torch.optim.Adam(model.model_tau.parameters(), lr=BASE_LR, eps=ADAM_EPS)
-    sch_phase2 = torch.optim.lr_scheduler.CosineAnnealingLR(opt_phase2, T_max=(ADAM_EPOCHS - half_epochs), eta_min=1e-6)
+    sch_phase2 = torch.optim.lr_scheduler.CosineAnnealingLR(opt_phase2, T_max=ADAM_EPOCHS_PHASE2, eta_min=1e-6)
 
-    pbar2 = tqdm(range(ADAM_EPOCHS - half_epochs), desc="Adam Phase 2 (PDE)", mininterval=2.0)
+    pbar2 = tqdm(range(ADAM_EPOCHS_PHASE2), desc="Adam Phase 2 (PDE)", mininterval=2.0)
     for epoch in pbar2:
         model.train()
         opt_phase2.zero_grad(set_to_none=True)
@@ -409,18 +439,18 @@ def train_stress_only(model, physics, data, save_dir=None):
 
         tot_pde = W_PHYSICS * (p_loss_m_accum + p_loss_c_accum)
         
-        log_loss = ((epoch + 1) % 10 == 0) or (epoch == 0) or ((epoch + 1) == (ADAM_EPOCHS - half_epochs))
-        log_l2 = ((epoch + 1) % max(1, ADAM_EPOCHS // 40) == 0) or (epoch == 0) or ((epoch + 1) == (ADAM_EPOCHS - half_epochs))
+        log_loss = ((epoch + 1) % 10 == 0) or (epoch == 0) or ((epoch + 1) == ADAM_EPOCHS_PHASE2)
+        log_l2 = ((epoch + 1) % max(1, ADAM_EPOCHS_PHASE2 // 40) == 0) or (epoch == 0) or ((epoch + 1) == ADAM_EPOCHS_PHASE2)
         
         if log_loss:
             loss_dict = {"total": tot_pde, "pde": tot_pde, "loss_momentum": p_loss_m_accum, "loss_constitutive": p_loss_c_accum}
             
             if log_l2:
-                print(f"\n[Epoch {half_epochs + epoch}] Phase 2 (PDE) | Loss Tot: {tot_pde:.4e} | Mom: {p_loss_m_accum:.4e} | Con: {p_loss_c_accum:.4e}")
+                print(f"\n[Epoch {offset + epoch}] Phase 2 (PDE) | Loss Tot: {tot_pde:.4e} | Mom: {p_loss_m_accum:.4e} | Con: {p_loss_c_accum:.4e}")
                 model.eval()
                 with torch.no_grad():
                     l2_errs = compute_l2_errors(model, physics, data)
-                    print(f"[Epoch {half_epochs + epoch}] L2 Errors:")
+                    print(f"[Epoch {offset + epoch}] L2 Errors:")
                     for k, v in l2_errs.items():
                         print(f"  {k}: {v:.4e}")
                 model.train()
@@ -447,16 +477,24 @@ def train_stress_only(model, physics, data, save_dir=None):
             
         pbar2.set_postfix({"L_mom": f"{p_loss_m_accum:.2e}", "L_con": f"{p_loss_c_accum:.2e}"})
     pbar2.close()
-    offset += (ADAM_EPOCHS - half_epochs)
+    offset += ADAM_EPOCHS_PHASE2
 
     # ------------------------------------------------------------------
     # FASE 2.5: L-BFGS 2 (PDE-only: Stress Tensor) - FP64
     # ------------------------------------------------------------------
     if USE_LBFGS:
-        print(f"\n{'=' * 60}\nFASE 2.5 L-BFGS: Refinamento stress - {int(LBFGS_MAX_ITERS)} iterazioni (FP64)\n{'=' * 60}")
+        print(f"\n{'=' * 60}\nFASE 2.5 L-BFGS: Refinamento stress - {int(LBFGS_ITERS_PHASE2)} iterazioni (FP64)\n{'=' * 60}")
         convert_to_fp64(model, physics, data)
         xy_all = data["coords"]
         
+        def closure_test_phase2_5(c):
+            xc = xy_all[:c].clone().requires_grad_(True)
+            u, v, p_pred, tau_pred = physics.get_velocity(model, xc, create_graph=True)
+            loss_m, loss_c = physics.compute_pde_losses(xc, u, v, p_pred, tau_pred, w_momentum=W_MOMENTUM, w_constitutive=W_CONSTITUTIVE)
+            (W_PHYSICS * (loss_m + loss_c) * 1.0).backward()
+
+        CHUNK_SIZE_LBFGS = get_optimal_chunk_size(phase=3, model=model, test_closure=closure_test_phase2_5)
+
         # Ci assicuriamo che solo tau sia attivo durante L-BFGS
         for p_param in model.parameters():
             p_param.requires_grad = False
@@ -466,7 +504,7 @@ def train_stress_only(model, physics, data, save_dir=None):
         optimizer_lbfgs = torch.optim.LBFGS(
             model.model_tau.parameters(),
             lr=1.0,
-            max_iter=int(LBFGS_MAX_ITERS),
+            max_iter=int(LBFGS_ITERS_PHASE2),
             tolerance_grad=1e-9,
             tolerance_change=1e-12,
             history_size=300,
@@ -474,7 +512,7 @@ def train_stress_only(model, physics, data, save_dir=None):
         )
 
         l_it = [0]
-        pbar_lbfgs = tqdm(total=int(LBFGS_MAX_ITERS), desc="L-BFGS 2 (Stress PDE)", mininterval=2.0)
+        pbar_lbfgs = tqdm(total=int(LBFGS_ITERS_PHASE2), desc="L-BFGS 2 (Stress PDE)", mininterval=2.0)
 
         def closure():
             optimizer_lbfgs.zero_grad()
@@ -497,7 +535,7 @@ def train_stress_only(model, physics, data, save_dir=None):
             tot_pde = W_PHYSICS * (p_loss_m_accum + p_loss_c_accum)
             loss_tensor = torch.tensor(tot_pde, device=DEVICE)
 
-            log_lbfgs = (l_it[0] % max(1, int(LBFGS_MAX_ITERS) // 100) == 0) or (l_it[0] == int(LBFGS_MAX_ITERS) - 1)
+            log_lbfgs = (l_it[0] % max(1, int(LBFGS_ITERS_PHASE2) // 100) == 0) or (l_it[0] == int(LBFGS_ITERS_PHASE2) - 1)
             if log_lbfgs:
                 loss_dict = {
                     "total": tot_pde,
@@ -550,7 +588,7 @@ def train_stress_only(model, physics, data, save_dir=None):
 # ============================================================================
 if __name__ == "__main__":
     layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
-    config_name = f"{DATASET_PATH.stem}_StressOnly_L{layers_str}_E{ADAM_EPOCHS}_{ACTIVATION.__name__}_inv{INVERSE_PROBLEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    config_name = f"{DATASET_PATH.stem}_StressOnly_L{layers_str}_E1={ADAM_EPOCHS_PHASE1}_E2={ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_inv{INVERSE_PROBLEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -623,5 +661,38 @@ if __name__ == "__main__":
     # 6. Test di Validazione Fisica
     test_random_points(model, physics, data, num_points=10)
     debug_physics_magnitudes(model, physics, data, num_points=2000)
+
+    if EXPORT_TO_OBSIDIAN:
+        from src.utils import export_run_to_obsidian
+        config_details = {
+            "dataset": DATASET_PATH.name,
+            "epochs_phase1": ADAM_EPOCHS_PHASE1,
+            "epochs_phase2": ADAM_EPOCHS_PHASE2,
+            "inverse_problem": INVERSE_PROBLEM,
+            "staged_training": STAGED_TRAINING,
+            "activation": ACTIVATION.__name__,
+            "network": layers_str,
+            "lbfgs": USE_LBFGS
+        }
+        
+        results_details = {
+            "status": "completed"
+        }
+        for p_name in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+            if p_name in params:
+                results_details[f"Param {p_name}"] = f"{params[p_name]:.6f}"
+                
+        for k, v in final_losses.items():
+            results_details[f"Loss {k}"] = f"{v:.6e}"
+            
+        for fn, err in errors.items():
+            results_details[f"Error {fn}"] = f"{err:.6f}"
+            
+        export_run_to_obsidian(
+            source_dir=str(OUTPUT_DIR),
+            config_name=config_name,
+            config_details=config_details,
+            results_details=results_details
+        )
 
     print(f"\n[OK] Esecuzione terminata. Plot salvati in: {OUTPUT_DIR}")

@@ -556,7 +556,7 @@ def plot_high_stress_regions(predictions, data, save_path):
 
 def get_optimal_chunk_size(
     phase=1,
-    safety_factor=0.9,  # 87.5% della VRAM totale (esattamente 10.5GB su 12GB)
+    safety_factor=0.875,  # 87.5% della VRAM totale (esattamente 10.5GB su 12GB)
     default_cpu_chunk=5000,
     min_chunk=1000,
     max_chunk=150000,
