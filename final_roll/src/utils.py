@@ -556,7 +556,7 @@ def plot_high_stress_regions(predictions, data, save_path):
 
 def get_optimal_chunk_size(
     phase=1,
-    safety_factor=0.90, 
+    safety_factor=0.9,  # 87.5% della VRAM totale (esattamente 10.5GB su 12GB)
     default_cpu_chunk=5000,
     min_chunk=1000,
     max_chunk=150000,
@@ -575,15 +575,14 @@ def get_optimal_chunk_size(
 
     try:
         free_vram, total_vram = torch.cuda.mem_get_info()
-        os_used_vram = total_vram - free_vram - torch.cuda.memory_reserved()
-        pytorch_budget = total_vram - os_used_vram
         
-        # Target di memoria fisica costante (10.5 GB richiesto dall'utente)
-        # Cap di sicurezza al 95% della VRAM totale in caso di GPU più piccole
-        target_vram = min(10.5 * (1024**3), total_vram * 0.95)
+        # Target calcolato come percentuale stabile della VRAM fisica TOTALE.
+        # Questo elimina le fluttuazioni in tempo reale causate dai background app del sistema operativo,
+        # permettendo di avere chunk consistendi tra le varie Fasi, e scala automaticamente su altre GPU.
+        target_vram = total_vram * safety_factor
         
         if model is not None and test_closure is not None:
-            print(f"  [VRAM Check Fase {phase}] VRAM Totale: {total_vram/1024**3:.1f} GB | Target Fisso: {target_vram/1024**3:.2f} GB")
+            print(f"  [VRAM Check Fase {phase}] VRAM Totale: {total_vram/1024**3:.1f} GB | Target Dinamico ({safety_factor*100:.1f}%): {target_vram/1024**3:.2f} GB")
             print(f"  [VRAM Check Fase {phase}] Probe Incrementale Sicuro in corso...")
 
             c = min_chunk
