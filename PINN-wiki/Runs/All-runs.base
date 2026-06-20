@@ -4,7 +4,7 @@ filters:
     - file.ext == "md"
 views:
   - type: table
-    name: Tabella
+    name: All run
     order:
       - date
       - file.name
@@ -13,6 +13,51 @@ views:
       - inverse
       - dataset
       - status
+      - Computer
+    sort:
+      - property: date
+        direction: ASC
+    columnSize:
+      note.date: 149
+      file.name: 183
+      note.epochs: 82
+      note.staged: 72
+  - type: table
+    name: Maurizio
+    filters:
+      and:
+        - Computer == "Maurizio"
+    order:
+      - date
+      - file.name
+      - epochs
+      - staged
+      - inverse
+      - dataset
+      - status
+      - Computer
+    sort:
+      - property: date
+        direction: ASC
+    columnSize:
+      note.date: 149
+      file.name: 183
+      note.epochs: 82
+      note.staged: 72
+  - type: table
+    name: Fisso
+    filters:
+      and:
+        - Computer == "Fisso"
+    order:
+      - date
+      - file.name
+      - epochs
+      - staged
+      - inverse
+      - dataset
+      - status
+      - Computer
     sort:
       - property: date
         direction: ASC
