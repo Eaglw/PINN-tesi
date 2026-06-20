@@ -236,7 +236,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
     bc_data = data["boundary_groups"]
     total_points = xy_all.shape[0]
 
-    half_epochs = int(ADAM_EPOCHS * 0.6)
+    half_epochs = int(ADAM_EPOCHS * 1.1)
     #half_epochs = 10
     def configure_staged_phase(epoch):
         """Modifica i flag requires_grad dei sottomodelli. Chiamata SOLO ai cambi di fase."""
