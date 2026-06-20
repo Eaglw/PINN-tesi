@@ -7,17 +7,17 @@ views:
     name: Tabella
     order:
       - date
-      - inverse_problem
       - file.name
       - epochs
-      - type
+      - staged
+      - inverse
       - dataset
       - status
     sort:
-      - property: type
-        direction: DESC
       - property: date
         direction: ASC
     columnSize:
-      note.inverse_problem: 88
+      note.date: 149
+      file.name: 183
       note.epochs: 82
+      note.staged: 72
