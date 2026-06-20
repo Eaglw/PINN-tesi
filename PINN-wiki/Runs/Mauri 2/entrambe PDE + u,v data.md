@@ -4,6 +4,7 @@ inverse: false
 epochs: "100000"
 date: 2026-06-18T23:00:00
 Computer: Maurizio
+notes: ENDED
 ---
 ## Idea
 Visto che [[No Data - entrambe PDE]] non aveva funzionato, ho pensato che includendo i dati potessi guidare il training verso la convergenza, quindi il setup è uguale ma con anche i dati

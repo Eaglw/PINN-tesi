@@ -13,6 +13,7 @@ views:
       - inverse
       - dataset
       - status
+      - notes
       - Computer
     sort:
       - property: date
@@ -22,6 +23,7 @@ views:
       file.name: 183
       note.epochs: 82
       note.staged: 72
+      note.notes: 300
   - type: table
     name: Maurizio
     filters:
