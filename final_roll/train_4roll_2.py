@@ -181,6 +181,22 @@ if __name__ == "__main__":
         print("Modalità: PROBLEMA DIRETTO (Parametri fisici bloccati ai valori veri)")
     print(f" Valori veri: mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, lam={LAM_TRUE}")
 
+    obsidian_dest_dir = None
+    obsidian_run_name = None
+    
+    if EXPORT_TO_OBSIDIAN and not RESUME_CHECKPOINT:
+        from src.utils import init_run_in_obsidian
+        config_details = {
+            "dataset": DATASET_PATH.name,
+            "epochs": ADAM_EPOCHS,
+            "inverse_problem": INVERSE_PROBLEM,
+            "staged_training": STAGED_TRAINING,
+            "activation": ACTIVATION.__name__,
+            "network": layers_str,
+            "lbfgs": USE_LBFGS
+        }
+        obsidian_dest_dir, obsidian_run_name = init_run_in_obsidian(config_name, config_details)
+
     # 3. Training
     history = train(
         model, 
@@ -223,17 +239,8 @@ if __name__ == "__main__":
         debug_physics_magnitudes(model, physics, data, num_points=2000)
 
 
-    if EXPORT_TO_OBSIDIAN:
-        from src.utils import export_run_to_obsidian
-        config_details = {
-            "dataset": DATASET_PATH.name,
-            "epochs": ADAM_EPOCHS,
-            "inverse_problem": INVERSE_PROBLEM,
-            "staged_training": STAGED_TRAINING,
-            "activation": ACTIVATION.__name__,
-            "network": layers_str,
-            "lbfgs": USE_LBFGS
-        }
+    if EXPORT_TO_OBSIDIAN and obsidian_dest_dir:
+        from src.utils import finalize_run_in_obsidian
         
         results_details = {
             "status": "completed"
@@ -248,10 +255,11 @@ if __name__ == "__main__":
         for fn, err in errors.items():
             results_details[f"Error {fn}"] = f"{err:.6f}"
             
-        export_run_to_obsidian(
+        finalize_run_in_obsidian(
+            dest_dir=obsidian_dest_dir,
             source_dir=str(OUTPUT_DIR),
-            config_name=config_name,
-            config_details=config_details,
+            run_folder_name=obsidian_run_name,
             results_details=results_details
         )
-        print(f"\n[OK] Esecuzione terminata. Plot salvati in: {OUTPUT_DIR}")
+        
+    print(f"\n[OK] Esecuzione terminata. Plot salvati in: {OUTPUT_DIR}")

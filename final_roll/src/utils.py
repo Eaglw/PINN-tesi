@@ -654,22 +654,19 @@ def get_optimal_chunk_size(
         print(f"  [WARNING] Impossibile calcolare la VRAM dinamicamente ({e}). Uso fallback: {default_cpu_chunk}")
         return default_cpu_chunk
 
-
-def export_run_to_obsidian(source_dir: str, config_name: str, config_details: dict, results_details: dict):
+def init_run_in_obsidian(config_name: str, config_details: dict):
     """
-    Copia i risultati di una run in Obsidian (PINN-wiki/Runs) e genera un file Markdown
-    comprensivo di frontmatter per Dataview.
+    Inizializza una cartella per la run in Obsidian e genera il file Markdown
+    con la sezione Idea e Dettagli Configurazione all'avvio del training.
     """
     try:
-        # Trova la cartella Runs
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # PINN-tesi/final_roll/src -> PINN-tesi/final_roll
-        project_root = os.path.dirname(base_dir) # PINN-tesi
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
+        project_root = os.path.dirname(base_dir) 
         runs_dir = os.path.join(project_root, "PINN-wiki", "Runs")
         
         if not os.path.exists(runs_dir):
             os.makedirs(runs_dir, exist_ok=True)
             
-        # Trova il prossimo indice Run_XXX
         existing_runs = [d for d in os.listdir(runs_dir) if os.path.isdir(os.path.join(runs_dir, d)) and d.startswith("Run_")]
         max_idx = 0
         for r in existing_runs:
@@ -680,24 +677,12 @@ def export_run_to_obsidian(source_dir: str, config_name: str, config_details: di
                     max_idx = idx
                     
         next_idx = max_idx + 1
-        # Extract a cleaner config name if it's too long, but here we just use what is passed
         run_folder_name = f"Run_{next_idx:03d}_{config_name}"
         dest_dir = os.path.join(runs_dir, run_folder_name)
         os.makedirs(dest_dir, exist_ok=True)
         
-        # Copia i file (immagini, txt), saltando i file pesanti come pt/pth
-        for file in os.listdir(source_dir):
-            full_path = os.path.join(source_dir, file)
-            if os.path.isfile(full_path):
-                ext = os.path.splitext(file)[1].lower()
-                if ext not in ['.pt', '.pth']:
-                    shutil.copy2(full_path, dest_dir)
-                    
-        # Generazione file Markdown
         md_file_path = os.path.join(dest_dir, f"{run_folder_name}.md")
-        
         date_str = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
-        status = results_details.get("status", "completed")
         inv_prob = config_details.get("inverse_problem", False)
         epochs = config_details.get("epochs", 0)
         dataset_name = config_details.get("dataset", "unknown")
@@ -710,10 +695,41 @@ def export_run_to_obsidian(source_dir: str, config_name: str, config_details: di
             f.write(f"epochs: {epochs}\n")
             f.write("---\n\n")
             f.write(f"# {run_folder_name}\n\n")
+            f.write("## 💡 Idea\n")
+            f.write("Scrivi qui l'obiettivo o la descrizione di questa run...\n\n")
             f.write("## 📝 Dettagli Configurazione\n")
             for k, v in config_details.items():
                 f.write(f"- **{k}**: {v}\n")
-            
+                
+        print(f"\n  [OBSIDIAN] Run inizializzata in: {dest_dir}")
+        return dest_dir, run_folder_name
+        
+    except Exception as e:
+        print(f"\n  [WARNING] Errore durante l'inizializzazione su Obsidian: {e}")
+        return None, None
+
+def finalize_run_in_obsidian(dest_dir: str, source_dir: str, run_folder_name: str, results_details: dict):
+    """
+    Finalizza la run in Obsidian aggiungendo i risultati, copiando i plot e i log a fine training.
+    """
+    if not dest_dir or not run_folder_name or not os.path.exists(dest_dir):
+        print("  [WARNING] Directory Obsidian non valida o mancante. Salto esportazione finale.")
+        return
+        
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
+        project_root = os.path.dirname(base_dir) 
+        
+        for file in os.listdir(source_dir):
+            full_path = os.path.join(source_dir, file)
+            if os.path.isfile(full_path):
+                ext = os.path.splitext(file)[1].lower()
+                if ext not in ['.pt', '.pth']:
+                    shutil.copy2(full_path, dest_dir)
+                    
+        md_file_path = os.path.join(dest_dir, f"{run_folder_name}.md")
+        
+        with open(md_file_path, "a", encoding="utf-8") as f:
             f.write("\n## 📊 Risultati Finali\n")
             
             params = {k.replace("Param ", ""): v for k, v in results_details.items() if k.startswith("Param ")}
@@ -766,5 +782,4 @@ def export_run_to_obsidian(source_dir: str, config_name: str, config_details: di
         print(f"\n  [OBSIDIAN] Run esportata con successo in: {dest_dir}")
         
     except Exception as e:
-        print(f"\n  [WARNING] Errore durante l'esportazione su Obsidian: {e}")
-
+        print(f"\n  [WARNING] Errore durante la finalizzazione su Obsidian: {e}")

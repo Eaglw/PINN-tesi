@@ -341,10 +341,7 @@ def train_stress_only(model, physics, data, save_dir=None, resume_checkpoint=Non
             )
 
             if loaded_opt_state is not None:
-                try:
-                    optimizer_lbfgs_1.load_state_dict(loaded_opt_state)
-                except ValueError:
-                    print("Impossibile caricare state LBFGS_1 (forse resume da una fase differente), continuo.")
+                print("LBFGS_1 resume: stato dell'optimizer ignorato per evitare instabilità e crash di PyTorch.")
                 loaded_opt_state = None
 
             local_start = start_epoch - offset if start_epoch > offset else 0
@@ -569,10 +566,7 @@ def train_stress_only(model, physics, data, save_dir=None, resume_checkpoint=Non
             )
 
             if loaded_opt_state is not None:
-                try:
-                    optimizer_lbfgs.load_state_dict(loaded_opt_state)
-                except ValueError:
-                    print("Impossibile caricare state LBFGS_2 (forse resume da una fase differente), continuo.")
+                print("LBFGS_2 resume: stato dell'optimizer ignorato per evitare instabilità e crash di PyTorch.")
                 loaded_opt_state = None
 
             local_start = start_epoch - offset if start_epoch > offset else 0
