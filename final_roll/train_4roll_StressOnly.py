@@ -67,7 +67,7 @@ EXPORT_TO_OBSIDIAN = True  # True: esporta i log e i plot nel vault Obsidian a f
 STAGED_TRAINING = False # Not used in StressOnly logic but kept for compatibility
 INVERSE_PROBLEM = False
 USE_LBFGS = True
-RESUME_CHECKPOINT = r"C:\Users\eaglw\Documents\PINN tesi\final_roll\output_4rollmill\4_roll_mill_StressOnly_L8x128_E1=50000_E2=30000_SiLU_invFalse_20260619_130621\checkpoint.pth"
+RESUME_CHECKPOINT = None
 
 CHUNK_SIZE_ADAM = CHUNK_SIZE_ADAM_PHASE1
 CHUNK_SIZE_LBFGS = CHUNK_SIZE_LBFGS_PHASE3
@@ -435,7 +435,7 @@ def train_stress_only(model, physics, data, save_dir=None, resume_checkpoint=Non
         def closure_test_phase2(c):
             xc = xy_all[:c].clone().requires_grad_(True)
             u, v, p_pred, tau_pred = physics.get_velocity(model, xc, create_graph=True)
-            loss_m, loss_c = physics.compute_pde_losses(xc, u, v, p_pred, tau_pred, w_momentum=W_MOMENTUM, w_constitutive=W_CONSTITUTIVE)
+            loss_m, loss_c = physics.compute_pde_losses(xc, u, v, p_pred, tau_pred, w_momentum=0.0, w_constitutive=W_CONSTITUTIVE)
             (W_PHYSICS * (loss_m + loss_c) * 1.0).backward()
 
         CHUNK_SIZE_ADAM_PHASE2 = get_optimal_chunk_size(phase=2, model=model, test_closure=closure_test_phase2)
@@ -476,7 +476,7 @@ def train_stress_only(model, physics, data, save_dir=None, resume_checkpoint=Non
                 xph = xc.clone().requires_grad_(True)
                 u, v, p_pred, tau_pred = physics.get_velocity(model, xph, create_graph=True)
                 
-                loss_m, loss_c = physics.compute_pde_losses(xph, u, v, p_pred, tau_pred, w_momentum=W_MOMENTUM, w_constitutive=W_CONSTITUTIVE)
+                loss_m, loss_c = physics.compute_pde_losses(xph, u, v, p_pred, tau_pred, w_momentum=0.0, w_constitutive=W_CONSTITUTIVE)
                 
                 chunk_total_loss = W_PHYSICS * (loss_m + loss_c) * w_chunk
                 chunk_total_loss.backward()
@@ -545,7 +545,7 @@ def train_stress_only(model, physics, data, save_dir=None, resume_checkpoint=Non
             def closure_test_phase2_5(c):
                 xc = xy_all[:c].clone().requires_grad_(True)
                 u, v, p_pred, tau_pred = physics.get_velocity(model, xc, create_graph=True)
-                loss_m, loss_c = physics.compute_pde_losses(xc, u, v, p_pred, tau_pred, w_momentum=W_MOMENTUM, w_constitutive=W_CONSTITUTIVE)
+                loss_m, loss_c = physics.compute_pde_losses(xc, u, v, p_pred, tau_pred, w_momentum=0.0, w_constitutive=W_CONSTITUTIVE)
                 (W_PHYSICS * (loss_m + loss_c) * 1.0).backward()
 
             CHUNK_SIZE_LBFGS = get_optimal_chunk_size(phase=3, model=model, test_closure=closure_test_phase2_5)
@@ -583,7 +583,7 @@ def train_stress_only(model, physics, data, save_dir=None, resume_checkpoint=Non
                     
                     xph = xc.clone().requires_grad_(True)
                     u, v, p_pred, tau_pred = physics.get_velocity(model, xph, create_graph=True)
-                    loss_m, loss_c = physics.compute_pde_losses(xph, u, v, p_pred, tau_pred, w_momentum=W_MOMENTUM, w_constitutive=W_CONSTITUTIVE)
+                    loss_m, loss_c = physics.compute_pde_losses(xph, u, v, p_pred, tau_pred, w_momentum=0.0, w_constitutive=W_CONSTITUTIVE)
                     
                     chunk_total_loss = W_PHYSICS * (loss_m + loss_c) * w_chunk
                     chunk_total_loss.backward()
