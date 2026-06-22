@@ -10,5 +10,9 @@ notes: ENDED
 Visto che [[No Data - entrambe PDE]] non aveva funzionato, ho pensato che includendo i dati potessi guidare il training verso la convergenza, quindi il setup è uguale ma con anche i dati
 
 ## Results
-![[Runs/Mauri 2/L2-error.png]]
-![[Runs/Mauri 2/Loss.png]]
+![[Runs/Maurizio/Mauri 2/L2-error.png]]
+![[Runs/Maurizio/Mauri 2/Loss.png]]
+
+
+## Next run
+[[u,v data + only stress PDE]]

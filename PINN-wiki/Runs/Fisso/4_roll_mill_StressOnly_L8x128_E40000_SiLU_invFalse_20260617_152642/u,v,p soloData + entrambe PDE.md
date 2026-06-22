@@ -15,7 +15,9 @@ description:
 Abbiamo provato a runnare 30k epoche di NN solo data driven per imparare i campi di velocità e pressione e poi ì, a partire da quelli, fare il train sullo stress. 
 In particolare abbiamo attivato entrambe le PDE, con la loss che è composta dalla somma di momentum e constitutive. 
 ## Results
-![[global_fields.png]]
+![[Runs/Fisso/4_roll_mill_StressOnly_L8x128_E40000_SiLU_invFalse_20260617_152642/global_fields.png]]
 Ovviamente la rete only data impara molto bene velocità e pressione, mentre non viene trovato il profilo di stress. 
-![[high_stress.png]]![[loss_history.png]]
-![[l2_errors_history.png]]
+![[Runs/Fisso/4_roll_mill_StressOnly_L8x128_E40000_SiLU_invFalse_20260617_152642/high_stress.png]]![[Runs/Fisso/4_roll_mill_StressOnly_L8x128_E40000_SiLU_invFalse_20260617_152642/loss_history.png]]
+![[Runs/Fisso/4_roll_mill_StressOnly_L8x128_E40000_SiLU_invFalse_20260617_152642/l2_errors_history.png]]
+# Next run
+[[u,v,p solo data 50+5k - entrambe PDE 30+3k]]: provo ad aumentare le epoche mantenendo lo stesso setup
