@@ -65,6 +65,6 @@ views:
         direction: ASC
     columnSize:
       note.date: 149
-      file.name: 183
+      file.name: 316
       note.epochs: 82
       note.staged: 72

@@ -87,4 +87,4 @@ Dopo [[u,v,p soloData + entrambe PDE]] e alla stessa run con più epoche [[u,v,p
 
 ## 📌 Note e Conclusioni
 - I risultati fanno davvero pena, una loss che scende ma con un errore L2 sullo stress che addirittura sale. Come è possibile? 
-- Trovato errore sul lambda, quindi magari vale la pena riprovarci con il lambda corretto, vediamo. 
+- Trovato errore sul lambda, quindi magari vale la pena riprovarci con il lambda corretto, vediamo. [[u,v,p solo Data + only stress PDE]] ho corretto il lambda qui

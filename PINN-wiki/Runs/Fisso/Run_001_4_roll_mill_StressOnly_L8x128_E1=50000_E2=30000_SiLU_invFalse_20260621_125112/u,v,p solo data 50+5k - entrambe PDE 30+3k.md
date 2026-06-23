@@ -83,4 +83,4 @@ Dopo [[u,v,p soloData + entrambe PDE]] con poche epoche, 30k dati e 10k stress, 
 ## 📌 Note e Conclusioni
 - Credo proprio che addestrare sia momentum che constitutive insieme non sia una grande idea, penso che non ci si riesca a districare tra le due se sono attive contemporaneamente. 
 # next run
-[[u,v,p solo Data - solo PDE stress]]
+[[u,v,p solo Data - solo PDE stress - wrong lambda]]
