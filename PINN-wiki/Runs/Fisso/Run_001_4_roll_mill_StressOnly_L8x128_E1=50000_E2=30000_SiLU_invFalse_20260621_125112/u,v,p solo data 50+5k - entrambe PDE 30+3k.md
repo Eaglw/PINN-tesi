@@ -7,7 +7,6 @@ Computer: Fisso
 staged: false
 inverse: false
 ---
-
 # Idea
 Dopo [[u,v,p soloData + entrambe PDE]] con poche epoche, 30k dati e 10k stress, ho provato ad allungare, con 50k adam + 5k L-BFGS per i dati di u,v,p e poi 30k adam e 3k L-BFGS per lo stress. Per lo stress erano attive nella loss sia la momentum che la costitutive. 
 # Run_001_4_roll_mill_StressOnly_L8x128_E1=50000_E2=30000_SiLU_invFalse_20260621_125112
@@ -83,3 +82,5 @@ Dopo [[u,v,p soloData + entrambe PDE]] con poche epoche, 30k dati e 10k stress, 
 
 ## 📌 Note e Conclusioni
 - Credo proprio che addestrare sia momentum che constitutive insieme non sia una grande idea, penso che non ci si riesca a districare tra le due se sono attive contemporaneamente. 
+# next run
+[[u,v,p solo Data - solo PDE stress]]

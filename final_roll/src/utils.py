@@ -559,7 +559,7 @@ def get_optimal_chunk_size(
     safety_factor=0.875,  # 87.5% della VRAM totale (esattamente 10.5GB su 12GB)
     default_cpu_chunk=5000,
     min_chunk=1000,
-    max_chunk=150000,
+    max_chunk=200000,
     model=None,
     test_closure=None
 ):
@@ -783,3 +783,13 @@ def finalize_run_in_obsidian(dest_dir: str, source_dir: str, run_folder_name: st
         
     except Exception as e:
         print(f"\n  [WARNING] Errore durante la finalizzazione su Obsidian: {e}")
+
+
+def export_run_to_obsidian(source_dir: str, config_name: str, config_details: dict, results_details: dict):
+    """
+    Wrapper per inizializzare ed esportare i log e i plot nel vault Obsidian a fine run.
+    """
+    dest_dir, run_folder_name = init_run_in_obsidian(config_name, config_details)
+    if dest_dir and run_folder_name:
+        finalize_run_in_obsidian(dest_dir, source_dir, run_folder_name, results_details)
+

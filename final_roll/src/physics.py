@@ -68,8 +68,14 @@ class Physics(nn.Module):
         beta_poly = self.mu_p / mu_tot
         return Re, Wi, beta, beta_poly, self.eps, self.alpha
 
-    def compute_residuals(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0):
-        """Calcola i residui PDE adimensionali saltando i calcoli se i pesi sono nulli."""
+    def compute_residuals(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0, frozen_velocity=False):
+        """Calcola i residui PDE adimensionali saltando i calcoli se i pesi sono nulli.
+        
+        Args:
+            frozen_velocity: Se True, i termini di velocità/pressione nella momentum
+                equation vengono calcolati con create_graph=False (più economico)
+                perché le reti psi e p sono congelate e non serve backprop.
+        """
         Re, Wi, beta, beta_poly, eps, alpha = self._nondim()
 
         # Estrazione tensori di stress passati come argomento
@@ -105,15 +111,19 @@ class Physics(nn.Module):
 
         # --- Momentum ---
         if w_momentum > 0.0:
-            grad_p = self._grad(p, x)
+            # Se frozen_velocity=True, non serve create_graph per i termini
+            # di velocità/pressione (reti congelate → nessun gradiente da propagare)
+            cg_vel = not frozen_velocity
+
+            grad_p = self._grad(p, x, create_graph=cg_vel)
             p_x, p_y = grad_p[:, 0:1], grad_p[:, 1:2]
 
-            u_xx = self._grad(u_x, x)[:, 0:1]
+            u_xx = self._grad(u_x, x, create_graph=cg_vel)[:, 0:1]
 
-            grad_u_y = self._grad(u_y, x)
+            grad_u_y = self._grad(u_y, x, create_graph=cg_vel)
             u_yx, u_yy = grad_u_y[:, 0:1], grad_u_y[:, 1:2]
 
-            v_xx = self._grad(v_x, x)[:, 0:1]
+            v_xx = self._grad(v_x, x, create_graph=cg_vel)[:, 0:1]
             v_yy = -u_yx
 
             f_u = (
@@ -179,10 +189,10 @@ class Physics(nn.Module):
 
         return f_u, f_v, f_txx, f_tyy, f_txy
 
-    def compute_pde_losses(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0):
+    def compute_pde_losses(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0, frozen_velocity=False):
         """Calcola separatamente loss momentum e constitutive."""
         f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(
-            x, u, v, p, tau, w_momentum, w_constitutive
+            x, u, v, p, tau, w_momentum, w_constitutive, frozen_velocity=frozen_velocity
         )
         #divido per numero componenti
         loss_m = (f_u**2 + f_v**2).mean() / 2.0
@@ -190,9 +200,9 @@ class Physics(nn.Module):
 
         return loss_m, loss_c
 
-    def pde_loss_weighted(self, x, u, v, p, tau, w_momentum, w_constitutive):
+    def pde_loss_weighted(self, x, u, v, p, tau, w_momentum, w_constitutive, frozen_velocity=False):
         """Loss PDE pesata per staged training."""
-        loss_m, loss_c = self.compute_pde_losses(x, u, v, p, tau, w_momentum, w_constitutive)
+        loss_m, loss_c = self.compute_pde_losses(x, u, v, p, tau, w_momentum, w_constitutive, frozen_velocity=frozen_velocity)
         return w_momentum * loss_m + w_constitutive * loss_c
 
     def pde_loss(self, x, u, v, p, tau):

@@ -79,7 +79,7 @@ DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1
 MU_P_TRUE = 0.9
-LAM_TRUE = 1.0
+LAM_TRUE = 0.05
 EPS_TRUE = 0.0
 ALPHA_TRUE = 0.0
 RHO = 1000.0
