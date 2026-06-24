@@ -72,7 +72,7 @@ USE_LBFGS = False  # True: esegue la seconda fase con L-BFGS, False: si ferma ad
 DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = "final_roll/checkpoints/checkpoint_psi+tau_100k.pth"
+RESUME_CHECKPOINT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints", "checkpoint_psi+tau_100k.pth")
 
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent

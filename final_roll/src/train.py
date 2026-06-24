@@ -215,19 +215,23 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
     loaded_opt_state = None
     loaded_sch_state = None
 
-    if resume_checkpoint is not None and os.path.exists(resume_checkpoint):
-        print(f"\n[Checkpoint] Caricamento da: {resume_checkpoint}")
-        chk = torch.load(resume_checkpoint, map_location=DEVICE)
-        
-        model.load_state_dict(chk['model_state_dict'])
-        physics.load_state_dict(chk['physics_state_dict'])
-        history.load_state_dict(chk['history_state_dict'])
-        
-        loaded_opt_state = chk.get('optimizer_state_dict', None)
-        loaded_sch_state = chk.get('scheduler_state_dict', None)
-        
-        start_epoch = chk.get('epoch', 0) + 1
-        print(f"[Checkpoint] Ripresa dall'epoca {start_epoch}")
+    if resume_checkpoint is not None:
+        if os.path.exists(resume_checkpoint):
+            print(f"\n[Checkpoint] Caricamento da: {resume_checkpoint}")
+            chk = torch.load(resume_checkpoint, map_location=DEVICE)
+            
+            model.load_state_dict(chk['model_state_dict'])
+            physics.load_state_dict(chk['physics_state_dict'])
+            history.load_state_dict(chk['history_state_dict'])
+            
+            loaded_opt_state = chk.get('optimizer_state_dict', None)
+            loaded_sch_state = chk.get('scheduler_state_dict', None)
+            
+            start_epoch = chk.get('epoch', 0) + 1
+            print(f"[Checkpoint] Ripresa dall'epoca {start_epoch}")
+        else:
+            print(f"\n[ATTENZIONE] Il file di checkpoint specificato NON ESISTE: {resume_checkpoint}")
+            print("Il training ripartirà da zero!")
 
     # --- ESTRAZIONE DATI ---
     xy_all = data["coords"]
