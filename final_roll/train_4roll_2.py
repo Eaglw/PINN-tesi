@@ -103,7 +103,7 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS = 1000*100
+ADAM_EPOCHS = 1000*200
 #LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)  # 10% di epoche Adam
 LBFGS_MAX_ITERS = 1000
 BASE_LR = 1e-3
