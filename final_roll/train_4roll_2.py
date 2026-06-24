@@ -72,7 +72,7 @@ USE_LBFGS = False  # True: esegue la seconda fase con L-BFGS, False: si ferma ad
 DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = "INSERISCI_QUI_IL_PATH_DEL_CHECKPOINT.pth"  # Sostituisci con il percorso del checkpoint
+RESUME_CHECKPOINT = None  # Es. "output_4rollmill/config_name/checkpoint.pth" per riprendere
 
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
