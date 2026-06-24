@@ -6,6 +6,7 @@ import matplotlib
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.tensorboard import SummaryWriter
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -198,13 +199,20 @@ if __name__ == "__main__":
         obsidian_dest_dir, obsidian_run_name = init_run_in_obsidian(config_name, config_details)
 
     # 3. Training
+    tb_dir = OUTPUT_DIR / "tb_logs"
+    tb_dir.mkdir(parents=True, exist_ok=True)
+    tb_writer = SummaryWriter(log_dir=str(tb_dir))
+    
     history = train(
         model, 
         physics, 
         data, 
         resume_checkpoint=RESUME_CHECKPOINT,
-        save_dir=OUTPUT_DIR
+        save_dir=OUTPUT_DIR,
+        tb_writer=tb_writer
     )
+    
+    tb_writer.close()
 
     # 4. Report Risultati Finali
     params = physics.log_params()

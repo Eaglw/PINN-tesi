@@ -203,7 +203,7 @@ def init_weights_xavier(m, activation_name="tanh"):
             nn.init.zeros_(m.bias)
 
 
-def train(model, physics, data, resume_checkpoint=None, save_dir=None):
+def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer=None):
     """
     Training completo PINN: Adam (staged/non-staged) + L-BFGS (FP64).
     Implementazione ottimizzata per il contenimento della VRAM.
@@ -555,6 +555,36 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
 
             history.update(epoch, loss_dict)
 
+            if tb_writer is not None:
+                # Log Loss Scalars
+                tb_writer.add_scalar('Loss/Total', tot_loss, epoch)
+                tb_writer.add_scalar('Loss/Data', d_loss_accum, epoch)
+                tb_writer.add_scalar('Loss/BC', b_loss_val, epoch)
+                tb_writer.add_scalar('Loss/PDE', p_loss_accum, epoch)
+                
+                # Log Physical Parameters
+                tb_writer.add_scalar('Params/mu_s', params['mu_s'], epoch)
+                tb_writer.add_scalar('Params/mu_p', params['mu_p'], epoch)
+                tb_writer.add_scalar('Params/lam', params['lam'], epoch)
+                tb_writer.add_scalar('Params/eps', params['eps'], epoch)
+                tb_writer.add_scalar('Params/alpha', params['alpha'], epoch)
+                
+                if log_l2:
+                    for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy', 'tau_xx_masked', 'tau_xy_masked', 'tau_yy_masked']:
+                        tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], epoch)
+                        
+                # Log Histograms of Weights and Gradients
+                for name, param in model.named_parameters():
+                    tb_writer.add_histogram(f'Weights/{name}', param, epoch)
+                    if param.grad is not None:
+                        tb_writer.add_histogram(f'Gradients/{name}', param.grad, epoch)
+                        
+                if physics.inverse_mode:
+                    for name, param in physics.named_parameters():
+                        tb_writer.add_histogram(f'Physics_Weights/{name}', param, epoch)
+                        if param.grad is not None:
+                            tb_writer.add_histogram(f'Physics_Gradients/{name}', param.grad, epoch)
+
         pbar.set_postfix(
             {
                 "Loss": f"{tot_loss:.2e}",
@@ -688,6 +718,36 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
                     "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
                 },
             )
+
+            if tb_writer is not None:
+                tb_epoch = ADAM_EPOCHS + l_it[0]
+                # Log Loss Scalars
+                tb_writer.add_scalar('Loss/Total', tot_loss, tb_epoch)
+                tb_writer.add_scalar('Loss/Data', d_loss_accum, tb_epoch)
+                tb_writer.add_scalar('Loss/BC', b_loss_val, tb_epoch)
+                tb_writer.add_scalar('Loss/PDE', p_loss_accum, tb_epoch)
+                
+                # Log Physical Parameters
+                tb_writer.add_scalar('Params/mu_s', params['mu_s'], tb_epoch)
+                tb_writer.add_scalar('Params/mu_p', params['mu_p'], tb_epoch)
+                tb_writer.add_scalar('Params/lam', params['lam'], tb_epoch)
+                tb_writer.add_scalar('Params/eps', params['eps'], tb_epoch)
+                tb_writer.add_scalar('Params/alpha', params['alpha'], tb_epoch)
+                
+                for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy', 'tau_xx_masked', 'tau_xy_masked', 'tau_yy_masked']:
+                    tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], tb_epoch)
+                    
+                # Log Histograms of Weights and Gradients
+                for name, param in model.named_parameters():
+                    tb_writer.add_histogram(f'Weights/{name}', param, tb_epoch)
+                    if param.grad is not None:
+                        tb_writer.add_histogram(f'Gradients/{name}', param.grad, tb_epoch)
+                        
+                if physics.inverse_mode:
+                    for name, param in physics.named_parameters():
+                        tb_writer.add_histogram(f'Physics_Weights/{name}', param, tb_epoch)
+                        if param.grad is not None:
+                            tb_writer.add_histogram(f'Physics_Gradients/{name}', param.grad, tb_epoch)
 
         l_it[0] += 1
         pbar_lbfgs.update(1)
