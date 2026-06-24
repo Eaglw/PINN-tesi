@@ -240,28 +240,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
     #half_epochs = 10
     def configure_staged_phase(epoch):
         """Modifica i flag requires_grad dei sottomodelli. Chiamata SOLO ai cambi di fase."""
-        if not STAGED_TRAINING:
-            for p in model.parameters():
-                p.requires_grad = True
-            return None, W_MOMENTUM, W_CONSTITUTIVE
-        if epoch < half_epochs:
-            # Fase 1: Cinematica e Reologia (Congela Pressione)
-            for p in model.parameters():
-                p.requires_grad = False
-            for p in model.model_psi.parameters():
-                p.requires_grad = True
-            for p in model.model_tau.parameters():
-                p.requires_grad = True
-            return ["u", "v", "tau_xx", "tau_xy", "tau_yy"], 0.0, W_CONSTITUTIVE
-        else:
-            # Fase 2: Dinamica (Congela Sforzi)
-            for p in model.parameters():
-                p.requires_grad = False
-            for p in model.model_psi.parameters():
-                p.requires_grad = True
-            for p in model.model_p.parameters():
-                p.requires_grad = True
-            return ["u", "v", "p"], W_MOMENTUM, 0.0
+        # MODIFICA TEMPORANEA: Allena SOLO la pressione
+        for p in model.parameters():
+            p.requires_grad = False
+        for p in model.model_p.parameters():
+            p.requires_grad = True
+        return ["u", "v", "p"], W_MOMENTUM, 0.0
 
 
 
@@ -276,10 +260,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
             other_net_params = [p for p in model.model_p.parameters() if p.requires_grad] + \
                                [p for p in model.model_tau.parameters() if p.requires_grad]
             
-            groups = [
-                {"params": psi_params, "lr": 1e-5},
-                {"params": other_net_params, "lr": BASE_LR}
-            ]
+            groups = []
+            if psi_params:
+                groups.append({"params": psi_params, "lr": 1e-5})
+            if other_net_params:
+                groups.append({"params": other_net_params, "lr": BASE_LR})
         else:
             net_params = [p for p in model.parameters() if p.requires_grad]
             groups = [{"params": net_params, "lr": BASE_LR}]

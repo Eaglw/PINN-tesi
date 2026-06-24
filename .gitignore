@@ -20,6 +20,7 @@ __pycache__/
 *.py[codz]
 *$py.class
 *.pth
+!final_roll/checkpoints/*.pth
 # C extensions
 *.so
 
