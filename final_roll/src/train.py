@@ -258,10 +258,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
             for p in model.parameters():
                 p.requires_grad = False
             for p in model.model_psi.parameters():
-                p.requires_grad = True
+                p.requires_grad = False ### MODIFICA ALLO STAGED per una prova
             for p in model.model_p.parameters():
                 p.requires_grad = True
-            return ["u", "v", "p"], W_MOMENTUM, 0.0
+            #return ["u", "v", "p"], W_MOMENTUM, 0.0 Modifica
+            return ["p"], W_MOMENTUM, 0.0
 
 
 
@@ -276,10 +277,15 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None):
             other_net_params = [p for p in model.model_p.parameters() if p.requires_grad] + \
                                [p for p in model.model_tau.parameters() if p.requires_grad]
             
-            groups = [
-                {"params": psi_params, "lr": 1e-5},
-                {"params": other_net_params, "lr": BASE_LR}
-            ]
+         #   groups = [ MODIFICA TEMPORANEA
+         #       {"params": psi_params, "lr": 1e-5},
+         #       {"params": other_net_params, "lr": BASE_LR}
+         #   ]
+            groups = []
+            if psi_params:
+                groups.append({"params": psi_params, "lr": 1e-5})
+            if other_net_params:
+                groups.append({"params": other_net_params, "lr": BASE_LR})
         else:
             net_params = [p for p in model.parameters() if p.requires_grad]
             groups = [{"params": net_params, "lr": BASE_LR}]
