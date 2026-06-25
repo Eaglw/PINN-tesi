@@ -110,7 +110,7 @@ LBFGS_MAX_ITERS = 1000
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
-GRAD_CLIP_NORM = 5.0
+GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
 WARMUP_UNLOCK_EPOCH = int(0.2 * ADAM_EPOCHS)
@@ -140,7 +140,47 @@ for module in [src.debug, src.physics, src.train, src.utils]:
         if name.isupper():
             module.__dict__[name] = val
 
+def launch_tensorboard_server(log_dir):
+    import subprocess
+    import webbrowser
+    import time
+    import socket
+    import sys
+    from pathlib import Path
+
+    # Controlla se la porta 6006 è già occupata
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 6006))
+        s.close()
+        port_free = True
+    except socket.error:
+        port_free = False
+
+    if port_free:
+        print("\n[TensorBoard] Avvio del server TensorBoard in corso...")
+        venv_bin = Path(sys.executable).parent
+        tb_executable = venv_bin / "tensorboard"
+        if not tb_executable.exists():
+            tb_executable = venv_bin / "tensorboard.exe"
+            
+        cmd = [
+            str(tb_executable) if tb_executable.exists() else "tensorboard",
+            "--logdir", str(log_dir),
+            "--port", "6006"
+        ]
+        
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+        time.sleep(2)
+        print("[TensorBoard] Server avviato sulla porta 6006.")
+    else:
+        print("\n[TensorBoard] Server già attivo o porta 6006 occupata. Utilizzo istanza esistente.")
+
+    print("[TensorBoard] Apertura del browser su http://localhost:6006 ...")
+    webbrowser.open("http://localhost:6006")
+
 if __name__ == "__main__":
+
     print(f"Device: {DEVICE} | Dtype: {torch.get_default_dtype()}")
     print(f"Dataset: {DATASET_PATH}\n")
     print("=" * 60)
@@ -199,6 +239,9 @@ if __name__ == "__main__":
         obsidian_dest_dir, obsidian_run_name = init_run_in_obsidian(config_name, config_details)
 
     # 3. Training
+    # Avvia automaticamente TensorBoard monitorando la directory radice degli output
+    launch_tensorboard_server(OUTPUT_DIR.parent)
+    
     tb_dir = OUTPUT_DIR / "tb_logs"
     tb_dir.mkdir(parents=True, exist_ok=True)
     tb_writer = SummaryWriter(log_dir=str(tb_dir))

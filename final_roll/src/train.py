@@ -258,11 +258,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 p.requires_grad = True
             return ["u", "v", "tau_xx", "tau_xy", "tau_yy"], 0.0, W_CONSTITUTIVE
         else:
-            # Fase 2: Dinamica (Congela Sforzi)
+            # Fase 2: Dinamica (Congela Sforzi e Velocità)
             for p in model.parameters():
                 p.requires_grad = False
             for p in model.model_psi.parameters():
-                p.requires_grad = False ### MODIFICA ALLO STAGED per una prova
+                p.requires_grad = False ### MODIFICA ALLO STAGED per una prova (Mantenuta su richiesta dell'utente)
             for p in model.model_p.parameters():
                 p.requires_grad = True
             #return ["u", "v", "p"], W_MOMENTUM, 0.0 Modifica
@@ -574,10 +574,31 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                         tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], epoch)
                         
                 # Log Histograms of Weights and Gradients
+                grad_norms = {'Psi': 0.0, 'Pressure': 0.0, 'Stress': 0.0}
                 for name, param in model.named_parameters():
-                    tb_writer.add_histogram(f'Weights/{name}', param, epoch)
+                    clean_name = name.replace('.', '/')
+                    if name.startswith('model_psi'):
+                        sub_model = 'Psi'
+                        tag = f"{sub_model}/{clean_name.replace('model_psi/', '')}"
+                    elif name.startswith('model_p'):
+                        sub_model = 'Pressure'
+                        tag = f"{sub_model}/{clean_name.replace('model_p/', '')}"
+                    elif name.startswith('model_tau'):
+                        sub_model = 'Stress'
+                        tag = f"{sub_model}/{clean_name.replace('model_tau/', '')}"
+                    else:
+                        sub_model = 'Other'
+                        tag = clean_name
+                    
+                    tb_writer.add_histogram(f'Weights/{tag}', param, epoch)
                     if param.grad is not None:
-                        tb_writer.add_histogram(f'Gradients/{name}', param.grad, epoch)
+                        tb_writer.add_histogram(f'Gradients/{tag}', param.grad, epoch)
+                        if sub_model in grad_norms:
+                            grad_norms[sub_model] += param.grad.data.norm(2).item() ** 2
+                            
+                for sm, norm in grad_norms.items():
+                    if norm > 0:
+                        tb_writer.add_scalar(f'GradNorm/{sm}', norm ** 0.5, epoch)
                         
                 if physics.inverse_mode:
                     for name, param in physics.named_parameters():
@@ -738,10 +759,31 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], tb_epoch)
                     
                 # Log Histograms of Weights and Gradients
+                grad_norms = {'Psi': 0.0, 'Pressure': 0.0, 'Stress': 0.0}
                 for name, param in model.named_parameters():
-                    tb_writer.add_histogram(f'Weights/{name}', param, tb_epoch)
+                    clean_name = name.replace('.', '/')
+                    if name.startswith('model_psi'):
+                        sub_model = 'Psi'
+                        tag = f"{sub_model}/{clean_name.replace('model_psi/', '')}"
+                    elif name.startswith('model_p'):
+                        sub_model = 'Pressure'
+                        tag = f"{sub_model}/{clean_name.replace('model_p/', '')}"
+                    elif name.startswith('model_tau'):
+                        sub_model = 'Stress'
+                        tag = f"{sub_model}/{clean_name.replace('model_tau/', '')}"
+                    else:
+                        sub_model = 'Other'
+                        tag = clean_name
+                    
+                    tb_writer.add_histogram(f'Weights/{tag}', param, tb_epoch)
                     if param.grad is not None:
-                        tb_writer.add_histogram(f'Gradients/{name}', param.grad, tb_epoch)
+                        tb_writer.add_histogram(f'Gradients/{tag}', param.grad, tb_epoch)
+                        if sub_model in grad_norms:
+                            grad_norms[sub_model] += param.grad.data.norm(2).item() ** 2
+                            
+                for sm, norm in grad_norms.items():
+                    if norm > 0:
+                        tb_writer.add_scalar(f'GradNorm/{sm}', norm ** 0.5, tb_epoch)
                         
                 if physics.inverse_mode:
                     for name, param in physics.named_parameters():

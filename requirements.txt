@@ -9,3 +9,4 @@ sympy
 jupyter
 notebook
 ipykernel
+tensorboard
