@@ -247,7 +247,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         if not STAGED_TRAINING:
             for p in model.parameters():
                 p.requires_grad = True
-            return None, W_MOMENTUM, W_CONSTITUTIVE
+            return None, W_MOMENTUM, W_CONSTITUTIVE, False
         if epoch < half_epochs:
             # Fase 1: Cinematica e Reologia (Congela Pressione)
             for p in model.parameters():
@@ -256,7 +256,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 p.requires_grad = True
             for p in model.model_tau.parameters():
                 p.requires_grad = True
-            return ["u", "v", "tau_xx", "tau_xy", "tau_yy"], 0.0, W_CONSTITUTIVE
+            return ["u", "v", "tau_xx", "tau_xy", "tau_yy"], 0.0, W_CONSTITUTIVE, False
         else:
             # Fase 2: Dinamica (Congela Sforzi e Velocità)
             for p in model.parameters():
@@ -265,8 +265,10 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 p.requires_grad = False ### MODIFICA ALLO STAGED per una prova (Mantenuta su richiesta dell'utente)
             for p in model.model_p.parameters():
                 p.requires_grad = True
-            #return ["u", "v", "p"], W_MOMENTUM, 0.0 Modifica
-            return ["p"], W_MOMENTUM, 0.0
+            # Scelta deliberata: includiamo le BC su u,v anche in Fase 2.
+            # Con ψ congelato i gradienti non raggiungono model_psi, ma le BC
+            # di velocità servono come monitoraggio e vincolo di consistenza.
+            return ["u", "v", "p"], W_MOMENTUM, 0.0, True
 
 
 
@@ -306,7 +308,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         return opt, sch
 
     def compute_and_backward_losses(
-        active_bcs, w_mom, w_con, points, labels, is_lbfgs=False, chunk_size_override=None
+        active_bcs, w_mom, w_con, points, labels, is_lbfgs=False, chunk_size_override=None, frozen_velocity=False
     ):
         """
         Motore di calcolo centralizzato con Accumulazione dei Gradienti in Chunk.
@@ -347,7 +349,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 chunk_total_loss = chunk_total_loss + W_DATA * dl * w_chunk
 
             # --- 2. PDE LOSS ---
-            lm, lc = physics.compute_pde_losses(xph, u, v, p, tau, w_mom, w_con)
+            lm, lc = physics.compute_pde_losses(xph, u, v, p, tau, w_mom, w_con, frozen_velocity=frozen_velocity)
             loss_m_val += lm.item() * w_chunk
             loss_c_val += lc.item() * w_chunk
             pl = (w_mom * lm) + (w_con * lc)
@@ -384,7 +386,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
     from src.utils import get_optimal_chunk_size
     # Configurazione di base per l'epoca di partenza
     if STAGED_TRAINING and start_epoch >= half_epochs:
-        active_bcs, w_mom, w_con = configure_staged_phase(start_epoch)
+        active_bcs, w_mom, w_con, frozen_vel = configure_staged_phase(start_epoch)
         if physics.inverse_mode:
             for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha]:
                 p.requires_grad_(False)
@@ -393,11 +395,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             test_closure=lambda c: compute_and_backward_losses(
                 active_bcs=active_bcs, w_mom=w_mom, w_con=w_con,
                 points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
-                is_lbfgs=False, chunk_size_override=c
+                is_lbfgs=False, chunk_size_override=c, frozen_velocity=frozen_vel
             )
         )
     else:
-        active_bcs, w_mom, w_con = configure_staged_phase(start_epoch)
+        active_bcs, w_mom, w_con, frozen_vel = configure_staged_phase(start_epoch)
         if physics.inverse_mode:
             if start_epoch >= WARMUP_UNLOCK_EPOCH:
                 for p in [physics.mu_s, physics.mu_p, physics.lam]:
@@ -410,7 +412,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             test_closure=lambda c: compute_and_backward_losses(
                 active_bcs=active_bcs, w_mom=w_mom, w_con=w_con,
                 points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
-                is_lbfgs=False, chunk_size_override=c
+                is_lbfgs=False, chunk_size_override=c, frozen_velocity=frozen_vel
             )
         )
 
@@ -449,7 +451,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 f"\n{'=' * 60}\nFASE 2 ADAM (Dinamica): {ADAM_EPOCHS - half_epochs} epoche\n{'=' * 60}"
             )
 
-            active_bcs, w_mom, w_con = configure_staged_phase(
+            active_bcs, w_mom, w_con, frozen_vel = configure_staged_phase(
                 epoch
             )  # Ricalcolo layer attivi
             if physics.inverse_mode:
@@ -468,7 +470,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 test_closure=lambda c: compute_and_backward_losses(
                     active_bcs=active_bcs, w_mom=w_mom, w_con=w_con,
                     points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
-                    is_lbfgs=False, chunk_size_override=c
+                    is_lbfgs=False, chunk_size_override=c, frozen_velocity=frozen_vel
                 )
             )
             optimizer, scheduler = build_optimizer(ADAM_EPOCHS - half_epochs)
@@ -478,7 +480,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         # Motore centrale: calcola le loss in chunk evitando OOM
         tot_loss, d_loss_accum, b_loss_val, p_loss_accum, _, _ = (
-            compute_and_backward_losses(active_bcs, w_mom, w_con, xy_all, uv_all)
+            compute_and_backward_losses(active_bcs, w_mom, w_con, xy_all, uv_all, frozen_velocity=frozen_vel)
         )
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)

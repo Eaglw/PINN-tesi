@@ -72,9 +72,10 @@ class Physics(nn.Module):
         """Calcola i residui PDE adimensionali saltando i calcoli se i pesi sono nulli.
         
         Args:
-            frozen_velocity: Se True, i termini di velocità/pressione nella momentum
-                equation vengono calcolati con create_graph=False (più economico)
-                perché le reti psi e p sono congelate e non serve backprop.
+            frozen_velocity: Se True, le derivate di velocità nella momentum
+                equation vengono calcolate con create_graph=False (più economico)
+                perché model_psi è congelato. Il gradiente di pressione usa sempre
+                create_graph=True per consentire il backprop verso model_p.
         """
         Re, Wi, beta, beta_poly, eps, alpha = self._nondim()
 
@@ -111,11 +112,13 @@ class Physics(nn.Module):
 
         # --- Momentum ---
         if w_momentum > 0.0:
-            # Se frozen_velocity=True, non serve create_graph per i termini
-            # di velocità/pressione (reti congelate → nessun gradiente da propagare)
+            # frozen_velocity controlla create_graph per le derivate di VELOCITÀ.
+            # In Fase 2, ψ è congelato → create_graph=False per u_xx, u_yy ecc.
+            # Il gradiente di PRESSIONE usa sempre create_graph=True perché
+            # model_p è trainabile e i gradienti devono fluire attraverso dp/dx.
             cg_vel = not frozen_velocity
 
-            grad_p = self._grad(p, x, create_graph=cg_vel)
+            grad_p = self._grad(p, x)
             p_x, p_y = grad_p[:, 0:1], grad_p[:, 1:2]
 
             u_xx = self._grad(u_x, x, create_graph=cg_vel)[:, 0:1]
@@ -139,9 +142,11 @@ class Physics(nn.Module):
                 - (tau_xy_x + tau_yy_y)
             )
 
-            # Bilanciamento Loss Momentum
-            f_u = f_u / self.p_scale
-            f_v = f_v / self.p_scale
+            # NOTA: i residui momentum NON vengono divisi per p_scale.
+            # A differenza dell'equazione costitutiva (dove tutti i termini scalano
+            # con tau_scale), la momentum mescola dp/dx (∝ p_scale) con termini
+            # viscosi e di stress (∝ 1). Dividere per p_scale sopprime questi
+            # ultimi e uccide il segnale di gradiente verso model_p.
         else:
             f_u = f_v = torch.zeros_like(u)
 
