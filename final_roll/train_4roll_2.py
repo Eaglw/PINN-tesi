@@ -69,7 +69,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EXPORT_TO_OBSIDIAN = True  # True: esporta i log e i plot nel vault Obsidian a fine run
 STAGED_TRAINING = True  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
 INVERSE_PROBLEM = False  # True: semi-inverso, False: diretto
-USE_LBFGS = False  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
+USE_LBFGS = True  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
 DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 
 # --- Checkpointing ---
@@ -104,10 +104,9 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS = 1000*200
-#LBFGS_MAX_ITERS = int(0.1 * ADAM_EPOCHS)  # 10% di epoche Adam
-LBFGS_MAX_ITERS = 1000
-BASE_LR = 1e-3
+ADAM_EPOCHS = 150000
+LBFGS_MAX_ITERS = 5000  # Fase di fine-tuning ad alta precisione
+BASE_LR = 5e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
 GRAD_CLIP_NORM = 1000.0
@@ -118,7 +117,7 @@ WARMUP_UNLOCK_EPOCH = int(0.2 * ADAM_EPOCHS)
 # --- Pesi Funzione di Loss ---
 W_BC = 2.0
 W_PHYSICS = 3.0
-W_DATA = 1.0
+W_DATA = 1e6
 W_MOMENTUM = 1.0
 W_CONSTITUTIVE = 1.0
 VARIANCE_EPS = 1e-4

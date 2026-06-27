@@ -258,17 +258,17 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 p.requires_grad = True
             return ["u", "v", "tau_xx", "tau_xy", "tau_yy"], 0.0, W_CONSTITUTIVE, False
         else:
-            # Fase 2: Dinamica (Congela Sforzi e Velocità)
+            # Fase 2: Dinamica (Congela Sforzi, Sblocca Pressione e Velocità)
             for p in model.parameters():
                 p.requires_grad = False
             for p in model.model_psi.parameters():
-                p.requires_grad = False ### MODIFICA ALLO STAGED per una prova (Mantenuta su richiesta dell'utente)
+                p.requires_grad = True ### VERO STAGED: psi deve sbloccarsi per far scendere la loss
             for p in model.model_p.parameters():
                 p.requires_grad = True
             # Scelta deliberata: includiamo le BC su u,v anche in Fase 2.
-            # Con ψ congelato i gradienti non raggiungono model_psi, ma le BC
+            # Con psi sbloccato i gradienti raggiungono model_psi, ma le BC
             # di velocità servono come monitoraggio e vincolo di consistenza.
-            return ["u", "v", "p"], W_MOMENTUM, 0.0, True
+            return ["u", "v", "p"], W_MOMENTUM, 0.0, False
 
 
 
@@ -420,14 +420,16 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
     steps_rem = (half_epochs - start_epoch) if (STAGED_TRAINING and start_epoch < half_epochs) else (ADAM_EPOCHS - start_epoch)
     optimizer, scheduler = build_optimizer(steps_rem)
 
+    opt_loaded = False
     if loaded_opt_state is not None:
         try:
             optimizer.load_state_dict(loaded_opt_state)
             print("[Checkpoint] Optimizer state ripristinato con successo.")
+            opt_loaded = True
         except Exception as e:
             print(f"[Checkpoint] Avviso: Impossibile ripristinare optimizer state (possibile cambio di fase): {e}")
 
-    if loaded_sch_state is not None:
+    if loaded_sch_state is not None and opt_loaded:
         try:
             scheduler.load_state_dict(loaded_sch_state)
         except Exception:
@@ -479,7 +481,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         optimizer.zero_grad(set_to_none=True)
 
         # Motore centrale: calcola le loss in chunk evitando OOM
-        tot_loss, d_loss_accum, b_loss_val, p_loss_accum, _, _ = (
+        tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val = (
             compute_and_backward_losses(active_bcs, w_mom, w_con, xy_all, uv_all, frozen_velocity=frozen_vel)
         )
 
@@ -505,8 +507,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         scheduler.step()
 
         # Condizioni di logging separate
-        log_loss = ((epoch + 1) % 10 == 0) or (epoch == 0) or (STAGED_TRAINING and (epoch + 1) == half_epochs)
-        log_l2 = ((epoch + 1) % max(1, ADAM_EPOCHS // 40) == 0) or (epoch == 0) or (STAGED_TRAINING and (epoch + 1) == half_epochs)
+        log_loss = ((epoch + 1) % 10 == 0) or (epoch + 1) == ADAM_EPOCHS or epoch == start_epoch or (STAGED_TRAINING and (epoch + 1) == half_epochs)
+        log_l2 = ((epoch + 1) % max(1, ADAM_EPOCHS // 40) == 0) or (epoch == start_epoch) or (STAGED_TRAINING and (epoch + 1) == half_epochs)
 
         if log_loss:
             params = physics.log_params()
@@ -515,6 +517,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 "data": d_loss_accum,
                 "bc": b_loss_val,
                 "pde": p_loss_accum,
+                "loss_momentum": loss_m_val,
+                "loss_constitutive": loss_c_val,
                 "param_mu_s": params["mu_s"],
                 "param_mu_p": params["mu_p"],
                 "param_lam": params["lam"],
@@ -538,9 +542,6 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     "l2_tau_xx": l2_errs["tau_xx"],
                     "l2_tau_xy": l2_errs["tau_xy"],
                     "l2_tau_yy": l2_errs["tau_yy"],
-                    "l2_tau_xx_masked": l2_errs["tau_xx_masked"],
-                    "l2_tau_xy_masked": l2_errs["tau_xy_masked"],
-                    "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
                 })
 
                 if save_dir is not None:
@@ -563,6 +564,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 tb_writer.add_scalar('Loss/Data', d_loss_accum, epoch)
                 tb_writer.add_scalar('Loss/BC', b_loss_val, epoch)
                 tb_writer.add_scalar('Loss/PDE', p_loss_accum, epoch)
+                tb_writer.add_scalar('Loss/Momentum', loss_m_val, epoch)
+                tb_writer.add_scalar('Loss/Constitutive', loss_c_val, epoch)
                 
                 # Log Physical Parameters
                 tb_writer.add_scalar('Params/mu_s', params['mu_s'], epoch)
@@ -572,7 +575,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 tb_writer.add_scalar('Params/alpha', params['alpha'], epoch)
                 
                 if log_l2:
-                    for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy', 'tau_xx_masked', 'tau_xy_masked', 'tau_yy_masked']:
+                    for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
                         tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], epoch)
                         
                 # Log Histograms of Weights and Gradients
@@ -749,6 +752,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 tb_writer.add_scalar('Loss/Data', d_loss_accum, tb_epoch)
                 tb_writer.add_scalar('Loss/BC', b_loss_val, tb_epoch)
                 tb_writer.add_scalar('Loss/PDE', p_loss_accum, tb_epoch)
+                tb_writer.add_scalar('Loss/Momentum', m_loss, tb_epoch)
+                tb_writer.add_scalar('Loss/Constitutive', c_loss, tb_epoch)
                 
                 # Log Physical Parameters
                 tb_writer.add_scalar('Params/mu_s', params['mu_s'], tb_epoch)
@@ -757,7 +762,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 tb_writer.add_scalar('Params/eps', params['eps'], tb_epoch)
                 tb_writer.add_scalar('Params/alpha', params['alpha'], tb_epoch)
                 
-                for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy', 'tau_xx_masked', 'tau_xy_masked', 'tau_yy_masked']:
+                for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
                     tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], tb_epoch)
                     
                 # Log Histograms of Weights and Gradients
