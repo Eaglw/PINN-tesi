@@ -448,7 +448,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             optimizer, scheduler = build_optimizer(steps_rem)
 
         # Transizione di Fase (Eseguita UNA sola volta all'epoca esatta)
-        if STAGED_TRAINING and epoch == total_adam_epochs_PHASE1:
+        if STAGED_TRAINING and epoch == ADAM_EPOCHS_PHASE1:
             print(
                 f"\n{'=' * 60}\nFASE 2 ADAM (Dinamica): {ADAM_EPOCHS_PHASE2} epoche\n{'=' * 60}"
             )
@@ -507,8 +507,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         scheduler.step()
 
         # Condizioni di logging separate
-        log_loss = ((epoch + 1) % 10 == 0) or (epoch + 1) == total_adam_epochs or epoch == start_epoch or (STAGED_TRAINING and (epoch + 1) == half_epochs)
-        log_l2 = ((epoch + 1) % max(1, total_adam_epochs // 40) == 0) or (epoch == start_epoch) or (STAGED_TRAINING and (epoch + 1) == half_epochs) or ((epoch + 1) == total_adam_epochs)
+        log_loss = ((epoch + 1) % 10 == 0) or (epoch + 1) == total_adam_epochs or epoch == start_epoch or (STAGED_TRAINING and (epoch + 1) == ADAM_EPOCHS_PHASE1)
+        log_l2 = ((epoch + 1) % max(1, total_adam_epochs // 40) == 0) or (epoch == start_epoch) or (STAGED_TRAINING and (epoch + 1) == ADAM_EPOCHS_PHASE1) or ((epoch + 1) == total_adam_epochs)
 
         if log_loss:
             params = physics.log_params()
@@ -557,7 +557,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     torch.save(state, chk_path)
                     print(f"  [Checkpoint] Salvato in: {chk_path}")
                     
-                    if STAGED_TRAINING and (epoch + 1) == half_epochs:
+                    if STAGED_TRAINING and (epoch + 1) == ADAM_EPOCHS_PHASE1:
                         phase1_path = os.path.join(save_dir, "checkpoint_phase1_adam.pth")
                         torch.save(state, phase1_path)
                         print(f"  [Checkpoint Phase 1 Adam] Salvato in: {phase1_path}")
