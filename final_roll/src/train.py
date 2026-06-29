@@ -240,7 +240,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
     bc_data = data["boundary_groups"]
     total_points = xy_all.shape[0]
 
-    half_epochs = int(ADAM_EPOCHS * 0.5)
+    total_adam_epochs = ADAM_EPOCHS_PHASE1 + ADAM_EPOCHS_PHASE2
     #half_epochs = 10
     def configure_staged_phase(epoch):
         """Modifica i flag requires_grad dei sottomodelli. Chiamata SOLO ai cambi di fase."""
@@ -248,7 +248,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             for p in model.parameters():
                 p.requires_grad = True
             return None, W_MOMENTUM, W_CONSTITUTIVE, False
-        if epoch < half_epochs:
+        if epoch < ADAM_EPOCHS_PHASE1:
             # Fase 1: Cinematica e Reologia (Congela Pressione)
             for p in model.parameters():
                 p.requires_grad = False
@@ -376,16 +376,16 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
     # ==================================================================
     if STAGED_TRAINING:
         print(
-            f"\n{'=' * 60}\nFASE 1 ADAM (Cinematica e Reologia): {half_epochs} epoche\n{'=' * 60}"
+            f"\n{'=' * 60}\nFASE 1 ADAM (Cinematica e Reologia): {ADAM_EPOCHS_PHASE1} epoche\n{'=' * 60}"
         )
     else:
         print(
-            f"\n{'=' * 60}\nFASE ADAM UNICA (Tutto Attivo): {ADAM_EPOCHS} epoche\n{'=' * 60}"
+            f"\n{'=' * 60}\nFASE ADAM UNICA (Tutto Attivo): {total_adam_epochs} epoche\n{'=' * 60}"
         )
 
     from src.utils import get_optimal_chunk_size
     # Configurazione di base per l'epoca di partenza
-    if STAGED_TRAINING and start_epoch >= half_epochs:
+    if STAGED_TRAINING and start_epoch >= ADAM_EPOCHS_PHASE1:
         active_bcs, w_mom, w_con, frozen_vel = configure_staged_phase(start_epoch)
         if physics.inverse_mode:
             for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha]:
@@ -417,7 +417,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         )
 
     # Calcolo step rimanenti per lo scheduler iniziale
-    steps_rem = (half_epochs - start_epoch) if (STAGED_TRAINING and start_epoch < half_epochs) else (ADAM_EPOCHS - start_epoch)
+    steps_rem = (ADAM_EPOCHS_PHASE1 - start_epoch) if (STAGED_TRAINING and start_epoch < ADAM_EPOCHS_PHASE1) else (total_adam_epochs - start_epoch)
     optimizer, scheduler = build_optimizer(steps_rem)
 
     opt_loaded = False
@@ -435,7 +435,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         except Exception:
             pass
 
-    pbar = tqdm(range(start_epoch, ADAM_EPOCHS), desc="Adam", mininterval=2.0)
+    pbar = tqdm(range(start_epoch, total_adam_epochs), desc="Adam", mininterval=2.0)
     for epoch in pbar:
         # Sblocco parametri fisici (Warmup Problema Inverso)
         if physics.inverse_mode and epoch == WARMUP_UNLOCK_EPOCH:
@@ -443,14 +443,14 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             for p in [physics.mu_s, physics.mu_p, physics.lam]:
                 p.requires_grad_(True)
             steps_rem = (
-                (half_epochs - epoch) if STAGED_TRAINING else (ADAM_EPOCHS - epoch)
+                (ADAM_EPOCHS_PHASE1 - epoch) if STAGED_TRAINING else (total_adam_epochs - epoch)
             )
             optimizer, scheduler = build_optimizer(steps_rem)
 
         # Transizione di Fase (Eseguita UNA sola volta all'epoca esatta)
-        if STAGED_TRAINING and epoch == half_epochs:
+        if STAGED_TRAINING and epoch == total_adam_epochs_PHASE1:
             print(
-                f"\n{'=' * 60}\nFASE 2 ADAM (Dinamica): {ADAM_EPOCHS - half_epochs} epoche\n{'=' * 60}"
+                f"\n{'=' * 60}\nFASE 2 ADAM (Dinamica): {ADAM_EPOCHS_PHASE2} epoche\n{'=' * 60}"
             )
 
             active_bcs, w_mom, w_con, frozen_vel = configure_staged_phase(
@@ -475,7 +475,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     is_lbfgs=False, chunk_size_override=c, frozen_velocity=frozen_vel
                 )
             )
-            optimizer, scheduler = build_optimizer(ADAM_EPOCHS - half_epochs)
+            optimizer, scheduler = build_optimizer(ADAM_EPOCHS_PHASE2)
 
         model.train()
         optimizer.zero_grad(set_to_none=True)
@@ -507,8 +507,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         scheduler.step()
 
         # Condizioni di logging separate
-        log_loss = ((epoch + 1) % 10 == 0) or (epoch + 1) == ADAM_EPOCHS or epoch == start_epoch or (STAGED_TRAINING and (epoch + 1) == half_epochs)
-        log_l2 = ((epoch + 1) % max(1, ADAM_EPOCHS // 40) == 0) or (epoch == start_epoch) or (STAGED_TRAINING and (epoch + 1) == half_epochs)
+        log_loss = ((epoch + 1) % 10 == 0) or (epoch + 1) == total_adam_epochs or epoch == start_epoch or (STAGED_TRAINING and (epoch + 1) == half_epochs)
+        log_l2 = ((epoch + 1) % max(1, total_adam_epochs // 40) == 0) or (epoch == start_epoch) or (STAGED_TRAINING and (epoch + 1) == half_epochs) or ((epoch + 1) == total_adam_epochs)
 
         if log_loss:
             params = physics.log_params()
@@ -546,15 +546,25 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
                 if save_dir is not None:
                     chk_path = os.path.join(save_dir, "checkpoint.pth")
-                    torch.save({
+                    state = {
                         'epoch': epoch,
                         'model_state_dict': model.state_dict(),
                         'physics_state_dict': physics.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'scheduler_state_dict': scheduler.state_dict(),
                         'history_state_dict': history.state_dict()
-                    }, chk_path)
+                    }
+                    torch.save(state, chk_path)
                     print(f"  [Checkpoint] Salvato in: {chk_path}")
+                    
+                    if STAGED_TRAINING and (epoch + 1) == half_epochs:
+                        phase1_path = os.path.join(save_dir, "checkpoint_phase1_adam.pth")
+                        torch.save(state, phase1_path)
+                        print(f"  [Checkpoint Phase 1 Adam] Salvato in: {phase1_path}")
+                    elif (epoch + 1) == total_adam_epochs:
+                        phase2_path = os.path.join(save_dir, "checkpoint_phase2_adam.pth")
+                        torch.save(state, phase2_path)
+                        print(f"  [Checkpoint Phase 2 Adam] Salvato in: {phase2_path}")
 
             history.update(epoch, loss_dict)
 
@@ -626,196 +636,157 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
     pbar.close()
 
     # ==================================================================
-    # FASE 2: L-BFGS (Attivazione Tramite Flag)
+    # FASE L-BFGS 1: Psi + Tau (Cinematica e Reologia)
     # ==================================================================
-    if not USE_LBFGS:
-        print(
-            "\n[!] Fase L-BFGS disabilitata tramite configurazione. Addestramento concluso."
-        )
-        return history
-
-    print(
-        f"\n{'=' * 60}\nFASE L-BFGS: {int(LBFGS_MAX_ITERS)} iterazioni (FP64)\n{'=' * 60}"
-    )
-
+    global CHUNK_SIZE_LBFGS
+    
     convert_to_fp64(model, physics, data)
     xy_all = data["coords"]
     uv_all = data["uv_data"]
     bc_data = data["boundary_groups"]
-
-    for p in model.parameters():
-        p.requires_grad = True
-    if physics.inverse_mode:
-        for p in [physics.mu_s, physics.mu_p, physics.lam]:
-            p.requires_grad_(True)
-        all_params = list(model.parameters()) + [
-            physics.mu_s,
-            physics.mu_p,
-            physics.lam,
-        ]
-    else:
-        all_params = list(model.parameters())
-
-    optimizer_lbfgs = torch.optim.LBFGS(
-        all_params,
-        lr=1.0,
-        max_iter=int(LBFGS_MAX_ITERS),
-        tolerance_grad=1e-9,
-        tolerance_change=1e-12,
-        history_size=300,
-        line_search_fn="strong_wolfe",
-    )
-
-    l_it = [0]
-    pbar_lbfgs = tqdm(total=int(LBFGS_MAX_ITERS), desc="L-BFGS", mininterval=2.0)
-
-    from src.utils import get_optimal_chunk_size
-    global CHUNK_SIZE_LBFGS
-    CHUNK_SIZE_LBFGS = get_optimal_chunk_size(
-        phase=3, model=model,
-        test_closure=lambda c: compute_and_backward_losses(
-            active_bcs=None, w_mom=W_MOMENTUM, w_con=W_CONSTITUTIVE,
-            points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
-            is_lbfgs=True, chunk_size_override=c
-        )
-    )
-
-    def closure():
-        optimizer_lbfgs.zero_grad()
-
-        # is_lbfgs=True assicura che venga usato CHUNK_SIZE_LBFGS per evitare OOM
-        tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
-            compute_and_backward_losses(
-                active_bcs=None,
-                w_mom=W_MOMENTUM,
-                w_con=W_CONSTITUTIVE,
-                points=xy_all,
-                labels=uv_all,
-                is_lbfgs=True,
-            )
-        )
-
-        loss_tensor = torch.tensor(tot_loss, device=DEVICE)
-
-        log_lbfgs = (l_it[0] % max(1, int(LBFGS_MAX_ITERS) // 100) == 0) or (l_it[0] == int(LBFGS_MAX_ITERS) - 1)
-        if log_lbfgs:
-            params = physics.log_params()
+    
+    if USE_LBFGS_PHASE1:
+        iters_phase1 = int(LBFGS_MAX_ITERS_PHASE1)
+        print(f"\n{'=' * 60}\nFASE L-BFGS 1 (Psi + Tau): {iters_phase1} iterazioni (FP64)\n{'=' * 60}")
+        
+        for p in model.parameters():
+            p.requires_grad = False
+        for p in model.model_psi.parameters():
+            p.requires_grad = True
+        for p in model.model_tau.parameters():
+            p.requires_grad = True
             
-            print(f"\n[L-BFGS Iter {l_it[0]}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
-
-            with torch.no_grad():
-                l2_errs = compute_l2_errors(model, physics, data)
-                print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
-                print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
-
-            if save_dir is not None:
-                chk_path = os.path.join(save_dir, "checkpoint.pth")
-                torch.save({
-                    'epoch': ADAM_EPOCHS + l_it[0],
-                    'model_state_dict': model.state_dict(),
-                    'physics_state_dict': physics.state_dict(),
-                    'optimizer_state_dict': optimizer_lbfgs.state_dict(),
-                    'history_state_dict': history.state_dict()
-                }, chk_path)
-                print(f"  [Checkpoint] Salvato in: {chk_path}")
-
-            history.update(
-                ADAM_EPOCHS + l_it[0],
-                {
-                    "total": tot_loss,
-                    "data": d_loss_accum,
-                    "bc": b_loss_val,
-                    "pde": p_loss_accum,
-                    "loss_momentum": m_loss,
-                    "loss_constitutive": c_loss,
-                    "param_mu_s": params["mu_s"],
-                    "param_mu_p": params["mu_p"],
-                    "param_lam": params["lam"],
-                    "param_eps": params["eps"],
-                    "param_alpha": params["alpha"],
-                    "l2_u": l2_errs["u"],
-                    "l2_v": l2_errs["v"],
-                    "l2_p": l2_errs["p"],
-                    "l2_tau_xx": l2_errs["tau_xx"],
-                    "l2_tau_xy": l2_errs["tau_xy"],
-                    "l2_tau_yy": l2_errs["tau_yy"],
-                    "l2_tau_xx_masked": l2_errs["tau_xx_masked"],
-                    "l2_tau_xy_masked": l2_errs["tau_xy_masked"],
-                    "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
-                },
-            )
-
-            if tb_writer is not None:
-                tb_epoch = ADAM_EPOCHS + l_it[0]
-                # Log Loss Scalars
-                tb_writer.add_scalar('Loss/Total', tot_loss, tb_epoch)
-                tb_writer.add_scalar('Loss/Data', d_loss_accum, tb_epoch)
-                tb_writer.add_scalar('Loss/BC', b_loss_val, tb_epoch)
-                tb_writer.add_scalar('Loss/PDE', p_loss_accum, tb_epoch)
-                tb_writer.add_scalar('Loss/Momentum', m_loss, tb_epoch)
-                tb_writer.add_scalar('Loss/Constitutive', c_loss, tb_epoch)
+        if physics.inverse_mode:
+            for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha]:
+                p.requires_grad_(False) # manteniamo i parametri reologici costanti o sbloccati? Adam Phase 1 sblocca a WARMUP. L-BFGS è fine tuning. Congeliamo per sicurezza, o se inverse_mode è vero potremmo sbloccarli. Riprendiamo la logica base:
                 
-                # Log Physical Parameters
-                tb_writer.add_scalar('Params/mu_s', params['mu_s'], tb_epoch)
-                tb_writer.add_scalar('Params/mu_p', params['mu_p'], tb_epoch)
-                tb_writer.add_scalar('Params/lam', params['lam'], tb_epoch)
-                tb_writer.add_scalar('Params/eps', params['eps'], tb_epoch)
-                tb_writer.add_scalar('Params/alpha', params['alpha'], tb_epoch)
-                
-                for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
-                    tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], tb_epoch)
-                    
-                # Log Histograms of Weights and Gradients
-                grad_norms = {'Psi': 0.0, 'Pressure': 0.0, 'Stress': 0.0}
-                for name, param in model.named_parameters():
-                    clean_name = name.replace('.', '/')
-                    if name.startswith('model_psi'):
-                        sub_model = 'Psi'
-                        tag = f"{sub_model}/{clean_name.replace('model_psi/', '')}"
-                    elif name.startswith('model_p'):
-                        sub_model = 'Pressure'
-                        tag = f"{sub_model}/{clean_name.replace('model_p/', '')}"
-                    elif name.startswith('model_tau'):
-                        sub_model = 'Stress'
-                        tag = f"{sub_model}/{clean_name.replace('model_tau/', '')}"
-                    else:
-                        sub_model = 'Other'
-                        tag = clean_name
-                    
-                    tb_writer.add_histogram(f'Weights/{tag}', param, tb_epoch)
-                    if param.grad is not None:
-                        tb_writer.add_histogram(f'Gradients/{tag}', param.grad, tb_epoch)
-                        if sub_model in grad_norms:
-                            grad_norms[sub_model] += param.grad.data.norm(2).item() ** 2
-                            
-                for sm, norm in grad_norms.items():
-                    if norm > 0:
-                        tb_writer.add_scalar(f'GradNorm/{sm}', norm ** 0.5, tb_epoch)
-                        
-                if physics.inverse_mode:
-                    for name, param in physics.named_parameters():
-                        tb_writer.add_histogram(f'Physics_Weights/{name}', param, tb_epoch)
-                        if param.grad is not None:
-                            tb_writer.add_histogram(f'Physics_Gradients/{name}', param.grad, tb_epoch)
-
-        l_it[0] += 1
-        pbar_lbfgs.update(1)
-        pbar_lbfgs.set_postfix(
-            {
-                "Loss": f"{tot_loss:.2e}",
-                "Data": f"{d_loss_accum:.2e}",
-                "BC": f"{b_loss_val:.2e}",
-                "PDE": f"{p_loss_accum:.2e}",
-            }
+        all_params_ph1 = [p for p in model.parameters() if p.requires_grad]
+        if physics.inverse_mode:
+             for p in [physics.mu_s, physics.mu_p, physics.lam]:
+                 p.requires_grad_(True)
+                 all_params_ph1.append(p)
+                 
+        optimizer_lbfgs1 = torch.optim.LBFGS(
+            all_params_ph1, lr=1.0, max_iter=iters_phase1,
+            tolerance_grad=1e-9, tolerance_change=1e-12, history_size=300, line_search_fn="strong_wolfe",
         )
+        
+        l_it1 = [0]
+        pbar_lbfgs1 = tqdm(total=iters_phase1, desc="L-BFGS Phase 1", mininterval=2.0)
+        
+        from src.utils import get_optimal_chunk_size
+        CHUNK_SIZE_LBFGS = get_optimal_chunk_size(
+            phase=3, model=model,
+            test_closure=lambda c: compute_and_backward_losses(
+                active_bcs=["u", "v", "tau_xx", "tau_xy", "tau_yy"], w_mom=0.0, w_con=W_CONSTITUTIVE,
+                points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
+                is_lbfgs=True, chunk_size_override=c
+            )
+        )
+        
+        def closure1():
+            optimizer_lbfgs1.zero_grad()
+            tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
+                compute_and_backward_losses(
+                    active_bcs=["u", "v", "tau_xx", "tau_xy", "tau_yy"], w_mom=0.0, w_con=W_CONSTITUTIVE,
+                    points=xy_all, labels=uv_all, is_lbfgs=True,
+                )
+            )
+            loss_tensor = torch.tensor(tot_loss, device=DEVICE)
+            
+            if (l_it1[0] % max(1, iters_phase1 // 100) == 0) or (l_it1[0] == iters_phase1 - 1):
+                params = physics.log_params()
+                with torch.no_grad():
+                    l2_errs = compute_l2_errors(model, physics, data)
+                
+                history.update(
+                    total_adam_epochs + l_it1[0],
+                    {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
+                )
+            
+            l_it1[0] += 1
+            pbar_lbfgs1.update(1)
+            pbar_lbfgs1.set_postfix({"Loss": f"{tot_loss:.2e}"})
+            return loss_tensor
+            
+        optimizer_lbfgs1.step(closure1)
+        if physics.inverse_mode: physics.clamp_params()
+        pbar_lbfgs1.close()
+        
+        if save_dir is not None:
+            chk_path = os.path.join(save_dir, "checkpoint_lbfgs_phase1.pth")
+            torch.save({'model_state_dict': model.state_dict(), 'physics_state_dict': physics.state_dict(), 'history_state_dict': history.state_dict()}, chk_path)
+            print(f"  [Checkpoint Phase 1 L-BFGS] Salvato in: {chk_path}")
 
-        return loss_tensor
-
-    optimizer_lbfgs.step(closure)
-
-    if physics.inverse_mode:
-        physics.clamp_params()
-
-    pbar_lbfgs.close()
+    # ==================================================================
+    # FASE L-BFGS 2: Psi + P (Dinamica)
+    # ==================================================================
+    if USE_LBFGS_PHASE2:
+        iters_phase2 = int(LBFGS_MAX_ITERS_PHASE2)
+        print(f"\n{'=' * 60}\nFASE L-BFGS 2 (Psi + Pressione): {iters_phase2} iterazioni (FP64)\n{'=' * 60}")
+        
+        for p in model.parameters():
+            p.requires_grad = False
+        for p in model.model_psi.parameters():
+            p.requires_grad = True
+        for p in model.model_p.parameters():
+            p.requires_grad = True
+            
+        if physics.inverse_mode:
+            for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha]:
+                p.requires_grad_(False)
+                
+        all_params_ph2 = [p for p in model.parameters() if p.requires_grad]
+        
+        optimizer_lbfgs2 = torch.optim.LBFGS(
+            all_params_ph2, lr=1.0, max_iter=iters_phase2,
+            tolerance_grad=1e-9, tolerance_change=1e-12, history_size=300, line_search_fn="strong_wolfe",
+        )
+        
+        l_it2 = [0]
+        pbar_lbfgs2 = tqdm(total=iters_phase2, desc="L-BFGS Phase 2", mininterval=2.0)
+        
+        CHUNK_SIZE_LBFGS = get_optimal_chunk_size(
+            phase=3, model=model,
+            test_closure=lambda c: compute_and_backward_losses(
+                active_bcs=["u", "v", "p"], w_mom=W_MOMENTUM, w_con=0.0,
+                points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
+                is_lbfgs=True, chunk_size_override=c
+            )
+        )
+        
+        def closure2():
+            optimizer_lbfgs2.zero_grad()
+            tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
+                compute_and_backward_losses(
+                    active_bcs=["u", "v", "p"], w_mom=W_MOMENTUM, w_con=0.0,
+                    points=xy_all, labels=uv_all, is_lbfgs=True,
+                )
+            )
+            loss_tensor = torch.tensor(tot_loss, device=DEVICE)
+            
+            if (l_it2[0] % max(1, iters_phase2 // 100) == 0) or (l_it2[0] == iters_phase2 - 1):
+                params = physics.log_params()
+                with torch.no_grad():
+                    l2_errs = compute_l2_errors(model, physics, data)
+                
+                offset = total_adam_epochs + (int(LBFGS_MAX_ITERS_PHASE1) if USE_LBFGS_PHASE1 else 0)
+                history.update(
+                    offset + l_it2[0],
+                    {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
+                )
+            
+            l_it2[0] += 1
+            pbar_lbfgs2.update(1)
+            pbar_lbfgs2.set_postfix({"Loss": f"{tot_loss:.2e}"})
+            return loss_tensor
+            
+        optimizer_lbfgs2.step(closure2)
+        pbar_lbfgs2.close()
+        
+        if save_dir is not None:
+            chk_path = os.path.join(save_dir, "checkpoint_lbfgs_phase2.pth")
+            torch.save({'model_state_dict': model.state_dict(), 'physics_state_dict': physics.state_dict(), 'history_state_dict': history.state_dict()}, chk_path)
+            print(f"  [Checkpoint Phase 2 L-BFGS] Salvato in: {chk_path}")
 
     return history

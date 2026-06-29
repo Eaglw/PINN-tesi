@@ -69,7 +69,6 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EXPORT_TO_OBSIDIAN = True  # True: esporta i log e i plot nel vault Obsidian a fine run
 STAGED_TRAINING = True  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
 INVERSE_PROBLEM = False  # True: semi-inverso, False: diretto
-USE_LBFGS = True  # True: esegue la seconda fase con L-BFGS, False: si ferma ad Adam
 DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 
 # --- Checkpointing ---
@@ -104,15 +103,19 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS = 150000
-LBFGS_MAX_ITERS = 5000  # Fase di fine-tuning ad alta precisione
+ADAM_EPOCHS_PHASE1 = 100000
+ADAM_EPOCHS_PHASE2 = 70000
+USE_LBFGS_PHASE1 = True  # True: esegue L-BFGS solo su psi e tau
+USE_LBFGS_PHASE2 = True  # True: esegue L-BFGS solo su psi e p
+LBFGS_MAX_ITERS_PHASE1 = int(ADAM_EPOCHS_PHASE1 * 0.1)
+LBFGS_MAX_ITERS_PHASE2 = int(ADAM_EPOCHS_PHASE2 * 0.1)
 BASE_LR = 5e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
-WARMUP_UNLOCK_EPOCH = int(0.2 * ADAM_EPOCHS)
+WARMUP_UNLOCK_EPOCH = int(0.2 * ADAM_EPOCHS_PHASE1)
 
 # --- Pesi Funzione di Loss ---
 W_BC = 2.0
@@ -126,7 +129,7 @@ VARIANCE_EPS = 1e-4
 # 3. INIZIALIZZAZIONE OUTPUT
 # ============================================================================
 layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
-config_name = f"{DATASET_PATH.stem}_L{layers_str}_E{ADAM_EPOCHS}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+config_name = f"{DATASET_PATH.stem}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -228,12 +231,13 @@ if __name__ == "__main__":
         from src.utils import init_run_in_obsidian
         config_details = {
             "dataset": DATASET_PATH.name,
-            "epochs": ADAM_EPOCHS,
+            "epochs": ADAM_EPOCHS_PHASE1 + ADAM_EPOCHS_PHASE2,
             "inverse_problem": INVERSE_PROBLEM,
             "staged_training": STAGED_TRAINING,
             "activation": ACTIVATION.__name__,
             "network": layers_str,
-            "lbfgs": USE_LBFGS
+            "lbfgs_phase1": USE_LBFGS_PHASE1,
+            "lbfgs_phase2": USE_LBFGS_PHASE2
         }
         obsidian_dest_dir, obsidian_run_name = init_run_in_obsidian(config_name, config_details)
 
