@@ -89,3 +89,4 @@ This mathematical transformation maps term-by-term in the code:
 - [[Hazra_et_al_Convective_Heat_Transfer]] (Initial scaling discussion)
 - [[ViscoelasticNet_Full model]] (Implementation of unified rheology)
 - [[Viscoelastic_Fluids]] (Physical systems and domain dynamics)
+- [[Viscoelastic_Residual_Scaling]] (Detailed PDE residual scaling and balancing analysis)

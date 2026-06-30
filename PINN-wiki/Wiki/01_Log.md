@@ -331,3 +331,10 @@
 - Documentate la formula chiusa da paper SGDR e la formula ricorsiva ottimizzata in PyTorch, evidenziando il comportamento senza restart.
 - Aggiornato l'indice generale [[00_Index]].
 
+## [2026-06-29] update_wiki | Aggiunta normalizzazione coerente residui viscoelastici
+- Creata la pagina di metodo [[Viscoelastic_Residual_Scaling]] per documentare l'incoerenza strutturale delle scale delle derivate spaziali tra la Momentum e l'equazione Costitutiva.
+- Documentato l'effetto dell'operatore differenziale sui gradienti ripidi (es. rulli) e l'impatto sul bilancio dei pesi della loss.
+- Presentato l'approccio euristico basato sulla sola velocità per stimare `tau_scale` e `momentum_scale` (strain rate massimo) nel caso in cui non siano disponibili i dataset di stress/pressione.
+- Aggiornato l'indice generale [[00_Index]] e la pagina Topic [[Nondimensionalization]] per referenziare il nuovo metodo.
+
+

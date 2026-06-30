@@ -67,6 +67,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[GPU_Optimization]]: Eliminating CPU/GPU synchronization overhead
 - [[VRAM_Optimization]]: Memory management and OOM prevention
 - [[COMSOL_Boundary_Extraction]]: Boundary definition and naming via Explicit Selections in COMSOL
+- [[Viscoelastic_Residual_Scaling]]: PDE residual normalization using velocity-only heuristics
 
 
 
