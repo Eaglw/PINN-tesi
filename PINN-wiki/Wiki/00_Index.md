@@ -46,6 +46,8 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Creep]]: Time-dependent deformation under constant stress
 - [[Stress_Relaxation]]: Stress reduction under constant strain
 - [[EMA_Smoothing]]: Noise reduction in loss tracking
+- [[Pressure_Scaling_Issues]]: Analysis of pressure gradient singularities and why global pressure scaling destroys momentum training
+
 
 
 ## Technical Methods

@@ -337,4 +337,10 @@
 - Presentato l'approccio euristico basato sulla sola velocità per stimare `tau_scale` e `momentum_scale` (strain rate massimo) nel caso in cui non siano disponibili i dataset di stress/pressione.
 - Aggiornato l'indice generale [[00_Index]] e la pagina Topic [[Nondimensionalization]] per referenziare il nuovo metodo.
 
+## [2026-07-01] update_wiki | Aggiunta documentazione su problematiche scaling pressione
+- Creata la pagina Topic [[Pressure_Scaling_Issues]] per documentare l'aspetto fisico e matematico del perché la Momentum non può essere scalata tramite p_scale (fenomeno del Gradient Starvation).
+- Chiarito il ruolo del `momentum_scale` basato su `tau_scale * shear_max` come corretta normalizzazione fisica per portare la Momentum loss a O(1) senza distruggere i gradienti della velocità.
+- Aggiornato l'indice generale [[00_Index]] inserendo il nuovo topic.
+
+
 
