@@ -118,9 +118,9 @@ PARAM_CLIP_NORM = 1.0
 WARMUP_UNLOCK_EPOCH = int(0.2 * ADAM_EPOCHS_PHASE1)
 
 # --- Pesi Funzione di Loss ---
-W_BC = 2.0
+W_BC = 5.0      # Aumentato da 2.0 a 5.0 per vincolare meglio l'ancoraggio del punto di pressione
 W_PHYSICS = 3.0
-W_DATA = 1e6
+W_DATA = 1e4    # Ridotto da 1e6 a 1e4 per consentire il co-adattamento di psi con la momentum
 W_MOMENTUM = 1.0
 W_CONSTITUTIVE = 1.0
 VARIANCE_EPS = 1e-4
@@ -208,6 +208,7 @@ if __name__ == "__main__":
     physics = Physics(
         U_ref=data["U_ref"],
         H_ref=data["H"],
+        H_coord=data["H_coord"],
         var_weights=data["var_weights"],
         inverse_mode=INVERSE_PROBLEM,
         tau_scale=data["tau_scale"],

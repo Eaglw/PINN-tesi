@@ -6,10 +6,11 @@ from src.utils import weighted_mse
 class Physics(nn.Module):
     """PDE adimensionali + boundary conditions. Supporta modalità diretta o inversa."""
 
-    def __init__(self, U_ref, H_ref, var_weights=None, inverse_mode=True, tau_scale=1.0, p_scale=50.0):
+    def __init__(self, U_ref, H_ref, H_coord=0.05, var_weights=None, inverse_mode=True, tau_scale=1.0, p_scale=50.0):
         super().__init__()
         self.U_ref = U_ref
         self.H_ref = H_ref
+        self.H_coord = H_coord
         self.var_weights = var_weights
         self.inverse_mode = inverse_mode
         self.tau_scale = tau_scale
@@ -43,14 +44,14 @@ class Physics(nn.Module):
             grad_outputs=torch.ones_like(y),
             create_graph=create_graph,
             retain_graph=retain_graph,
-        )[0]
+        )[0] * (self.H_ref / self.H_coord)
 
     def get_velocity(self, model, x, create_graph=True):
         """Calcola u, v, p, tau dalla stream function."""
         if not x.requires_grad:
             x = x.clone().requires_grad_(True)
 
-        psi = model.model_psi(x)
+        psi = model.model_psi(x) * (self.H_coord / self.H_ref)
         p = model.model_p(x) * model.p_scale
         tau = model.model_tau(x) * model.tau_scale
 

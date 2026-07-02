@@ -317,7 +317,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
          #   ]
             groups = []
             if psi_params:
-                groups.append({"params": psi_params, "lr": 1e-5})
+                groups.append({"params": psi_params, "lr": 1e-4})  # Aumentato da 1e-5 a 1e-4 per velocizzare la convergenza di psi in Fase 2
             if other_net_params:
                 groups.append({"params": other_net_params, "lr": BASE_LR})
         else:
