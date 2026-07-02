@@ -96,7 +96,7 @@ BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 GRAD_CLIP_NORM = 1000.0
 
-W_BC = 2.0
+W_BC = 5.0
 W_PHYSICS = 3.0
 W_DATA = 0.0  # Nessuna loss dati per velocità
 W_MOMENTUM = 1.0
@@ -231,6 +231,10 @@ def train_pressure_only(model, physics, data, save_dir=None, resume_checkpoint=N
         model.load_state_dict(chk['model_state_dict'])
         physics.load_state_dict(chk['physics_state_dict'])
         print("[Checkpoint] Pesi caricati correttamente.")
+        
+        # Re-inizializzazione di model_p con Xavier per evitare il Vanishing Gradient Cascade
+        model.model_p.apply(lambda m: init_weights_xavier(m, activation_name=ACTIVATION))
+        print("[Info] model_p re-inizializzato con Xavier per evitare il Vanishing Gradient Cascade.")
     else:
         raise FileNotFoundError(f"Checkpoint richiesto non trovato: {resume_checkpoint}")
 
