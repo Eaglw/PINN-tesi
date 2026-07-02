@@ -83,6 +83,44 @@ This mathematical transformation maps term-by-term in the code:
   $$ 2D_{xy} = \frac{\partial u}{\partial y} + \frac{\partial v}{\partial x} $$
   Code: `- (u_y + v_x)`.
 
+### 3. Physical Scaling vs. Coordinate Normalization (Double Length-Scale Adimensionalization)
+
+In confined geometries (like the 4-roll mill), the domain size $H_{\text{domain}} = 0.05 \text{ m}$ is often much larger than the local characteristic feature size, such as the roll radius $H_{\text{ref}} = R = 0.005 \text{ m}$.
+For optimal training of Physics-Informed Neural Networks, it is critical to keep the inputs to the neural networks bounded near the range $[0, 1]^2$. However, we also require the dimensionless physical numbers ($Re$ and $Wi$) and references ($p_{\text{ref}}$, $\boldsymbol{\tau}_{\text{ref}}$) to be calculated based on the local feature scale ($H_{\text{ref}} = 0.005 \text{ m}$).
+
+To satisfy both requirements without breaking checkpoint compatibility, the framework employs a **Double Length-Scale Adimensionalization**:
+
+1. **Coordinate Normalization**: Coordinates are scaled in the dataset and boundaries by the domain height:
+   $$ x_{\text{net}} = \frac{x_{\text{raw}} - x_{\text{min}}}{H_{\text{coord}}} \quad \in [0, 1] $$
+   where $H_{\text{coord}} = 0.05 \text{ m}$. The neural network inputs remain in $[0, 1]^2$.
+
+2. **Physical Nondimensionalization**: Equations are scaled by the physical characteristic length scale:
+   $$ x_{\text{phys}} = \frac{x_{\text{raw}} - x_{\text{min}}}{H_{\text{ref}}} \quad \in [0, 10] $$
+   where $H_{\text{ref}} = 0.005 \text{ m}$.
+
+Since $H_{\text{coord}} = 10 \cdot H_{\text{ref}}$, the relation between coordinate scales is:
+$$ x_{\text{phys}} = 10 \cdot x_{\text{net}} $$
+
+To keep the physical equations mathematically standard and consistent with $H_{\text{ref}} = 0.005 \text{ m}$, the physics class scales the stream function output and autograd derivatives internally:
+
+* **Stream Function Scaling**: The dimensional stream function $\psi_{\text{raw}}$ scales as $U_{\text{ref}} L_c$. Using $H_{\text{ref}}$ as the reference length, the physical dimensionless stream function is:
+  $$ \psi_{\text{phys}} = \frac{\psi_{\text{raw}}}{U_{\text{ref}} H_{\text{ref}}} $$
+  Since the neural network predicts $\psi_{\text{net}} = \frac{\psi_{\text{raw}}}{U_{\text{ref}} H_{\text{coord}}}$, we scale the network output in `physics.get_velocity` by $10$ (which is $H_{\text{coord}} / H_{\text{ref}}$):
+  $$ \psi_{\text{phys}} = \psi_{\text{net}} \cdot \left(\frac{H_{\text{coord}}}{H_{\text{ref}}}\right) $$
+  Code: `psi = model.model_psi(x) * (self.H_coord / self.H_ref)`
+
+* **Gradient Scaling**: The gradient operator with respect to physical dimensionless coordinates is scaled by $0.1$ (which is $H_{\text{ref}} / H_{\text{coord}}$):
+  $$ \nabla_{\text{phys}} = \frac{\partial}{\partial X_{\text{phys}}} = \frac{\partial}{\partial X_{\text{net}}} \cdot \left(\frac{H_{\text{ref}}}{H_{\text{coord}}}\right) = 0.1 \cdot \nabla_{\text{net}} $$
+  Code: `grad = torch.autograd.grad(...)[0] * (self.H_ref / self.H_coord)`
+
+#### Mathematical Consistency Check
+When computing the velocity fields $u, v$, the two scaling factors cancel out:
+$$ u = \frac{\partial \psi_{\text{phys}}}{\partial y_{\text{phys}}} = \frac{\partial (10 \cdot \psi_{\text{net}})}{\partial (10 \cdot y_{\text{net}})} = \frac{\partial \psi_{\text{net}}}{\partial y_{\text{net}}} $$
+Thus:
+- The predicted velocities are identical to the derivatives of the raw network outputs with respect to the input coordinates, meaning the velocity scale remains in $[-1, 1]$.
+- Existing checkpoints trained under the old system can be loaded directly with **zero loss spikes**, as the velocity field predictions match the old ones exactly.
+- All subsequent derivatives (e.g. pressure gradients $\nabla p$, stress divergence $\nabla \cdot \boldsymbol{\tau}$, velocity laplacians $\nabla^2 \mathbf{v}$) are computed with respect to the physical coordinates $X_{\text{phys}}$ (which automatically multiplies them by the gradient scale factor $0.1$ per derivative order), keeping the equations mathematically consistent with $H_{\text{ref}} = 0.005$ m.
+
 ---
 
 ## References & Back-links

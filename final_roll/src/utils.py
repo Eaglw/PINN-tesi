@@ -55,7 +55,8 @@ def load_data(use_fp64=False):
     # --- 2. Scale di riferimento ---
     y_min, y_max = y_raw.min(), y_raw.max()
     x_min, x_max = x_raw.min(), x_raw.max()
-    H = max(y_max - y_min, 1e-9)
+    H_coord = max(y_max - y_min, 1e-9)
+    H = 0.005  # Raggio dei roll come lunghezza caratteristica [m]
     U_ref = max(float(np.max(np.sqrt(u_raw**2 + v_raw**2))), 1e-9)
     mu_tot = MU_S_TRUE + MU_P_TRUE
     p_ref = mu_tot * U_ref / H
@@ -65,8 +66,8 @@ def load_data(use_fp64=False):
 
     # --- 3. Adimensionalizzazione (Vettorizzata) ---
     x_nd, y_nd = (
-        (x_raw - x_min) / H,
-        (y_raw - y_min) / H,
+        (x_raw - x_min) / H_coord,
+        (y_raw - y_min) / H_coord,
     )  # uso xmin per spostare il sistema di riferimento a 0,0
 
     # Raggruppiamo i campi scalari/vettoriali adimensionalizzati in un dizionario
@@ -109,7 +110,7 @@ def load_data(use_fp64=False):
 
     # --- 6. Stampa Statistiche ---
     print(f"  Punti totali: {N}")
-    print(f"  H={H:.6e}, U_ref={U_ref:.6e}, p_ref={p_ref:.6e}")
+    print(f"  H={H:.6e}, H_coord={H_coord:.6e}, U_ref={U_ref:.6e}, p_ref={p_ref:.6e}")
     print(
         f"  Re={RHO * U_ref * H / mu_tot:.4f}, Wi={LAM_TRUE * U_ref / H:.4f}, beta={MU_S_TRUE / mu_tot:.4f}"
     )
@@ -117,7 +118,7 @@ def load_data(use_fp64=False):
 
     # --- 7. Boundary Groups ---
     boundary_groups = _extract_boundary_groups(
-        coords, x_raw, y_raw, x_min, y_min, H, tensors
+        coords, x_raw, y_raw, x_min, y_min, H_coord, tensors
     )
 
     print("=" * 60)
@@ -134,13 +135,14 @@ def load_data(use_fp64=False):
         "boundary_groups": boundary_groups,
         "U_ref": U_ref,
         "H": H,
+        "H_coord": H_coord,
         "p_scale": p_scale,
         "tau_scale": tau_scale,
     }
 
 
 def _extract_boundary_groups(
-    coords, x_raw, y_raw, x_min, y_min, H, fields, pt_dtype=torch.float32
+    coords, x_raw, y_raw, x_min, y_min, H_coord, fields, pt_dtype=torch.float32
 ):
     """
     Estrae i boundary groups e calcola le normali analizzando la topologia della mesh COMSOL.
@@ -230,7 +232,7 @@ def _extract_boundary_groups(
     x_min_mesh, y_min_mesh = vertices_raw[:, 0].min(), vertices_raw[:, 1].min()
 
     vertices_nd = np.column_stack(
-        [(vertices_raw[:, 0] - x_min_mesh) / H, (vertices_raw[:, 1] - y_min_mesh) / H]
+        [(vertices_raw[:, 0] - x_min_mesh) / H_coord, (vertices_raw[:, 1] - y_min_mesh) / H_coord]
     )
 
     tree_csv = cKDTree(coords_np)

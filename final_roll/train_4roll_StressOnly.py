@@ -684,6 +684,7 @@ if __name__ == "__main__":
     physics = Physics(
         U_ref=data["U_ref"],
         H_ref=data["H"],
+        H_coord=data["H_coord"],
         var_weights=data["var_weights"],
         inverse_mode=INVERSE_PROBLEM,
         tau_scale=data["tau_scale"],

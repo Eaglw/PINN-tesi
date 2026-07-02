@@ -41,32 +41,32 @@ def debug_physics_magnitudes(model, physics, data, num_points=2000):
         tau_xx, tau_xy, tau_yy = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
 
         # --- Derivate Prime (Velocità e Pressione) ---
-        grad_psi = torch.autograd.grad(psi.sum(), x, create_graph=True)[0]
+        grad_psi = physics._grad(psi, x, create_graph=True)
         u, v = grad_psi[:, 1:2], -grad_psi[:, 0:1]
 
-        grad_u = torch.autograd.grad(u.sum(), x, create_graph=True)[0]
+        grad_u = physics._grad(u, x, create_graph=True)
         u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
 
-        grad_v = torch.autograd.grad(v.sum(), x, create_graph=True)[0]
+        grad_v = physics._grad(v, x, create_graph=True)
         v_x, v_y = (
             grad_v[:, 0:1],
             -u_x,
         )  # Incomprimibilità garantita dalla streamfunction
 
-        grad_p = torch.autograd.grad(p.sum(), x, create_graph=True)[0]
+        grad_p = physics._grad(p, x, create_graph=True)
         p_x, p_y = grad_p[:, 0:1], grad_p[:, 1:2]
 
         # --- Derivate Seconde (Viscosità e Stress) ---
-        grad_u_x = torch.autograd.grad(u_x.sum(), x, create_graph=True)[0]
-        grad_u_y = torch.autograd.grad(u_y.sum(), x, create_graph=True)[0]
+        grad_u_x = physics._grad(u_x, x, create_graph=True)
+        grad_u_y = physics._grad(u_y, x, create_graph=True)
         u_xx, u_yy = grad_u_x[:, 0:1], grad_u_y[:, 1:2]
 
-        grad_v_x = torch.autograd.grad(v_x.sum(), x, create_graph=True)[0]
+        grad_v_x = physics._grad(v_x, x, create_graph=True)
         v_xx, v_yy = grad_v_x[:, 0:1], -grad_u_y[:, 0:1]
 
-        g_txx = torch.autograd.grad(tau_xx.sum(), x, create_graph=True)[0]
-        g_txy = torch.autograd.grad(tau_xy.sum(), x, create_graph=True)[0]
-        g_tyy = torch.autograd.grad(tau_yy.sum(), x, create_graph=True)[0]
+        g_txx = physics._grad(tau_xx, x, create_graph=True)
+        g_txy = physics._grad(tau_xy, x, create_graph=True)
+        g_tyy = physics._grad(tau_yy, x, create_graph=True)
 
         tau_xx_x, tau_xx_y = g_txx[:, 0:1], g_txx[:, 1:2]
         tau_xy_x, tau_xy_y = g_txy[:, 0:1], g_txy[:, 1:2]
