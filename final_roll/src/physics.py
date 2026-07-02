@@ -68,7 +68,7 @@ class Physics(nn.Module):
         beta_poly = self.mu_p / mu_tot
         return Re, Wi, beta, beta_poly, self.eps, self.alpha
 
-    def compute_residuals(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0, frozen_velocity=False):
+    def compute_residuals(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0, frozen_velocity=False, precomputed_div_tau=None):
         """Calcola i residui PDE adimensionali saltando i calcoli se i pesi sono nulli.
         
         Args:
@@ -91,7 +91,7 @@ class Physics(nn.Module):
         v_x, v_y = grad_v[:, 0:1], -u_x  # Incompressibilità analitica
 
         # --- Derivate Stress ---
-        if w_momentum > 0.0 or w_constitutive > 0.0:
+        if (w_momentum > 0.0 or w_constitutive > 0.0) and precomputed_div_tau is None:
             cg = w_constitutive > 0.0
             # retain_graph=True sulle prime due per non consumare il forward di model_tau
             g_txx = self._grad(tau_xx, x, create_graph=cg, retain_graph=True)
@@ -129,17 +129,23 @@ class Physics(nn.Module):
             v_xx = self._grad(v_x, x, create_graph=cg_vel)[:, 0:1]
             v_yy = -u_yx
 
+            if precomputed_div_tau is not None:
+                div_tau_x, div_tau_y = precomputed_div_tau
+            else:
+                div_tau_x = tau_xx_x + tau_xy_y
+                div_tau_y = tau_xy_x + tau_yy_y
+
             f_u = (
                 Re * (u * u_x + v * u_y)
                 + p_x
                 - beta * (u_xx + u_yy)
-                - (tau_xx_x + tau_xy_y)
+                - div_tau_x
             )
             f_v = (
                 Re * (u * v_x + v * v_y)
                 + p_y
                 - beta * (v_xx + v_yy)
-                - (tau_xy_x + tau_yy_y)
+                - div_tau_y
             )
 
             # NOTA: i residui momentum NON vengono divisi per p_scale.
@@ -194,10 +200,10 @@ class Physics(nn.Module):
 
         return f_u, f_v, f_txx, f_tyy, f_txy
 
-    def compute_pde_losses(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0, frozen_velocity=False):
+    def compute_pde_losses(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0, frozen_velocity=False, precomputed_div_tau=None):
         """Calcola separatamente loss momentum e constitutive."""
         f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(
-            x, u, v, p, tau, w_momentum, w_constitutive, frozen_velocity=frozen_velocity
+            x, u, v, p, tau, w_momentum, w_constitutive, frozen_velocity=frozen_velocity, precomputed_div_tau=precomputed_div_tau
         )
         #divido per numero componenti
         loss_m = (f_u**2 + f_v**2).mean() / 2.0

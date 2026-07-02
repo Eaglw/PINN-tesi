@@ -203,6 +203,33 @@ def init_weights_xavier(m, activation_name="tanh"):
             nn.init.zeros_(m.bias)
 
 
+def precompute_stress_divergence(model, physics, points):
+    """Precalcola la divergenza del tensore degli sforzi tau per model_tau congelato."""
+    model.eval()
+    chunk_size = 8192
+    div_tau_x_list = []
+    div_tau_y_list = []
+    for i in range(0, points.shape[0], chunk_size):
+        xc = points[i : i + chunk_size]
+        xph = xc.clone().requires_grad_(True)
+        out = model(xph)
+        tau = out[:, 2:5]
+        tau_xx, tau_xy, tau_yy = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
+        g_txx = physics._grad(tau_xx, xph, create_graph=False)
+        tau_xx_x, tau_xx_y = g_txx[:, 0:1], g_txx[:, 1:2]
+        g_txy = physics._grad(tau_xy, xph, create_graph=False)
+        tau_xy_x, tau_xy_y = g_txy[:, 0:1], g_txy[:, 1:2]
+        g_tyy = physics._grad(tau_yy, xph, create_graph=False)
+        tau_yy_x, tau_yy_y = g_tyy[:, 0:1], g_tyy[:, 1:2]
+        dt_x = (tau_xx_x + tau_xy_y).detach()
+        dt_y = (tau_xy_x + tau_yy_y).detach()
+        div_tau_x_list.append(dt_x)
+        div_tau_y_list.append(dt_y)
+    div_tau_x = torch.cat(div_tau_x_list, dim=0)
+    div_tau_y = torch.cat(div_tau_y_list, dim=0)
+    return div_tau_x, div_tau_y
+
+
 def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer=None):
     """
     Training completo PINN: Adam (staged/non-staged) + L-BFGS (FP64).
@@ -214,6 +241,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
     start_epoch = 0
     loaded_opt_state = None
     loaded_sch_state = None
+    precomputed_div_tau = None
 
     if resume_checkpoint is not None:
         if os.path.exists(resume_checkpoint):
@@ -308,7 +336,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         return opt, sch
 
     def compute_and_backward_losses(
-        active_bcs, w_mom, w_con, points, labels, is_lbfgs=False, chunk_size_override=None, frozen_velocity=False
+        active_bcs, w_mom, w_con, points, labels, is_lbfgs=False, chunk_size_override=None, frozen_velocity=False, precomputed_div_tau=None
     ):
         """
         Motore di calcolo centralizzato con Accumulazione dei Gradienti in Chunk.
@@ -349,7 +377,16 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 chunk_total_loss = chunk_total_loss + W_DATA * dl * w_chunk
 
             # --- 2. PDE LOSS ---
-            lm, lc = physics.compute_pde_losses(xph, u, v, p, tau, w_mom, w_con, frozen_velocity=frozen_velocity)
+            if precomputed_div_tau is not None:
+                div_tau_x_c = precomputed_div_tau[0][i : i + chunk_size]
+                div_tau_y_c = precomputed_div_tau[1][i : i + chunk_size]
+                chunk_div_tau = (div_tau_x_c, div_tau_y_c)
+            else:
+                chunk_div_tau = None
+
+            lm, lc = physics.compute_pde_losses(
+                xph, u, v, p, tau, w_mom, w_con, frozen_velocity=frozen_velocity, precomputed_div_tau=chunk_div_tau
+            )
             loss_m_val += lm.item() * w_chunk
             loss_c_val += lc.item() * w_chunk
             pl = (w_mom * lm) + (w_con * lc)
@@ -447,6 +484,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             )
             optimizer, scheduler = build_optimizer(steps_rem)
 
+        # Precalcolo della divergenza dello stress all'inizio della Fase 2
+        if STAGED_TRAINING and epoch >= ADAM_EPOCHS_PHASE1 and precomputed_div_tau is None:
+            print("\n[Optimization] Precalcolo divergenza sforzi in corso per la Fase 2 (Adam)...")
+            precomputed_div_tau = precompute_stress_divergence(model, physics, xy_all)
+            print("[Optimization] Divergenza sforzi precalcolata.")
+
         # Transizione di Fase (Eseguita UNA sola volta all'epoca esatta)
         if STAGED_TRAINING and epoch == ADAM_EPOCHS_PHASE1:
             print(
@@ -472,7 +515,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 test_closure=lambda c: compute_and_backward_losses(
                     active_bcs=active_bcs, w_mom=w_mom, w_con=w_con,
                     points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
-                    is_lbfgs=False, chunk_size_override=c, frozen_velocity=frozen_vel
+                    is_lbfgs=False, chunk_size_override=c, frozen_velocity=frozen_vel,
+                    precomputed_div_tau=(precomputed_div_tau[0][:c], precomputed_div_tau[1][:c]) if precomputed_div_tau is not None else None
                 )
             )
             optimizer, scheduler = build_optimizer(ADAM_EPOCHS_PHASE2)
@@ -482,7 +526,10 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         # Motore centrale: calcola le loss in chunk evitando OOM
         tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val = (
-            compute_and_backward_losses(active_bcs, w_mom, w_con, xy_all, uv_all, frozen_velocity=frozen_vel)
+            compute_and_backward_losses(
+                active_bcs, w_mom, w_con, xy_all, uv_all,
+                frozen_velocity=frozen_vel, precomputed_div_tau=precomputed_div_tau
+            )
         )
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
@@ -743,6 +790,10 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             tolerance_grad=1e-9, tolerance_change=1e-12, history_size=300, line_search_fn="strong_wolfe",
         )
         
+        print("\n[Optimization] Precalcolo divergenza sforzi in corso per la Fase 2 (L-BFGS, FP64)...")
+        precomputed_div_tau_lbfgs = precompute_stress_divergence(model, physics, xy_all)
+        print("[Optimization] Divergenza sforzi precalcolata.")
+
         l_it2 = [0]
         pbar_lbfgs2 = tqdm(total=iters_phase2, desc="L-BFGS Phase 2", mininterval=2.0)
         
@@ -751,7 +802,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             test_closure=lambda c: compute_and_backward_losses(
                 active_bcs=["u", "v", "p"], w_mom=W_MOMENTUM, w_con=0.0,
                 points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
-                is_lbfgs=True, chunk_size_override=c
+                is_lbfgs=True, chunk_size_override=c,
+                precomputed_div_tau=(precomputed_div_tau_lbfgs[0][:c], precomputed_div_tau_lbfgs[1][:c]) if precomputed_div_tau_lbfgs is not None else None
             )
         )
         
@@ -761,6 +813,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 compute_and_backward_losses(
                     active_bcs=["u", "v", "p"], w_mom=W_MOMENTUM, w_con=0.0,
                     points=xy_all, labels=uv_all, is_lbfgs=True,
+                    precomputed_div_tau=precomputed_div_tau_lbfgs
                 )
             )
             loss_tensor = torch.tensor(tot_loss, device=DEVICE)
