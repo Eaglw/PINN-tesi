@@ -337,4 +337,9 @@
 - Presentato l'approccio euristico basato sulla sola velocità per stimare `tau_scale` e `momentum_scale` (strain rate massimo) nel caso in cui non siano disponibili i dataset di stress/pressione.
 - Aggiornato l'indice generale [[00_Index]] e la pagina Topic [[Nondimensionalization]] per referenziare il nuovo metodo.
 
+## [2026-07-02] update_wiki | Analisi convergenza pressione e ottimizzazioni Staged Training
+- Aggiornata la pagina Topic [[Pressure_Stress_Decoupling]] introducendo il **Limite teorico di Helmholtz-Hodge per l'inferenza di pressione**. Spiegato perché il rumore numerico amplificato nelle derivate di alto ordine delle velocità e degli stress congelati crei una componente rotazionale incompatibile che impedisce alla pressione di convergere in assenza di co-adattamento della velocità.
+- Aggiornata la pagina Method [[Staged_Training_Procedure]] con i dettagli della Fase 2: Dynamics, documentando il fenomeno del **Vanishing Gradient Cascade** dovuto alla zero-inizializzazione dell'ultimo layer di `model_p`, e l'ottimizzazione basata sul **Precalcolo della divergenza dello stress ($\nabla \cdot \boldsymbol{\tau}$)** che riduce la VRAM e velocizza la Fase 2 di circa il 25%-30%.
+
+
 
