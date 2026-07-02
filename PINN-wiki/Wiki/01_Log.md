@@ -341,5 +341,10 @@
 - Aggiornata la pagina Topic [[Pressure_Stress_Decoupling]] introducendo il **Limite teorico di Helmholtz-Hodge per l'inferenza di pressione**. Spiegato perché il rumore numerico amplificato nelle derivate di alto ordine delle velocità e degli stress congelati crei una componente rotazionale incompatibile che impedisce alla pressione di convergere in assenza di co-adattamento della velocità.
 - Aggiornata la pagina Method [[Staged_Training_Procedure]] con i dettagli della Fase 2: Dynamics, documentando il fenomeno del **Vanishing Gradient Cascade** dovuto alla zero-inizializzazione dell'ultimo layer di `model_p`, e l'ottimizzazione basata sul **Precalcolo della divergenza dello stress ($\nabla \cdot \boldsymbol{\tau}$)** che riduce la VRAM e velocizza la Fase 2 di circa il 25%-30%.
 
+## [2026-07-02] update_wiki | Integrazione doppia scala di adimensionalizzazione per raggio roll
+- Aggiornata la pagina Topic [[Nondimensionalization]] descrivendo la **Double Length-Scale Adimensionalization** (Doppia scala di adimensionalizzazione).
+- Spiegato in dettaglio come si mantiene la compatibilità al 100% con i vecchi checkpoint riscalando le coordinate nel dataset a $H_{\text{coord}} = 0.05\text{ m}$ (range $[0, 1]$), mentre i parametri adimensionali ($Re, Wi$) e i riferimenti fisici vengono calcolati sul raggio del rullo ($H_{\text{ref}} = 0.005\text{ m}$).
+- Documentato matematicamente come il fattore 10 di scala (rapporto $H_{\text{coord}}/H_{\text{ref}}$) si compensi esattamente nel calcolo delle velocità a causa dell'accoppiamento tra stream function e derivate spaziali, evitando spike di loss all'avvio.
+
 
 
