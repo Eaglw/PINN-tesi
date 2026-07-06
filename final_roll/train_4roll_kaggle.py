@@ -77,8 +77,8 @@ HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
 
 # Training hyperparameters
-ADAM_EPOCHS = 50000
-LBFGS_MAX_ITERS = 5000
+ADAM_EPOCHS = 10000
+LBFGS_MAX_ITERS = 2000
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 GRAD_CLIP_NORM = 5.0
@@ -391,8 +391,9 @@ if __name__ == "__main__":
     mu_tot = MU_S_TRUE + MU_P_TRUE
     Re = RHO * data["U_ref"] * data["H"] / mu_tot
     beta = MU_S_TRUE / mu_tot
+    s = data["H"] / data["H_coord"]
 
-    log_print(f"Computed scaling values: Re = {Re:.4f}, beta = {beta:.4f}")
+    log_print(f"Computed scaling values: Re = {Re:.4f}, beta = {beta:.4f}, s = {s:.4f}")
 
     # 2. Precompute spatial derivatives
     derivs = precompute_comsol_derivatives(
@@ -451,9 +452,9 @@ if __name__ == "__main__":
             u_val = u_all[i : i + chunk_size]
             v_val = v_all[i : i + chunk_size]
 
-            # Momentum residuals
-            f_u = Re * (u_val * ux + v_val * uy) + p_x - beta * (uxx + uyy) - (txx_x_val + txy_y_val)
-            f_v = Re * (u_val * vx + v_val * vy) + p_y - beta * (vxx + vyy) - (txy_x_val + tyy_y_val)
+            # Momentum residuals with proper scaling
+            f_u = Re * (u_val * (ux * s) + v_val * (uy * s)) + p_x * s - beta * ((uxx + uyy) * s**2) - ((txx_x_val + txy_y_val) * s)
+            f_v = Re * (u_val * (vx * s) + v_val * (vy * s)) + p_y * s - beta * ((vxx + vyy) * s**2) - ((txy_x_val + tyy_y_val) * s)
 
             loss_m = (f_u**2 + f_v**2).mean() / 2.0
             loss_d_p = torch.mean(((p_pred - p_true) ** 2) / var_w["p"])
@@ -553,8 +554,9 @@ if __name__ == "__main__":
                 u_val = u_all[i : i + chunk_size]
                 v_val = v_all[i : i + chunk_size]
                 
-                f_u = Re * (u_val * ux + v_val * uy) + p_x - beta * (uxx + uyy) - (txx_x_val + txy_y_val)
-                f_v = Re * (u_val * vx + v_val * vy) + p_y - beta * (vxx + vyy) - (txy_x_val + tyy_y_val)
+                # Momentum residuals with proper scaling
+                f_u = Re * (u_val * (ux * s) + v_val * (uy * s)) + p_x * s - beta * ((uxx + uyy) * s**2) - ((txx_x_val + txy_y_val) * s)
+                f_v = Re * (u_val * (vx * s) + v_val * (vy * s)) + p_y * s - beta * ((vxx + vyy) * s**2) - ((txy_x_val + tyy_y_val) * s)
                 
                 loss_m = (f_u**2 + f_v**2).mean() / 2.0
                 loss_d_p = torch.mean(((p_pred - p_true) ** 2) / var_w["p"])
