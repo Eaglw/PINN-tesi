@@ -115,125 +115,108 @@ def log_print(*args, **kwargs):
     with open(log_file_path, "a", encoding="utf-8") as f:
         print(*args, file=f, **kwargs)
 
-# ============================================================================
-# 3. DEFINE SURROGATE / INTERPOLATOR FOR VELOCITY & STRESS FIELDS
-# ============================================================================
-def precompute_comsol_derivatives(coords, u, v, txx, txy, tyy, device, chunk_size=5000, K=25):
+# ===========================================================================
+def precompute_comsol_derivatives(coords, u, v, txx, txy, tyy, device, chunk_size=5000, K=30):
     import scipy.spatial as spatial
-    log_print(f"Precalculating spatial derivatives from COMSOL data using local RBF interpolation (K={K})...")
+    log_print(f"Precalculating spatial derivatives using locally scaled MLS (K={K})...")
     
-    # 1. Build KDTree on CPU
     coords_np = coords.cpu().numpy()
-    tree = spatial.cKDTree(coords_np)
+    u_np = u.cpu().numpy()
+    v_np = v.cpu().numpy()
+    txx_np = txx.cpu().numpy()
+    txy_np = txy.cpu().numpy()
+    tyy_np = tyy.cpu().numpy()
     
-    # Query nearest neighbors for all points
+    N = coords_np.shape[0]
+    tree = spatial.cKDTree(coords_np)
     distances, indices = tree.query(coords_np, k=K, workers=-1)
     
-    # Convert tree outputs to torch tensors
-    distances = torch.tensor(distances, dtype=coords.dtype, device=device)
-    indices = torch.tensor(indices, dtype=torch.long, device=device)
+    u_x = np.zeros((N, 1))
+    u_y = np.zeros((N, 1))
+    u_xx = np.zeros((N, 1))
+    u_yy = np.zeros((N, 1))
     
-    # Stack fields: shape [N, 5]
-    fields = torch.cat([u, v, txx, txy, tyy], dim=1)
-    N = coords.shape[0]
+    v_x = np.zeros((N, 1))
+    v_y = np.zeros((N, 1))
+    v_xx = np.zeros((N, 1))
+    v_yy = np.zeros((N, 1))
     
-    # Preallocate output tensors for derivatives
-    u_x = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    u_y = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    u_xx = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    u_yy = torch.zeros((N, 1), dtype=coords.dtype, device=device)
+    txx_x = np.zeros((N, 1))
+    txx_y = np.zeros((N, 1))
+    txy_x = np.zeros((N, 1))
+    txy_y = np.zeros((N, 1))
+    tyy_x = np.zeros((N, 1))
+    tyy_y = np.zeros((N, 1))
     
-    v_x = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    v_y = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    v_xx = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    v_yy = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    
-    txx_x = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    txx_y = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    txy_x = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    txy_y = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    tyy_x = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    tyy_y = torch.zeros((N, 1), dtype=coords.dtype, device=device)
-    
-    for start in range(0, N, chunk_size):
-        end = min(start + chunk_size, N)
-        M = end - start
+    for i in range(N):
+        x0 = coords_np[i]
+        idx = indices[i]
+        dist = distances[i]
+        h = max(dist[-1], 1e-4)
         
-        # Query points for this chunk
-        X_q = coords[start:end].clone().detach().requires_grad_(True)
+        dxy = coords_np[idx] - x0
+        dx_scaled = dxy[:, 0] / h
+        dy_scaled = dxy[:, 1] / h
         
-        # Neighbors coordinates and fields
-        idx_chunk = indices[start:end]
-        X_nb = coords[idx_chunk]
-        Y_nb = fields[idx_chunk]
+        X = np.column_stack([
+            np.ones(K),
+            dx_scaled,
+            dy_scaled,
+            0.5 * dx_scaled**2,
+            0.5 * dy_scaled**2,
+            dx_scaled * dy_scaled
+        ])
         
-        # Local bandwidth h: distance to the K-th neighbor
-        h = distances[start:end, K-1:K].clone().detach()
-        h = torch.clamp(h, min=1e-4)
+        w = np.exp(- (dist**2) / (h**2))
+        W = np.diag(w)
         
-        # Compute distances and weights
-        diff = X_q.unsqueeze(1) - X_nb # [M, K, 2]
-        dist_sq = torch.sum(diff**2, dim=2) # [M, K]
+        XTW = X.T @ W
+        XTWX = XTW @ X
+        XTWX += np.eye(6) * 1e-12
         
-        weights = torch.exp(- dist_sq / (h**2 + 1e-12))
-        weights_sum = torch.sum(weights, dim=1, keepdim=True)
-        norm_weights = weights / (weights_sum + 1e-12)
-        
-        # Interpolated values: [M, 5]
-        Y_pred = torch.sum(norm_weights.unsqueeze(2) * Y_nb, dim=1)
-        
-        u_p = Y_pred[:, 0]
-        v_p = Y_pred[:, 1]
-        txx_p = Y_pred[:, 2]
-        txy_p = Y_pred[:, 3]
-        tyy_p = Y_pred[:, 4]
-        
-        # Gradients of u
-        g_u = torch.autograd.grad(u_p.sum(), X_q, create_graph=True, retain_graph=True)[0]
-        g_u_x = g_u[:, 0]
-        g_u_y = g_u[:, 1]
-        
-        g_u_xx = torch.autograd.grad(g_u_x.sum(), X_q, create_graph=False, retain_graph=True)[0][:, 0]
-        g_u_yy = torch.autograd.grad(g_u_y.sum(), X_q, create_graph=False, retain_graph=True)[0][:, 1]
-        
-        # Gradients of v
-        g_v = torch.autograd.grad(v_p.sum(), X_q, create_graph=True, retain_graph=True)[0]
-        g_v_x = g_v[:, 0]
-        g_v_y = g_v[:, 1]
-        
-        g_v_xx = torch.autograd.grad(g_v_x.sum(), X_q, create_graph=False, retain_graph=True)[0][:, 0]
-        g_v_yy = torch.autograd.grad(g_v_y.sum(), X_q, create_graph=False, retain_graph=True)[0][:, 1]
-        
-        # Gradients of stresses
-        g_txx = torch.autograd.grad(txx_p.sum(), X_q, create_graph=False, retain_graph=True)[0]
-        g_txy = torch.autograd.grad(txy_p.sum(), X_q, create_graph=False, retain_graph=True)[0]
-        g_tyy = torch.autograd.grad(tyy_p.sum(), X_q, create_graph=False, retain_graph=False)[0]
-        
-        # Detach and assign
-        u_x[start:end] = g_u_x.detach().unsqueeze(1)
-        u_y[start:end] = g_u_y.detach().unsqueeze(1)
-        u_xx[start:end] = g_u_xx.detach().unsqueeze(1)
-        u_yy[start:end] = g_u_yy.detach().unsqueeze(1)
-        
-        v_x[start:end] = g_v_x.detach().unsqueeze(1)
-        v_y[start:end] = g_v_y.detach().unsqueeze(1)
-        v_xx[start:end] = g_v_xx.detach().unsqueeze(1)
-        v_yy[start:end] = g_v_yy.detach().unsqueeze(1)
-        
-        txx_x[start:end] = g_txx[:, 0].detach().unsqueeze(1)
-        txx_y[start:end] = g_txx[:, 1].detach().unsqueeze(1)
-        txy_x[start:end] = g_txy[:, 0].detach().unsqueeze(1)
-        txy_y[start:end] = g_txy[:, 1].detach().unsqueeze(1)
-        tyy_x[start:end] = g_tyy[:, 0].detach().unsqueeze(1)
-        tyy_y[start:end] = g_tyy[:, 1].detach().unsqueeze(1)
-
-    log_print("Derivative precalculation finished successfully!")
+        try:
+            inv_XTWX = np.linalg.inv(XTWX)
+            c_u = inv_XTWX @ XTW @ u_np[idx]
+            c_v = inv_XTWX @ XTW @ v_np[idx]
+            c_txx = inv_XTWX @ XTW @ txx_np[idx]
+            c_txy = inv_XTWX @ XTW @ txy_np[idx]
+            c_tyy = inv_XTWX @ XTW @ tyy_np[idx]
+            
+            u_x[i] = c_u[1] / h
+            u_y[i] = c_u[2] / h
+            u_xx[i] = c_u[3] / (h**2)
+            u_yy[i] = c_u[4] / (h**2)
+            
+            v_x[i] = c_v[1] / h
+            v_y[i] = c_v[2] / h
+            v_xx[i] = c_v[3] / (h**2)
+            v_yy[i] = c_v[4] / (h**2)
+            
+            txx_x[i] = c_txx[1] / h
+            txx_y[i] = c_txx[2] / h
+            txy_x[i] = c_txy[1] / h
+            txy_y[i] = c_txy[2] / h
+            tyy_x[i] = c_tyy[1] / h
+            tyy_y[i] = c_tyy[2] / h
+        except np.linalg.LinAlgError:
+            pass
+            
+    log_print("MLS derivative calculation completed successfully!")
     return {
-        "u_x": u_x, "u_y": u_y, "u_xx": u_xx, "u_yy": u_yy,
-        "v_x": v_x, "v_y": v_y, "v_xx": v_xx, "v_yy": v_yy,
-        "txx_x": txx_x, "txx_y": txx_y,
-        "txy_x": txy_x, "txy_y": txy_y,
-        "tyy_x": tyy_x, "tyy_y": tyy_y
+        "u_x": torch.tensor(u_x, dtype=coords.dtype, device=device),
+        "u_y": torch.tensor(u_y, dtype=coords.dtype, device=device),
+        "u_xx": torch.tensor(u_xx, dtype=coords.dtype, device=device),
+        "u_yy": torch.tensor(u_yy, dtype=coords.dtype, device=device),
+        "v_x": torch.tensor(v_x, dtype=coords.dtype, device=device),
+        "v_y": torch.tensor(v_y, dtype=coords.dtype, device=device),
+        "v_xx": torch.tensor(v_xx, dtype=coords.dtype, device=device),
+        "v_yy": torch.tensor(v_yy, dtype=coords.dtype, device=device),
+        "txx_x": torch.tensor(txx_x, dtype=coords.dtype, device=device),
+        "txx_y": torch.tensor(txx_y, dtype=coords.dtype, device=device),
+        "txy_x": torch.tensor(txy_x, dtype=coords.dtype, device=device),
+        "txy_y": torch.tensor(txy_y, dtype=coords.dtype, device=device),
+        "tyy_x": torch.tensor(tyy_x, dtype=coords.dtype, device=device),
+        "tyy_y": torch.tensor(tyy_y, dtype=coords.dtype, device=device)
     }
 
 # ============================================================================
@@ -403,7 +386,8 @@ if __name__ == "__main__":
     # 3. Initialize model
     model = PressureModel(p_scale=data["p_scale"]).to(DEVICE)
     model.apply(lambda m: init_weights_xavier(m, activation_name="silu"))
-    initialize_last_layer_zero(model.model_p)
+    # DO NOT call initialize_last_layer_zero to avoid Vanishing Gradient Cascade
+    # initialize_last_layer_zero(model.model_p)
 
     history = PressureHistory()
 
