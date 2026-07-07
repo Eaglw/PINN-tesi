@@ -450,27 +450,30 @@ def plot_fields(predictions, data, save_path):
         "tau_yy": "plasma",
     }
 
-    fig, axs = plt.subplots(len(field_names), 3, figsize=(18, 4 * len(field_names)))
+    fig, axs = plt.subplots(len(field_names), 4, figsize=(24, 4 * len(field_names)))
 
     for i, fn in enumerate(field_names):
         ex, pr = exacts[fn], preds[fn]
 
-        # Errore relativo (in %) con cutoff intelligente per evitare divisioni per 0
+        # Errore assoluto
         abs_err = np.abs(ex - pr)
-        rel_err = np.zeros_like(ex)
-        thr = max(0.05 * np.max(np.abs(ex)), 1e-8)
-        m = np.abs(ex) > thr
-        if m.any():
-            rel_err[m] = (abs_err[m] / np.abs(ex[m])) * 100.0
+
+        # Errore relativo normalizzato rispetto alla dinamica globale per evitare divisioni per zero
+        field_range = np.max(ex) - np.min(ex)
+        if field_range > 1e-8:
+            rel_err = (abs_err / field_range) * 100.0
+        else:
+            rel_err = np.zeros_like(ex)
 
         vmin, vmax = min(ex.min(), pr.min()), max(ex.max(), pr.max())
         cmap = cmaps[fn]
 
-        # Configurazione matrice per i 3 subplot della riga
+        # Configurazione matrice per i 4 subplot della riga
         plot_configs = [
             (ex, f"{fn} (COMSOL)", cmap, vmin, vmax, None),
             (pr, f"{fn} (PINN)", cmap, vmin, vmax, None),
-            (rel_err, f"{fn} (Rel. Error %)", "jet", 0.0, 10.0, "%"),
+            (abs_err, f"{fn} Abs. Error (|COMSOL - PINN|)", "coolwarm", 0.0, max(abs_err.max(), 1e-8), None),
+            (rel_err, f"{fn} Rel. Error % (|COMSOL - PINN|/Range)", "jet", 0.0, 10.0, "%"),
         ]
 
         for col, (data_arr, title, c_map, c_min, c_max, cb_label) in enumerate(
