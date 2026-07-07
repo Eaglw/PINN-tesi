@@ -554,8 +554,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         scheduler.step()
 
         # Condizioni di logging separate
-        log_loss = ((epoch + 1) % 10 == 0) or (epoch + 1) == total_adam_epochs or epoch == start_epoch or (STAGED_TRAINING and (epoch + 1) == ADAM_EPOCHS_PHASE1)
         log_l2 = ((epoch + 1) % max(1, total_adam_epochs // 40) == 0) or (epoch == start_epoch) or (STAGED_TRAINING and (epoch + 1) == ADAM_EPOCHS_PHASE1) or ((epoch + 1) == total_adam_epochs)
+        log_loss = ((epoch + 1) % 10 == 0) or log_l2
 
         if log_loss:
             params = physics.log_params()
@@ -741,7 +741,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             )
             loss_tensor = torch.tensor(tot_loss, device=DEVICE)
             
-            if (l_it1[0] % max(1, iters_phase1 // 100) == 0) or (l_it1[0] == iters_phase1 - 1):
+            log_l2_lbfgs = (l_it1[0] % max(1, iters_phase1 // 40) == 0) or (l_it1[0] == iters_phase1 - 1)
+            
+            if log_l2_lbfgs:
                 params = physics.log_params()
                 with torch.no_grad():
                     l2_errs = compute_l2_errors(model, physics, data)
@@ -750,6 +752,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     total_adam_epochs + l_it1[0],
                     {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
                 )
+                print(f"\n[L-BFGS Phase 1 - Iter {l_it1[0]+1}/{iters_phase1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
+                print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
+                print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
             
             l_it1[0] += 1
             pbar_lbfgs1.update(1)
@@ -818,7 +823,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             )
             loss_tensor = torch.tensor(tot_loss, device=DEVICE)
             
-            if (l_it2[0] % max(1, iters_phase2 // 100) == 0) or (l_it2[0] == iters_phase2 - 1):
+            log_l2_lbfgs = (l_it2[0] % max(1, iters_phase2 // 40) == 0) or (l_it2[0] == iters_phase2 - 1)
+            
+            if log_l2_lbfgs:
                 params = physics.log_params()
                 with torch.no_grad():
                     l2_errs = compute_l2_errors(model, physics, data)
@@ -828,6 +835,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     offset + l_it2[0],
                     {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
                 )
+                print(f"\n[L-BFGS Phase 2 - Iter {l_it2[0]+1}/{iters_phase2}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
+                print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
+                print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
             
             l_it2[0] += 1
             pbar_lbfgs2.update(1)

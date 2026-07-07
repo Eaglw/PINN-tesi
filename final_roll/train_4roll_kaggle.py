@@ -86,7 +86,7 @@ GRAD_CLIP_NORM = 5.0
 # Loss weights
 W_BC = 2.0
 W_PHYSICS = 3.0
-W_DATA = 1.0
+W_DATA = 0.0  # Set to 0.0 to remove pressure data supervision
 VARIANCE_EPS = 1e-4
 
 # Inject variables into src modules to allow load_data() and other utilities to run correctly
