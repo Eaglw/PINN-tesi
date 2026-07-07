@@ -61,7 +61,7 @@ epochs: 100000
 ## 🖼️ Plot Generati
 
 ### Global Fields
-![[global_fields.png]]
+![[Runs/Maurizio/no data - only stress PDE/global_fields.png]]
 
 ### High Stress
 ![[high_stress.png]]
@@ -70,7 +70,7 @@ epochs: 100000
 ![[l2_errors_history.png]]
 
 ### Loss History
-![[loss_history.png]]
+![[Runs/Maurizio/no data - only stress PDE/loss_history.png]]
 
 ### Params Evolution
 ![[params_evolution.png]]

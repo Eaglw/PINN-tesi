@@ -68,3 +68,25 @@ views:
       file.name: 316
       note.epochs: 82
       note.staged: 72
+  - type: table
+    name: Kaggle
+    filters:
+      and:
+        - Computer == "Kaggle"
+    order:
+      - date
+      - file.name
+      - epochs
+      - staged
+      - inverse
+      - dataset
+      - status
+      - Computer
+    sort:
+      - property: date
+        direction: ASC
+    columnSize:
+      note.date: 149
+      file.name: 176
+      note.epochs: 82
+      note.staged: 72
