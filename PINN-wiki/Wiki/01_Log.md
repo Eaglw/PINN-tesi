@@ -352,5 +352,11 @@
 - Spiegato in dettaglio come si mantiene la compatibilità al 100% con i vecchi checkpoint riscalando le coordinate nel dataset a $H_{\text{coord}} = 0.05\text{ m}$ (range $[0, 1]$), mentre i parametri adimensionali ($Re, Wi$) e i riferimenti fisici vengono calcolati sul raggio del rullo ($H_{\text{ref}} = 0.005\text{ m}$).
 - Documentato matematicamente come il fattore 10 di scala (rapporto $H_{\text{coord}}/H_{\text{ref}}$) si compensi esattamente nel calcolo delle velocità a causa dell'accoppiamento tra stream function e derivate spaziali, evitando spike di loss all'avvio.
 
+## [2026-07-08] update_wiki | Aggiunta documentazione sul meccanismo di Pressure Point Anchoring
+- Creata la pagina Method [[Pressure_Point_Anchoring]] per documentare la necessità numerica dell'ancoraggio Dirichlet per la pressione in fluidodinamica incomprimibile (Navier-Stokes/viscoelastici).
+- Documentati i due meccanismi di estrazione: tramite selezione esplicita da file mesh COMSOL (`.mphtxt`) o tramite il fallback automatico sul primo nodo del gruppo `Walls` (es. indice `111092`, coordinate `[1.0000, 0.1348]`, corrispondente a `[0.025, -0.01826]` metri sulla parete verticale destra).
+- Aggiornato l'indice generale [[00_Index]].
+
+
 
 
