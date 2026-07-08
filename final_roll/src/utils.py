@@ -29,6 +29,26 @@ def convert_to_fp64(model, physics, data):
     physics.double()
 
 
+def convert_to_fp32(model, physics, data):
+    """
+    Converte in modo centralizzato modello, fisica e dati a FP32 prima di Adam Fase 2.
+    """
+
+    def _cast_dict_to_float(
+        d,
+    ):  # funzione interna per ricorsione, per ciclare su tutti i dati e bc.
+        for key, value in d.items():
+            if isinstance(value, torch.Tensor):
+                d[key] = value.float()
+            elif isinstance(value, dict):
+                # Se è un dizionario (es. boundary_groups), richiama se stessa
+                _cast_dict_to_float(value)
+
+    _cast_dict_to_float(data)
+    model.float()
+    physics.float()
+
+
 def weighted_mse(pred, target, var):
     """Formula esplicita per la weighted MSE normalizzata tramite la varianza."""
     return torch.mean(((pred - target) ** 2) / var)
