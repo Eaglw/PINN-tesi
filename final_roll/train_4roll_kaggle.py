@@ -77,7 +77,7 @@ HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
 
 # Training hyperparameters
-ADAM_EPOCHS = 50000
+ADAM_EPOCHS = 20000
 LBFGS_MAX_ITERS = 10000
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -380,7 +380,7 @@ if __name__ == "__main__":
 
     # 2. Precompute spatial derivatives
     derivs = precompute_comsol_derivatives(
-        xy_all, u_all, v_all, txx_all, txy_all, tyy_all, DEVICE, chunk_size=5000, K=25
+        xy_all, u_all, v_all, txx_all, txy_all, tyy_all, DEVICE, chunk_size=5000, K=50
     )
 
     # 3. Initialize model
@@ -449,8 +449,8 @@ if __name__ == "__main__":
             loss_m_accum += loss_m.item() * w_chunk
             loss_d_p_accum += loss_d_p.item() * w_chunk
 
-        # Boundary condition on PressurePoint
-        gd = bc_data["PressurePoint"]
+        # Boundary condition on Walls
+        gd = bc_data["Walls"]
         x_bc = gd["xy"].clone().requires_grad_(True)
         p_bc = model(x_bc)
         bc_loss = torch.mean(((p_bc - gd["fields"]["p"]) ** 2) / var_w["p"])
@@ -551,8 +551,8 @@ if __name__ == "__main__":
                 loss_m_accum += loss_m.item() * w_chunk
                 loss_d_p_accum += loss_d_p.item() * w_chunk
                 
-            # Boundary condition on PressurePoint
-            gd = bc_data["PressurePoint"]
+            # Boundary condition on Walls
+            gd = bc_data["Walls"]
             x_bc = gd["xy"].clone().requires_grad_(True)
             p_bc = model(x_bc)
             bc_loss = torch.mean(((p_bc - gd["fields"]["p"]) ** 2) / var_w["p"])
