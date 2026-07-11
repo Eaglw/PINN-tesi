@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from src.utils import convert_to_fp64, convert_to_fp32
+from src.utils import convert_to_fp64, convert_to_fp32, get_optimal_chunk_size
 from src.physics import compute_l2_errors
 
 class SimpleHistory:
@@ -367,7 +367,6 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     getattr(physics, pname).requires_grad_(False)
 
         # Calcola chunk size ottimale
-        from src.utils import get_optimal_chunk_size
         CHUNK_SIZE_ADAM = get_optimal_chunk_size(
             phase=1, model=model,
             test_closure=lambda c: compute_and_backward_losses(
