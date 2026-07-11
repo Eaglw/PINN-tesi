@@ -73,7 +73,7 @@ DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 
 # --- Checkpointing ---
 RESUME_CHECKPOINT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints", "checkpoint_psi+tau_100k.pth")
-
+#RESUME_CHECKPOINT = r"C:\Users\eaglw\Documents\PINN tesi\final_roll\output_4rollmill\4_roll_mill_L8x128_E120000_SiLU_stagedTrue_invFalse_20260702_122707\checkpoint_phase2_adam.pth"
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
@@ -103,13 +103,13 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS_PHASE1 = 101000
-ADAM_EPOCHS_PHASE2 = 20000
-USE_LBFGS_PHASE1 = True  # True: esegue L-BFGS solo su psi e tau
-USE_LBFGS_PHASE2 = True  # True: esegue L-BFGS solo su psi e p
+ADAM_EPOCHS_PHASE1 = 100000
+ADAM_EPOCHS_PHASE2 = 100000
+USE_LBFGS_PHASE1 = False  # False: evita di deformare lo stress già appreso
+USE_LBFGS_PHASE2 = False  # True: esegue L-BFGS solo su psi e p
 LBFGS_MAX_ITERS_PHASE1 = int(ADAM_EPOCHS_PHASE1 * 0.1)
 LBFGS_MAX_ITERS_PHASE2 = int(ADAM_EPOCHS_PHASE2 * 0.1)
-BASE_LR = 5e-3
+BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
 GRAD_CLIP_NORM = 1000.0
@@ -120,7 +120,7 @@ WARMUP_UNLOCK_EPOCH = int(0.2 * ADAM_EPOCHS_PHASE1)
 # --- Pesi Funzione di Loss ---
 W_BC = 5.0      # Aumentato da 2.0 a 5.0 per vincolare meglio l'ancoraggio del punto di pressione
 W_PHYSICS = 3.0
-W_DATA = 0.0    # Disattivato (0.0) per permettere a psi di addestrarsi unicamente tramite PDE e BC
+W_DATA = 1.0    # Attivato (1.0) per permettere a psi di addestrarsi usando anche i dati di velocità di COMSOL
 W_MOMENTUM = 1.0
 W_CONSTITUTIVE = 1.0
 VARIANCE_EPS = 1e-4

@@ -359,4 +359,23 @@
 
 
 
+## [2026-07-09] update_wiki | Documentazione del limite rotazionale di Helmholtz-Hodge e della Vorticity Regularization
+
+### Contesto Sperimentale
+- Esperimento sul 4-roll mill con Staged Training (Fase 1: psi+tau senza momentum, Fase 2: solo pressione con velocity congelata).
+- L'errore L2 della pressione si stabilizzava a **154%** e la loss di momentum si bloccava a **0.933** indipendentemente dal numero di epoche.
+- Verificato sperimentalmente che la correlazione Pearson tra $\nabla^2 u$ (Autograd su PINN) e $\nabla^2 u$ (MLS su COMSOL) era **-0.375** (anticorrelazione), dimostrando che le derivate seconde della velocity apprese senza momentum sono fisicamente incoerenti.
+- Ricerca bruteforce su tutte le 16 combinazioni di segni dei termini di momentum ha confermato che il residuo medio minimo (~0.42) non è eliminabile con alcuna combinazione di segni.
+
+### Pagine Create
+- **[[Vorticity_Regularization]]** (Methods): Nuova pagina atomica che documenta:
+  - Il problema della componente rotazionale nel termine noto $\mathbf{F}$ della momentum equation quando la velocity è congelata.
+  - La soluzione tramite l'equazione di trasporto della vorticità $Re\,(\mathbf{u} \cdot \nabla \omega) = \beta\,\nabla^2 \omega + \nabla \times (\nabla \cdot \boldsymbol{\tau})$ come regolarizzatore in Fase 1.
+  - Considerazioni implementative (costo computazionale delle derivate quarte, warmup, pesi della loss).
+  - Tabella comparativa con dati sperimentali del 4-roll mill.
+
+### Pagine Modificate
+- **[[Pressure_Stress_Decoupling]]** (Topics): Aggiunta sottosezione "Alternative Resolution: Vorticity Regularization in Phase 1" con wikilink alla nuova pagina. Aggiunto backlink a [[Vorticity_Regularization]] nei riferimenti.
+- **[[00_Index]]**: Aggiunta voce [[Vorticity_Regularization]] nella sezione Technical Methods.
+
 

@@ -677,8 +677,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         uv_all = data["uv_data"]
         bc_data = data["boundary_groups"]
 
+        # Azzera i gradienti residui accumulati della Fase 1
+        model.zero_grad(set_to_none=True)
+
         if STAGED_TRAINING:
-            # Congela tau, sblocca psi e p
+            # Fase 2: Pressione e Psi sbloccati, tau congelato
             for p in model.parameters():
                 p.requires_grad = False
             for p in model.model_psi.parameters():
@@ -902,11 +905,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         uv_all = data["uv_data"]
         bc_data = data["boundary_groups"]
 
-        # Congela tau, sblocca psi e p
+        # Azzera i gradienti prima dell'avvio di L-BFGS
+        model.zero_grad(set_to_none=True)
+
+        # Congela psi e tau, sblocca solo p
         for p in model.parameters():
             p.requires_grad = False
-        for p in model.model_psi.parameters():
-            p.requires_grad = True
         for p in model.model_p.parameters():
             p.requires_grad = True
 
@@ -930,9 +934,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         CHUNK_SIZE_LBFGS = get_optimal_chunk_size(
             phase=3, model=model,
             test_closure=lambda c: compute_and_backward_losses(
-                active_bcs=["u", "v", "p"], w_mom=W_MOMENTUM, w_con=0.0,
+                active_bcs=["p"], w_mom=W_MOMENTUM, w_con=0.0,
                 points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
-                is_lbfgs=True, chunk_size_override=c,
+                is_lbfgs=True, chunk_size_override=c, frozen_velocity=True,
                 precomputed_div_tau=(precomputed_div_tau_lbfgs[0][:c], precomputed_div_tau_lbfgs[1][:c]) if precomputed_div_tau_lbfgs is not None else None
             )
         )
@@ -945,8 +949,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             optimizer_lbfgs2.zero_grad()
             tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
                 compute_and_backward_losses(
-                    active_bcs=["u", "v", "p"], w_mom=W_MOMENTUM, w_con=0.0,
-                    points=xy_all, labels=uv_all, is_lbfgs=True,
+                    active_bcs=["p"], w_mom=W_MOMENTUM, w_con=0.0,
+                    points=xy_all, labels=uv_all, is_lbfgs=True, frozen_velocity=True,
                     precomputed_div_tau=precomputed_div_tau_lbfgs
                 )
             )

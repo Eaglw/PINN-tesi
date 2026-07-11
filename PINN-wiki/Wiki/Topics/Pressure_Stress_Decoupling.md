@@ -66,6 +66,9 @@ Because the term $\mathbf{f}$ contains high-order spatial derivatives (up to sec
 ### Resolution via Joint Velocity-Pressure Training
 Unfreezing `model_psi` (velocity) during Phase 2 allows the optimizer to backpropagate momentum residuals to the stream function. By making minute, high-frequency adjustments to $\psi$ (often $<0.1\%$ change in L2 velocity error), the optimizer eliminates the rotational component of the noise, forcing $\mathbf{g} \to 0$. This aligns the velocity fields with the pressure gradient, allowing the momentum loss to drop and the pressure field to converge.
 
+### Alternative Resolution: Vorticity Regularization in Phase 1
+Instead of unfreezing $\psi$ in Phase 2, one can prevent the rotational noise from forming in the first place by adding the [[Vorticity_Regularization|vorticity transport equation]] as a regularizer during Phase 1. Since $\nabla \times \nabla p \equiv 0$, the vorticity equation constrains the higher-order derivatives of $\psi$ without involving pressure, ensuring $\mathbf{F}$ is nearly conservative when Phase 2 begins. See [[Vorticity_Regularization]] for full details.
+
 ## References & Back-links
 - [[Viscoelasticity]]
 - [[ViscoelasticNet]]
@@ -73,3 +76,4 @@ Unfreezing `model_psi` (velocity) during Phase 2 allows the optimizer to backpro
 - [[Thakur_et_al_ViscoelasticNet]]
 - [[Staged_Training_Procedure]]
 - [[Viscoelastic_Training]]
+- [[Vorticity_Regularization]]
