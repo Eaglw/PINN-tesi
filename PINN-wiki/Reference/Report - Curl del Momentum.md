@@ -142,3 +142,52 @@ $$
 ### Conclusioni Logiche del Confronto
 - **Se** $\langle |\text{curl}(\mathbf{F})| \rangle_{\text{PINN}} \gg \langle |\text{curl}(\mathbf{F})| \rangle_{\text{COMSOL\_fit}}$, allora la deviazione irrotazionale della PINN è causata dalla mancanza di regolarizzazione fisica (mancanza del vincolo di pressione o del termine sul rotore) nella Fase 1.
 - **Se** $\langle |\text{curl}(\mathbf{F})| \rangle_{\text{PINN}} \approx \langle |\text{curl}(\mathbf{F})| \rangle_{\text{COMSOL\_fit}}$, il rotore rilevato è un errore numerico intrinseco dovuto alla differenziazione successiva (fino al 4° ordine) tramite Autograd su dati discretizzati, definendo un limite di risoluzione insuperabile per questa architettura.
+
+
+Ecco lo schema sintetico e ordinato con le sole equazioni fondamentali dell'analisi.
+
+---
+
+### 1. Modello Fisico e Campo di Forze $\mathbf{F}$
+$$\begin{array}{ll}
+\text{Equazione del Momentum:} & Re \left( \mathbf{u} \cdot \nabla \mathbf{u} \right) + \nabla p - \beta \nabla^2 \mathbf{u} - \nabla \cdot \boldsymbol{\tau} = \mathbf{0} \\
+\\
+\text{Formulazione Gradiente:} & \nabla p = \mathbf{F}(\mathbf{u}, \boldsymbol{\tau}) \\
+\\
+\text{Campo di Forze } \mathbf{F}: & \mathbf{F}(\mathbf{u}, \boldsymbol{\tau}) = - Re \left( \mathbf{u} \cdot \nabla \mathbf{u} \right) + \beta \nabla^2 \mathbf{u} + \nabla \cdot \boldsymbol{\tau}
+\end{array}$$
+
+---
+
+### 2. Condizione di Compatibilità del Rotore
+$$\begin{array}{ll}
+\text{Identità Vettoriale:} & \nabla \times (\nabla p) \equiv \mathbf{0} \\
+\\
+\text{Vincolo di Irrotazionalità:} & \nabla \times \mathbf{F}(\mathbf{u}, \boldsymbol{\tau}) = \mathbf{0} \\
+\\
+\text{Formulazione Bidimensionale (2D):} & \text{curl}(\mathbf{F}) = \frac{\partial F_y}{\partial x} - \frac{\partial F_x}{\partial y} = 0
+\end{array}$$
+
+---
+
+### 3. Equazioni dello Script con Scaling Spaziale $s = \frac{H_{\text{ref}}}{H_{\text{coord}}}$
+$$\begin{array}{ll}
+\text{Componente } F_x: & F_x = -Re \cdot s \left( u \frac{\partial u}{\partial x} + v \frac{\partial u}{\partial y} \right) + \beta \cdot s^2 \left( \frac{\partial^2 u}{\partial x^2} + \frac{\partial^2 u}{\partial y^2} \right) + s \left( \frac{\partial \tau_{xx}}{\partial x} + \frac{\partial \tau_{xy}}{\partial y} \right) \\
+\\
+\text{Componente } F_y: & F_y = -Re \cdot s \left( u \frac{\partial v}{\partial x} + v \frac{\partial v}{\partial y} \right) + \beta \cdot s^2 \left( \frac{\partial^2 v}{\partial x^2} + \frac{\partial^2 v}{\partial y^2} \right) + s \left( \frac{\partial \tau_{xy}}{\partial x} + \frac{\partial \tau_{yy}}{\partial y} \right) \\
+\\
+\text{Rotore Numerico:} & \text{curl}(\mathbf{F}) = s \left( \frac{\partial F_y}{\partial x} - \frac{\partial F_x}{\partial y} \right)
+\end{array}$$
+
+---
+
+### 4. Metriche e Residuo Minimo (Loss Floor)
+$$\begin{array}{ll}
+\text{Scomposizione di Helmholtz:} & \mathbf{F} = \nabla p_{\text{exact}} + \mathbf{F}_{\text{rot}} \quad \text{con} \quad \nabla \times \mathbf{F}_{\text{rot}} \neq 0 \\
+\\
+\text{Limite Minimo Loss Momentum:} & \mathcal{L}_{\text{momentum}} \ge \mathcal{L}_{\text{floor}} = \frac{1}{2} \left\langle \|\mathbf{F}_{\text{rot}}\|^2 \right\rangle \\
+\\
+\text{Stima Loss Floor nello Script:} & \mathcal{L}_{\text{floor\_est}} = \frac{1}{2N} \sum_{i=1}^N \left( F_{x,i}^2 + F_{y,i}^2 \right) \\
+\\
+\text{Rapporto di Inconsistenza:} & \text{Ratio} = \frac{\frac{1}{N} \sum_{i=1}^N \left| \text{curl}(\mathbf{F})_i \right|}{\frac{1}{N} \sum_{i=1}^N \sqrt{F_{x,i}^2 + F_{y,i}^2}} \times 100\%
+\end{array}$$
