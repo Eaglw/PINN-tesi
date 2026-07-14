@@ -103,12 +103,12 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS_PHASE1 = 100000
-ADAM_EPOCHS_PHASE2 = 100000
-USE_LBFGS_PHASE1 = False  # False: evita di deformare lo stress già appreso
-USE_LBFGS_PHASE2 = False  # True: esegue L-BFGS solo su psi e p
-LBFGS_MAX_ITERS_PHASE1 = int(ADAM_EPOCHS_PHASE1 * 0.1)
-LBFGS_MAX_ITERS_PHASE2 = int(ADAM_EPOCHS_PHASE2 * 0.1)
+ADAM_EPOCHS_PHASE1 = 150000
+ADAM_EPOCHS_PHASE2 = 0
+USE_LBFGS_PHASE1 = True  # Attivato per ottimizzare ulteriormente psi e tau
+USE_LBFGS_PHASE2 = False  # Disattivato per non procedere alla fase 2
+LBFGS_MAX_ITERS_PHASE1 = 10000
+LBFGS_MAX_ITERS_PHASE2 = 0
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
