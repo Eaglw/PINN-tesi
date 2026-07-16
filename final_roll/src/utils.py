@@ -826,3 +826,44 @@ def export_run_to_obsidian(source_dir: str, config_name: str, config_details: di
     if dest_dir and run_folder_name:
         finalize_run_in_obsidian(dest_dir, source_dir, run_folder_name, results_details)
 
+
+def launch_tensorboard_server(log_dir):
+    import subprocess
+    import webbrowser
+    import time
+    import socket
+    import sys
+    from pathlib import Path
+
+    # Controlla se la porta 6006 è già occupata
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 6006))
+        s.close()
+        port_free = True
+    except socket.error:
+        port_free = False
+
+    if port_free:
+        print("\n[TensorBoard] Avvio del server TensorBoard in corso...")
+        venv_bin = Path(sys.executable).parent
+        tb_executable = venv_bin / "tensorboard"
+        if not tb_executable.exists():
+            tb_executable = venv_bin / "tensorboard.exe"
+            
+        cmd = [
+            str(tb_executable) if tb_executable.exists() else "tensorboard",
+            "--logdir", str(log_dir),
+            "--port", "6006"
+        ]
+        
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+        time.sleep(2)
+        print("[TensorBoard] Server avviato sulla porta 6006.")
+    else:
+        print("\n[TensorBoard] Server già attivo o porta 6006 occupata. Utilizzo istanza esistente.")
+
+    print("[TensorBoard] Apertura del browser su http://localhost:6006 ...")
+    webbrowser.open("http://localhost:6006")
+
+

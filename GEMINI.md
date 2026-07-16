@@ -5,7 +5,7 @@ This project focuses on the research and application of Physics-Informed Neural 
 ## Project Structure
 
 - **`final_roll/`**: Active working folder containing the current viscoelastic fluid PINN implementation for the four-roll mill.
-    - `train_4roll_2.py`: Main entry point for training and running current experiments.
+    - `train_4roll_main.py`: Main entry point for training and running current experiments.
     - `src/`: Core source code module:
         - `train.py`: Implementation of the model architecture (`CombinedModel`) and the training process.
         - `physics.py`: Viscoelastic physics definition, including losses, adimensional parameters, and boundary conditions.
@@ -39,12 +39,12 @@ Run the main script from the `final_roll` folder or set the `PYTHONPATH` environ
 ```powershell
 # Option 1: Navigate to final_roll and run the script
 cd final_roll
-..\venv\Scripts\python train_4roll_2.py
+..\venv\Scripts\python train_4roll_main.py
 cd ..
 
 # Option 2: Set PYTHONPATH from the root directory
 $env:PYTHONPATH="final_roll;."
-.\venv\Scripts\python final_roll/train_4roll_2.py
+.\venv\Scripts\python final_roll/train_4roll_main.py
 ```
 
 ## Development Conventions
