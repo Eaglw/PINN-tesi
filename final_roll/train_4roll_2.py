@@ -72,7 +72,7 @@ INVERSE_PROBLEM = False  # True: semi-inverso, False: diretto
 DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints", "checkpoint_psi+tau_100k.pth")
+RESUME_CHECKPOINT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints", "checkpoint_psi+tau_150k.pth")
 #RESUME_CHECKPOINT = r"C:\Users\eaglw\Documents\PINN tesi\final_roll\output_4rollmill\4_roll_mill_L8x128_E120000_SiLU_stagedTrue_invFalse_20260702_122707\checkpoint_phase2_adam.pth"
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
@@ -103,12 +103,12 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS_PHASE1 = 150000
-ADAM_EPOCHS_PHASE2 = 0
-USE_LBFGS_PHASE1 = True  # Attivato per ottimizzare ulteriormente psi e tau
-USE_LBFGS_PHASE2 = False  # Disattivato per non procedere alla fase 2
-LBFGS_MAX_ITERS_PHASE1 = 10000
-LBFGS_MAX_ITERS_PHASE2 = 0
+ADAM_EPOCHS_PHASE1 = 161501
+ADAM_EPOCHS_PHASE2 = 100000
+USE_LBFGS_PHASE1 = False  # Disattivato per saltare la fase 1 L-BFGS
+USE_LBFGS_PHASE2 = True   # Attivato per procedere alla fase 2 L-BFGS
+LBFGS_MAX_ITERS_PHASE1 = 0
+LBFGS_MAX_ITERS_PHASE2 = 10000
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
