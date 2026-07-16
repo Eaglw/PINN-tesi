@@ -68,11 +68,11 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # --- Opzioni di Controllo ---
 EXPORT_TO_OBSIDIAN = True  # True: esporta i log e i plot nel vault Obsidian a fine run
 STAGED_TRAINING = True  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
-INVERSE_PROBLEM = False  # True: semi-inverso, False: diretto
+INVERSE_PROBLEM = True  # True: semi-inverso, False: diretto
 DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints", "checkpoint_psi+tau_150k.pth")
+RESUME_CHECKPOINT = None
 #RESUME_CHECKPOINT = r"C:\Users\eaglw\Documents\PINN tesi\final_roll\output_4rollmill\4_roll_mill_L8x128_E120000_SiLU_stagedTrue_invFalse_20260702_122707\checkpoint_phase2_adam.pth"
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
@@ -103,19 +103,19 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS_PHASE1 = 161501
-ADAM_EPOCHS_PHASE2 = 100000
-USE_LBFGS_PHASE1 = False  # Disattivato per saltare la fase 1 L-BFGS
-USE_LBFGS_PHASE2 = True   # Attivato per procedere alla fase 2 L-BFGS
-LBFGS_MAX_ITERS_PHASE1 = 0
-LBFGS_MAX_ITERS_PHASE2 = 10000
+ADAM_EPOCHS_PHASE1 = 100000
+ADAM_EPOCHS_PHASE2 = 0
+USE_LBFGS_PHASE1 = True  # Attivato per procedere alla fase 1.5 L-BFGS
+USE_LBFGS_PHASE2 = False   # Disattivato per terminare dopo la fase 1.5
+LBFGS_MAX_ITERS_PHASE1 = 10000
+LBFGS_MAX_ITERS_PHASE2 = 0
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
-WARMUP_UNLOCK_EPOCH = int(0.2 * ADAM_EPOCHS_PHASE1)
+WARMUP_UNLOCK_EPOCH = 10000
 
 # --- Pesi Funzione di Loss ---
 W_BC = 5.0      # Aumentato da 2.0 a 5.0 per vincolare meglio l'ancoraggio del punto di pressione
@@ -180,11 +180,12 @@ if __name__ == "__main__":
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nModello: {total_params:,} parametri totali")
     if INVERSE_PROBLEM:
-        print("Modalità: PROBLEMA INVERSO (Reologia da identificare)")
-        print(f" Guess: mu_s={GUESS_MU_S}, mu_p={GUESS_MU_P}, lam={GUESS_LAM}")
+        print("Modalità: PROBLEMA INVERSO (Solo 'lam' da identificare, altri parametri fissi)")
+        print(f" Guess: lam={GUESS_LAM} (valore vero: {LAM_TRUE})")
+        print(f" Parametri fissi: mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, eps={EPS_TRUE}, alpha={ALPHA_TRUE}")
     else:
         print("Modalità: PROBLEMA DIRETTO (Parametri fisici bloccati ai valori veri)")
-    print(f" Valori veri: mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, lam={LAM_TRUE}")
+        print(f" Valori veri: mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, lam={LAM_TRUE}")
 
     obsidian_dest_dir = None
     obsidian_run_name = None

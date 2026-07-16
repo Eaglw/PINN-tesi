@@ -359,12 +359,13 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         # Configura parametri fisici in modalità inversa
         if physics.inverse_mode:
+            # Tutti i parametri tranne lam rimangono NON trainable (requires_grad = False)
+            for pname in ["mu_s", "mu_p", "eps", "alpha"]:
+                getattr(physics, pname).requires_grad_(False)
             if start_epoch >= WARMUP_UNLOCK_EPOCH:
-                for p in [physics.mu_s, physics.mu_p, physics.lam]:
-                    p.requires_grad_(True)
+                physics.lam.requires_grad_(True)
             else:
-                for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
-                    getattr(physics, pname).requires_grad_(False)
+                physics.lam.requires_grad_(False)
 
         # Calcola chunk size ottimale
         CHUNK_SIZE_ADAM = get_optimal_chunk_size(
@@ -406,9 +407,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         for epoch in pbar:
             # Sblocco parametri fisici (Warmup Problema Inverso)
             if physics.inverse_mode and epoch == WARMUP_UNLOCK_EPOCH:
-                print(f"\n  [Warmup Stage 1] Sblocco mu_s, mu_p, lam (epoca {epoch})")
-                for p in [physics.mu_s, physics.mu_p, physics.lam]:
-                    p.requires_grad_(True)
+                print(f"\n  [Warmup Stage 1] Sblocco lam (epoca {epoch})")
+                physics.lam.requires_grad_(True)
                 steps_rem = end_adam1 - epoch
                 net_params = [p for p in model.parameters() if p.requires_grad]
                 groups = [{"params": net_params, "lr": BASE_LR}]
@@ -505,49 +505,31 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     tb_writer.add_scalar('Loss/Momentum', loss_m_val, epoch)
                     tb_writer.add_scalar('Loss/Constitutive', loss_c_val, epoch)
                     
-                    # Log Physical Parameters
-                    tb_writer.add_scalar('Params/mu_s', params['mu_s'], epoch)
-                    tb_writer.add_scalar('Params/mu_p', params['mu_p'], epoch)
-                    tb_writer.add_scalar('Params/lam', params['lam'], epoch)
-                    tb_writer.add_scalar('Params/eps', params['eps'], epoch)
-                    tb_writer.add_scalar('Params/alpha', params['alpha'], epoch)
+                    # Log Physical Parameters (only if trainable)
+                    if physics.inverse_mode:
+                        for name in ['mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
+                            param_obj = getattr(physics, name, None)
+                            if isinstance(param_obj, nn.Parameter) and param_obj.requires_grad:
+                                tb_writer.add_scalar(f'Params/{name}', params[name], epoch)
                     
                     if log_l2:
                         for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
                             tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], epoch)
                             
-                    # Log Histograms of Weights and Gradients
+                    # Calculate and Log Gradient Norms (normgrad) for model sub-networks
                     grad_norms = {'Psi': 0.0, 'Pressure': 0.0, 'Stress': 0.0}
                     for name, param in model.named_parameters():
-                        clean_name = name.replace('.', '/')
-                        if name.startswith('model_psi'):
-                            sub_model = 'Psi'
-                            tag = f"{sub_model}/{clean_name.replace('model_psi/', '')}"
-                        elif name.startswith('model_p'):
-                            sub_model = 'Pressure'
-                            tag = f"{sub_model}/{clean_name.replace('model_p/', '')}"
-                        elif name.startswith('model_tau'):
-                            sub_model = 'Stress'
-                            tag = f"{sub_model}/{clean_name.replace('model_tau/', '')}"
-                        else:
-                            sub_model = 'Other'
-                            tag = clean_name
-                        
-                        tb_writer.add_histogram(f'Weights/{tag}', param, epoch)
                         if param.grad is not None:
-                            tb_writer.add_histogram(f'Gradients/{tag}', param.grad, epoch)
-                            if sub_model in grad_norms:
-                                grad_norms[sub_model] += param.grad.data.norm(2).item() ** 2
+                            if name.startswith('model_psi'):
+                                grad_norms['Psi'] += param.grad.data.norm(2).item() ** 2
+                            elif name.startswith('model_p'):
+                                grad_norms['Pressure'] += param.grad.data.norm(2).item() ** 2
+                            elif name.startswith('model_tau'):
+                                grad_norms['Stress'] += param.grad.data.norm(2).item() ** 2
                                 
                     for sm, norm in grad_norms.items():
                         if norm > 0:
                             tb_writer.add_scalar(f'GradNorm/{sm}', norm ** 0.5, epoch)
-                            
-                    if physics.inverse_mode:
-                        for name, param in physics.named_parameters():
-                            tb_writer.add_histogram(f'Physics_Weights/{name}', param, epoch)
-                            if param.grad is not None:
-                                tb_writer.add_histogram(f'Physics_Gradients/{name}', param.grad, epoch)
 
             pbar.set_postfix(
                 {
@@ -587,9 +569,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         all_params_ph1 = [p for p in model.parameters() if p.requires_grad]
         if physics.inverse_mode:
-            for p in [physics.mu_s, physics.mu_p, physics.lam]:
-                p.requires_grad_(True)
-                all_params_ph1.append(p)
+            physics.lam.requires_grad_(True)
+            all_params_ph1.append(physics.lam)
 
         optimizer_lbfgs1 = torch.optim.LBFGS(
             all_params_ph1, lr=1.0, max_iter=iters_ph1,
@@ -835,49 +816,31 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     tb_writer.add_scalar('Loss/Momentum', loss_m_val, epoch)
                     tb_writer.add_scalar('Loss/Constitutive', loss_c_val, epoch)
                     
-                    # Log Physical Parameters
-                    tb_writer.add_scalar('Params/mu_s', params['mu_s'], epoch)
-                    tb_writer.add_scalar('Params/mu_p', params['mu_p'], epoch)
-                    tb_writer.add_scalar('Params/lam', params['lam'], epoch)
-                    tb_writer.add_scalar('Params/eps', params['eps'], epoch)
-                    tb_writer.add_scalar('Params/alpha', params['alpha'], epoch)
+                    # Log Physical Parameters (only if trainable)
+                    if physics.inverse_mode:
+                        for name in ['mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
+                            param_obj = getattr(physics, name, None)
+                            if isinstance(param_obj, nn.Parameter) and param_obj.requires_grad:
+                                tb_writer.add_scalar(f'Params/{name}', params[name], epoch)
                     
                     if log_l2:
                         for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
                             tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], epoch)
                             
-                    # Log Histograms of Weights and Gradients
+                    # Calculate and Log Gradient Norms (normgrad) for model sub-networks
                     grad_norms = {'Psi': 0.0, 'Pressure': 0.0, 'Stress': 0.0}
                     for name, param in model.named_parameters():
-                        clean_name = name.replace('.', '/')
-                        if name.startswith('model_psi'):
-                            sub_model = 'Psi'
-                            tag = f"{sub_model}/{clean_name.replace('model_psi/', '')}"
-                        elif name.startswith('model_p'):
-                            sub_model = 'Pressure'
-                            tag = f"{sub_model}/{clean_name.replace('model_p/', '')}"
-                        elif name.startswith('model_tau'):
-                            sub_model = 'Stress'
-                            tag = f"{sub_model}/{clean_name.replace('model_tau/', '')}"
-                        else:
-                            sub_model = 'Other'
-                            tag = clean_name
-                        
-                        tb_writer.add_histogram(f'Weights/{tag}', param, epoch)
                         if param.grad is not None:
-                            tb_writer.add_histogram(f'Gradients/{tag}', param.grad, epoch)
-                            if sub_model in grad_norms:
-                                grad_norms[sub_model] += param.grad.data.norm(2).item() ** 2
+                            if name.startswith('model_psi'):
+                                grad_norms['Psi'] += param.grad.data.norm(2).item() ** 2
+                            elif name.startswith('model_p'):
+                                grad_norms['Pressure'] += param.grad.data.norm(2).item() ** 2
+                            elif name.startswith('model_tau'):
+                                grad_norms['Stress'] += param.grad.data.norm(2).item() ** 2
                                 
                     for sm, norm in grad_norms.items():
                         if norm > 0:
                             tb_writer.add_scalar(f'GradNorm/{sm}', norm ** 0.5, epoch)
-                            
-                    if physics.inverse_mode:
-                        for name, param in physics.named_parameters():
-                            tb_writer.add_histogram(f'Physics_Weights/{name}', param, epoch)
-                            if param.grad is not None:
-                                tb_writer.add_histogram(f'Physics_Gradients/{name}', param.grad, epoch)
 
             pbar.set_postfix(
                 {

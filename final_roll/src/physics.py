@@ -26,11 +26,18 @@ class Physics(nn.Module):
         }
 
         for name, (guess_val, true_val) in params_setup.items():
-            val = guess_val if inverse_mode else true_val
-            tensor_val = torch.tensor([val], device=DEVICE)
             if inverse_mode:
-                self.register_parameter(name, nn.Parameter(tensor_val))
+                if name == "lam":
+                    val = guess_val
+                    tensor_val = torch.tensor([val], device=DEVICE)
+                    self.register_parameter(name, nn.Parameter(tensor_val))
+                else:
+                    val = true_val
+                    tensor_val = torch.tensor([val], device=DEVICE)
+                    self.register_parameter(name, nn.Parameter(tensor_val, requires_grad=False))
             else:
+                val = true_val
+                tensor_val = torch.tensor([val], device=DEVICE)
                 self.register_buffer(name, tensor_val)
 
         # Referenza fissa per adimensionalizzazione
@@ -275,6 +282,8 @@ class Physics(nn.Module):
             ]
             for p_name, min_val in strict_pos_params:
                 p = getattr(self, p_name)
+                if not p.requires_grad:
+                    continue
                 old_val = p.item()
                 if old_val < min_val:
                     p.copy_(torch.nn.functional.softplus(p))
@@ -285,6 +294,8 @@ class Physics(nn.Module):
             # Parametri che possono andare a zero -> Clamp diretto
             for p_name in ["eps", "alpha"]:
                 p = getattr(self, p_name)
+                if not p.requires_grad:
+                    continue
                 old_val = p.item()
                 if old_val < 0.0:
                     p.clamp_(min=0.0)
