@@ -72,8 +72,7 @@ INVERSE_PROBLEM = True  # True: semi-inverso, False: diretto
 DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = None
-#RESUME_CHECKPOINT = r"C:\Users\eaglw\Documents\PINN tesi\final_roll\output_4rollmill\4_roll_mill_L8x128_E120000_SiLU_stagedTrue_invFalse_20260702_122707\checkpoint_phase2_adam.pth"
+RESUME_CHECKPOINT = r"C:\Users\eaglw\Documents\PINN tesi\final_roll\output_4rollmill\4_roll_mill_L8x128_E100000_SiLU_stagedTrue_invTrue_20260719_084951\checkpoint-50k_prelambda.pth"
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
@@ -111,11 +110,11 @@ LBFGS_MAX_ITERS_PHASE1 = 10000
 LBFGS_MAX_ITERS_PHASE2 = 0
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
-PARAM_LR_FACTOR = 0.1
+PARAM_LR_FACTOR = 0.02
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
-WARMUP_UNLOCK_EPOCH = 10000
+WARMUP_UNLOCK_EPOCH = 100000
 
 # --- Pesi Funzione di Loss ---
 W_BC = 5.0      # Aumentato da 2.0 a 5.0 per vincolare meglio l'ancoraggio del punto di pressione
