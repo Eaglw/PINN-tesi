@@ -71,6 +71,11 @@ STAGED_TRAINING = True  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
 INVERSE_PROBLEM = True  # True: semi-inverso, False: diretto
 DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 
+# --- Boundary Conditions dello Stress sui Rulli (ANCORAGGIO STRESS) ---
+# Impostare a False se si desidera rimuovere la BC dello stress sui 4 rulli.
+USE_ROLL_STRESS_BC = True
+W_ROLL_STRESS = 1.0  # Peso dello stress BC rispetto al velocity BC sui rulli (pesato 1:1 per componente)
+
 # --- Checkpointing ---
 RESUME_CHECKPOINT = r"C:\Users\eaglw\Documents\PINN tesi\final_roll\output_4rollmill\4_roll_mill_L8x128_E100000_SiLU_stagedTrue_invTrue_20260719_084951\checkpoint-50k_prelambda.pth"
 # --- Percorsi Base ---
@@ -114,12 +119,12 @@ PARAM_LR_FACTOR = 0.02
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
-WARMUP_UNLOCK_EPOCH = 100000
+WARMUP_UNLOCK_EPOCH = 50000
 
 # --- Pesi Funzione di Loss ---
 W_BC = 5.0      # Aumentato da 2.0 a 5.0 per vincolare meglio l'ancoraggio del punto di pressione
 W_PHYSICS = 3.0
-W_DATA = 1.0    # Attivato (1.0) per permettere a psi di addestrarsi usando anche i dati di velocità di COMSOL
+W_DATA = 1.0    
 W_MOMENTUM = 1.0
 W_CONSTITUTIVE = 1.0
 VARIANCE_EPS = 1e-4

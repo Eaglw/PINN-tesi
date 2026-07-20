@@ -470,13 +470,15 @@ def plot_fields(predictions, data, save_path):
         "tau_yy": "plasma",
     }
 
-    fig, axs = plt.subplots(len(field_names), 5, figsize=(30, 4 * len(field_names)))
+    # 1. Pre-calcolo degli errori (assoluto e relativi) per tutti i campi
+    abs_errors = {}
+    rel_errors_classic = {}
+    rel_errors_range = {}
 
-    for i, fn in enumerate(field_names):
+    for fn in field_names:
         ex, pr = exacts[fn], preds[fn]
-
-        # Errore assoluto
         abs_err = np.abs(ex - pr)
+        abs_errors[fn] = abs_err
 
         # Errore relativo classico con cutoff al 5%
         rel_err_classic = np.zeros_like(ex)
@@ -484,6 +486,7 @@ def plot_fields(predictions, data, save_path):
         m = np.abs(ex) > thr
         if m.any():
             rel_err_classic[m] = (abs_err[m] / np.abs(ex[m])) * 100.0
+        rel_errors_classic[fn] = rel_err_classic
 
         # Errore relativo rispetto al range globale (dynamics-scaled)
         field_range = np.max(ex) - np.min(ex)
@@ -491,24 +494,58 @@ def plot_fields(predictions, data, save_path):
             rel_err_range = (abs_err / field_range) * 100.0
         else:
             rel_err_range = np.zeros_like(ex)
+        rel_errors_range[fn] = rel_err_range
+
+    # 2. Definizione dei gruppi fisici per unificare la scala degli errori
+    group_vmax_abs = {}
+    group_vmax_classic = {}
+    group_vmax_range = {}
+
+    for fn_list in [["u", "v"], ["p"], ["tau_xx", "tau_xy", "tau_yy"]]:
+        max_abs = max(max(abs_errors[f].max() for f in fn_list), 1e-8)
+        max_classic = max(max(rel_errors_classic[f].max() for f in fn_list), 1e-8)
+        max_range = max(max(rel_errors_range[f].max() for f in fn_list), 1e-8)
+
+        for f in fn_list:
+            group_vmax_abs[f] = max_abs
+            group_vmax_classic[f] = max_classic
+            group_vmax_range[f] = max_range
+
+    fig, axs = plt.subplots(len(field_names), 5, figsize=(30, 4 * len(field_names)))
+
+    for i, fn in enumerate(field_names):
+        ex, pr = exacts[fn], preds[fn]
+        abs_err = abs_errors[fn]
+        rel_err_classic = rel_errors_classic[fn]
+        rel_err_range = rel_errors_range[fn]
 
         vmin, vmax = min(ex.min(), pr.min()), max(ex.max(), pr.max())
         cmap = cmaps[fn]
 
+        # Isolivelli espliciti identici per COMSOL e PINN per garantire la stessa scala di colore
+        if vmin == vmax:
+            field_levels = 50
+        else:
+            field_levels = np.linspace(vmin, vmax, 51)
+
+        vmax_abs = group_vmax_abs[fn]
+        vmax_classic = group_vmax_classic[fn]
+        vmax_range = group_vmax_range[fn]
+
         # Configurazione matrice per i 5 subplot della riga
         plot_configs = [
-            (ex, f"{fn} (COMSOL)", cmap, vmin, vmax, None),
-            (pr, f"{fn} (PINN)", cmap, vmin, vmax, None),
-            (abs_err, f"{fn} Abs. Error (|COMSOL - PINN|)", cmap, 0.0, max(abs_err.max(), 1e-8), None),
-            (rel_err_classic, f"{fn} Rel. Error % (|COMSOL - PINN|/|COMSOL|)", "jet", 0.0, 10.0, "%"),
-            (rel_err_range, f"{fn} Range-Rel. Error % (|COMSOL - PINN|/Range)", "jet", 0.0, 10.0, "%"),
+            (ex, f"{fn} (COMSOL)", cmap, vmin, vmax, field_levels, None),
+            (pr, f"{fn} (PINN)", cmap, vmin, vmax, field_levels, None),
+            (abs_err, f"{fn} Abs. Error (|COMSOL - PINN|)", cmap, 0.0, vmax_abs, 50, None),
+            (rel_err_classic, f"{fn} Rel. Error % (|COMSOL - PINN|/|COMSOL|)", "jet", 0.0, vmax_classic, 50, "%"),
+            (rel_err_range, f"{fn} Range-Rel. Error % (|COMSOL - PINN|/Range)", "jet", 0.0, vmax_range, 50, "%"),
         ]
 
-        for col, (data_arr, title, c_map, c_min, c_max, cb_label) in enumerate(
+        for col, (data_arr, title, c_map, c_min, c_max, levels_cfg, cb_label) in enumerate(
             plot_configs
         ):
             im = axs[i, col].tricontourf(
-                triang, data_arr, levels=50, cmap=c_map, vmin=c_min, vmax=c_max
+                triang, data_arr, levels=levels_cfg, cmap=c_map, vmin=c_min, vmax=c_max
             )
             axs[i, col].set_title(title)
             axs[i, col].set_aspect("equal")

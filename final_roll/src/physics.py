@@ -6,7 +6,7 @@ from src.utils import weighted_mse
 class Physics(nn.Module):
     """PDE adimensionali + boundary conditions. Supporta modalità diretta o inversa."""
 
-    def __init__(self, U_ref, H_ref, H_coord=0.05, var_weights=None, inverse_mode=True, tau_scale=1.0, p_scale=50.0):
+    def __init__(self, U_ref, H_ref, H_coord=0.05, var_weights=None, inverse_mode=True, tau_scale=1.0, p_scale=50.0, use_roll_stress_bc=True, w_roll_stress=1.0):
         super().__init__()
         self.U_ref = U_ref
         self.H_ref = H_ref
@@ -15,6 +15,8 @@ class Physics(nn.Module):
         self.inverse_mode = inverse_mode
         self.tau_scale = tau_scale
         self.p_scale = p_scale
+        self.use_roll_stress_bc = use_roll_stress_bc
+        self.w_roll_stress = w_roll_stress
 
         # Registrazione dinamica dei parametri fisici
         params_setup = {
@@ -244,7 +246,7 @@ class Physics(nn.Module):
 
         for group_name, gd in bc_data.items():
             x_bc = gd["xy"].clone().requires_grad_(True)
-            u, v, p, _ = self.get_velocity(model, x_bc)
+            u, v, p, tau = self.get_velocity(model, x_bc)
             g_loss = 0.0
 
             if group_name == "Walls":
@@ -258,6 +260,25 @@ class Physics(nn.Module):
                     g_loss += weighted_mse(u, gd["fields"]["u"], var_w["u"])
                 if active_bcs is None or "v" in active_bcs:
                     g_loss += weighted_mse(v, gd["fields"]["v"], var_w["v"])
+
+                # ====================================================================
+                # BOUNDARY CONDITION STRESS SUI RULLI (ANCORAGGIO STRESS)
+                # Impostare USE_ROLL_STRESS_BC = False in train_4roll_main.py per disattivare.
+                # ====================================================================
+                use_stress_bc = getattr(self, "use_roll_stress_bc", True)
+                if use_stress_bc:
+                    tau_xx_pred, tau_xy_pred, tau_yy_pred = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
+                    g_stress = 0.0
+                    if active_bcs is None or "tau_xx" in active_bcs:
+                        g_stress += weighted_mse(tau_xx_pred, gd["fields"]["tau_xx"], var_w["tau_xx"])
+                    if active_bcs is None or "tau_xy" in active_bcs:
+                        g_stress += weighted_mse(tau_xy_pred, gd["fields"]["tau_xy"], var_w["tau_xy"])
+                    if active_bcs is None or "tau_yy" in active_bcs:
+                        g_stress += weighted_mse(tau_yy_pred, gd["fields"]["tau_yy"], var_w["tau_yy"])
+
+                    # Bilanciamento 1:1 di magnitudo per componente (2 comp vel vs 3 comp stress -> fattore 2/3)
+                    w_stress = getattr(self, "w_roll_stress", 1.0)
+                    g_loss += w_stress * (2.0 / 3.0) * g_stress
 
             elif group_name == "PressurePoint":
                 if active_bcs is None or "p" in active_bcs:
@@ -387,11 +408,11 @@ def evaluate_final_losses(model, physics, data, chunk_size=2000):
             metrics["abs_ftyy"] += f_tyy.abs().mean().item() * w
 
         # --- 2. BOUNDARY LOSS ---
-        bc_vals = {"u": 0.0, "v": 0.0, "p": 0.0}
+        bc_vals = {"u": 0.0, "v": 0.0, "p": 0.0, "tau": 0.0}
 
         for group_name, gd in bc_data_typed.items():
             x_bc = gd["xy"].clone().requires_grad_(True)
-            u, v, p, _ = physics.get_velocity(model, x_bc)
+            u, v, p, tau = physics.get_velocity(model, x_bc)
 
             if group_name == "Walls":
                 bc_vals["u"] += weighted_mse(u, torch.zeros_like(u), var_w["u"]).item()
@@ -399,6 +420,16 @@ def evaluate_final_losses(model, physics, data, chunk_size=2000):
             elif group_name in ("Roll1", "Roll2", "Roll3", "Roll4"):
                 bc_vals["u"] += weighted_mse(u, gd["fields"]["u"], var_w["u"]).item()
                 bc_vals["v"] += weighted_mse(v, gd["fields"]["v"], var_w["v"]).item()
+                use_stress_bc = getattr(physics, "use_roll_stress_bc", True)
+                if use_stress_bc:
+                    tau_xx_p, tau_xy_p, tau_yy_p = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
+                    g_stress = (
+                        weighted_mse(tau_xx_p, gd["fields"]["tau_xx"], var_w["tau_xx"]) +
+                        weighted_mse(tau_xy_p, gd["fields"]["tau_xy"], var_w["tau_xy"]) +
+                        weighted_mse(tau_yy_p, gd["fields"]["tau_yy"], var_w["tau_yy"])
+                    )
+                    w_stress = getattr(physics, "w_roll_stress", 1.0)
+                    bc_vals["tau"] += (w_stress * (2.0 / 3.0) * g_stress).item()
             elif group_name == "PressurePoint":
                 bc_vals["p"] += weighted_mse(p, gd["fields"]["p"], var_w["p"]).item()
 
@@ -414,6 +445,7 @@ def evaluate_final_losses(model, physics, data, chunk_size=2000):
         "BC_u": bc_vals["u"],
         "BC_v": bc_vals["v"],
         "BC_p": bc_vals["p"],
+        "BC_tau": bc_vals["tau"],
         "Momentum Loss": metrics["loss_m"],
         "Constitutive Loss": metrics["loss_c"],
         "Total PDE Loss": pde_loss_val,
