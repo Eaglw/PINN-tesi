@@ -27,9 +27,10 @@ class Physics(nn.Module):
             "alpha": (GUESS_ALPHA, ALPHA_TRUE),
         }
 
+        trainable_names = ["lam", "mu_p", "eps", "alpha"]
         for name, (guess_val, true_val) in params_setup.items():
             if inverse_mode:
-                if name == "lam":
+                if name in trainable_names:
                     val = guess_val
                     tensor_val = torch.tensor([val], device=DEVICE)
                     self.register_parameter(name, nn.Parameter(tensor_val))

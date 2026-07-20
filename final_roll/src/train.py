@@ -359,13 +359,17 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         # Configura parametri fisici in modalità inversa
         if physics.inverse_mode:
-            # Tutti i parametri tranne lam rimangono NON trainable (requires_grad = False)
-            for pname in ["mu_s", "mu_p", "eps", "alpha"]:
-                getattr(physics, pname).requires_grad_(False)
-            if start_epoch >= WARMUP_UNLOCK_EPOCH:
-                physics.lam.requires_grad_(True)
-            else:
-                physics.lam.requires_grad_(False)
+            trainable_names = ["lam", "mu_p", "eps", "alpha"]
+            for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+                p_obj = getattr(physics, pname, None)
+                if p_obj is not None:
+                    if pname in trainable_names:
+                        if start_epoch >= WARMUP_UNLOCK_EPOCH:
+                            p_obj.requires_grad_(True)
+                        else:
+                            p_obj.requires_grad_(False)
+                    else:
+                        p_obj.requires_grad_(False)
 
         # Calcola chunk size ottimale
         CHUNK_SIZE_ADAM = get_optimal_chunk_size(
@@ -406,9 +410,13 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         pbar = tqdm(range(start_epoch, end_adam1), desc="Adam Fase 1", mininterval=2.0)
         for epoch in pbar:
             # Sblocco parametri fisici (Warmup Problema Inverso)
-            if physics.inverse_mode and epoch == WARMUP_UNLOCK_EPOCH:
-                print(f"\n  [Warmup Stage 1] Sblocco lam (epoca {epoch})")
-                physics.lam.requires_grad_(True)
+            if physics.inverse_mode and epoch == WARMUP_UNLOCK_EPOCH and epoch > 0:
+                print(f"\n  [Warmup Stage 1] Sblocco parametri fisici (epoca {epoch})")
+                trainable_names = ["lam", "mu_p", "eps", "alpha"]
+                for pname in trainable_names:
+                    p_obj = getattr(physics, pname, None)
+                    if p_obj is not None:
+                        p_obj.requires_grad_(True)
                 steps_rem = end_adam1 - epoch
                 net_params = [p for p in model.parameters() if p.requires_grad]
                 groups = [{"params": net_params, "lr": BASE_LR}]
@@ -569,8 +577,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         all_params_ph1 = [p for p in model.parameters() if p.requires_grad]
         if physics.inverse_mode:
-            physics.lam.requires_grad_(True)
-            all_params_ph1.append(physics.lam)
+            trainable_names = ["lam", "mu_p", "eps", "alpha"]
+            for pname in trainable_names:
+                p_obj = getattr(physics, pname, None)
+                if p_obj is not None:
+                    p_obj.requires_grad_(True)
+                    all_params_ph1.append(p_obj)
 
         optimizer_lbfgs1 = torch.optim.LBFGS(
             all_params_ph1, lr=1.0, max_iter=iters_ph1,

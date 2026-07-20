@@ -77,7 +77,7 @@ USE_ROLL_STRESS_BC = True
 W_ROLL_STRESS = 1.0  # Peso dello stress BC rispetto al velocity BC sui rulli (pesato 1:1 per componente)
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = r"C:\Users\eaglw\Documents\PINN tesi\final_roll\output_4rollmill\4_roll_mill_L8x128_E100000_SiLU_stagedTrue_invTrue_20260719_084951\checkpoint-50k_prelambda.pth"
+RESUME_CHECKPOINT = None
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
@@ -99,8 +99,8 @@ GUESS_MULTIPLIER = 0.8
 GUESS_MU_S = MU_S_TRUE * GUESS_MULTIPLIER
 GUESS_MU_P = MU_P_TRUE * GUESS_MULTIPLIER
 GUESS_LAM = LAM_TRUE * GUESS_MULTIPLIER
-GUESS_EPS = 0.0
-GUESS_ALPHA = 0.0
+GUESS_EPS = 0.05
+GUESS_ALPHA = 0.05
 
 # --- Architettura Neural Network ---
 HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
@@ -119,7 +119,7 @@ PARAM_LR_FACTOR = 0.02
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
-WARMUP_UNLOCK_EPOCH = 50000
+WARMUP_UNLOCK_EPOCH = 0
 
 # --- Pesi Funzione di Loss ---
 W_BC = 5.0      # Aumentato da 2.0 a 5.0 per vincolare meglio l'ancoraggio del punto di pressione
@@ -184,9 +184,9 @@ if __name__ == "__main__":
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nModello: {total_params:,} parametri totali")
     if INVERSE_PROBLEM:
-        print("Modalità: PROBLEMA INVERSO (Solo 'lam' da identificare, altri parametri fissi)")
-        print(f" Guess: lam={GUESS_LAM} (valore vero: {LAM_TRUE})")
-        print(f" Parametri fissi: mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, eps={EPS_TRUE}, alpha={ALPHA_TRUE}")
+        print("Modalità: PROBLEMA INVERSO MULTI-PARAMETRO (lam, mu_p, eps, alpha da identificare, mu_s fisso)")
+        print(f" Guess: lam={GUESS_LAM} (true: {LAM_TRUE}), mu_p={GUESS_MU_P} (true: {MU_P_TRUE}), eps={GUESS_EPS} (true: {EPS_TRUE}), alpha={GUESS_ALPHA} (true: {ALPHA_TRUE})")
+        print(f" Parametri fissi: mu_s={MU_S_TRUE}")
     else:
         print("Modalità: PROBLEMA DIRETTO (Parametri fisici bloccati ai valori veri)")
         print(f" Valori veri: mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, lam={LAM_TRUE}")
