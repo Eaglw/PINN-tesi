@@ -76,11 +76,12 @@ DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 USE_ROLL_STRESS_BC = True
 W_ROLL_STRESS = 1.0  # Peso dello stress BC rispetto al velocity BC sui rulli (pesato 1:1 per componente)
 
-# --- Checkpointing ---
-RESUME_CHECKPOINT = None
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
+
+# --- Checkpointing ---
+RESUME_CHECKPOINT = BASE_DIR / "output_4rollmill" / "Inverse_all_TBC_4_roll_mill_L8x128_E100000_SiLU_stagedTrue_invTrue_20260720_191853" / "checkpoint.pth"
 
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
@@ -115,7 +116,7 @@ LBFGS_MAX_ITERS_PHASE1 = 10000
 LBFGS_MAX_ITERS_PHASE2 = 0
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
-PARAM_LR_FACTOR = 0.02
+PARAM_LR_FACTOR = 0.1
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
@@ -135,7 +136,10 @@ VARIANCE_EPS = 1e-4
 layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
 config_name = f"{DATASET_PATH.stem}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
+if RESUME_CHECKPOINT is not None:
+    OUTPUT_DIR = Path(RESUME_CHECKPOINT).parent
+else:
+    OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 global_log_path = OUTPUT_DIR / "train_log.txt"
