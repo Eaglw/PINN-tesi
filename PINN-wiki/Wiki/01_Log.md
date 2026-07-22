@@ -379,3 +379,20 @@
 - **[[00_Index]]**: Aggiunta voce [[Vorticity_Regularization]] nella sezione Technical Methods.
 
 
+
+## [2026-07-21] update_wiki | Aggiunta analisi dell'identificabilità dei parametri viscoelastici
+
+### Contesto e Teoria
+- Analizzata la differenza di convergenza tra $\lambda$ (tempo di rilassamento) ed $\eta_p$ (viscosità polimerica) nel problema inverso.
+- Spiegato il motivo per cui l'equazione costitutiva non-lineare di Oldroyd-B vede $\eta_p$ esclusivamente tramite il parametro adimensionale $\beta_{poly} = \frac{\eta_p}{\eta_s + \eta_p}$.
+- Dimostrato che una variazione minima dello sforzo predetto $\mathbf{\tau}$ (~3.7% di errore L2) corrisponde a una pendenza piatta $\frac{d\beta_{poly}}{d\eta_p} \approx 0.039$, provocando un'amplificazione dell'errore su $\eta_p$ fino al 65.6% ($1.49$ vs $0.90$).
+
+### Pagine Create
+- **[[Viscoelastic_Parameter_Identifiability]]** (Topics): Creata pagina atomica con l'analisi matematica completa, l'analisi delle derivate parziali e le tre contromisure (LR differenziati, riattivazione Momentum in Fase 2 e ottimizzazione di secondo ordine L-BFGS).
+
+### Pagine Modificate
+- **[[Inverse_Problems]]** (Topics): Aggiunto riferimento e wikilink a [[Viscoelastic_Parameter_Identifiability]].
+- **[[00_Index]]**: Aggiunta voce [[Viscoelastic_Parameter_Identifiability]] nella sezione Thematic Topics.
+
+
+

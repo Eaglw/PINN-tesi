@@ -16,5 +16,5 @@ PINNs are exceptionally well-suited for inverse problems because they treat unkn
 3. Optimize weights $\theta$ and parameter $\lambda$ simultaneously.
 
 ## Related
-- **Literature**: [[Hazra_et_al_Convective_Heat_Transfer]], [[Sharma_et_al_Hyperparameter_Selection]]
-- **Topics**: [[PINN_Fundamentals]], [[Loss_Functions]]
+- **Literature**: [[Hazra_et_al_Convective_Heat_Transfer]], [[Sharma_et_al_Hyperparameter_Selection]], [[Thakur_et_al_ViscoelasticNet]]
+- **Topics**: [[PINN_Fundamentals]], [[Loss_Functions]], [[Viscoelastic_Parameter_Identifiability]]

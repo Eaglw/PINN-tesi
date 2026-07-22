@@ -47,6 +47,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Stress_Relaxation]]: Stress reduction under constant strain
 - [[EMA_Smoothing]]: Noise reduction in loss tracking
 - [[Pressure_Scaling_Issues]]: Analysis of pressure gradient singularities and why global pressure scaling destroys momentum training
+- [[Viscoelastic_Parameter_Identifiability]]: Parameter sensitivity and ill-conditioned inversion in non-dimensional Oldroyd-B models
 
 
 
