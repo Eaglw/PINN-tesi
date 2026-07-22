@@ -294,7 +294,6 @@ class Physics(nn.Module):
         if not self.inverse_mode:
             return
 
-        changes = []
         with torch.no_grad():
             # Parametri strettamente positivi -> Softplus se sotto la soglia minima
             strict_pos_params = [
@@ -309,9 +308,6 @@ class Physics(nn.Module):
                 old_val = p.item()
                 if old_val < min_val:
                     p.copy_(torch.nn.functional.softplus(p))
-                    changes.append(
-                        f"{p_name}: {old_val:.6e} -> {p.item():.6e} (Softplus clamp)"
-                    )
 
             # Parametri che possono andare a zero -> Clamp diretto
             for p_name in ["eps", "alpha"]:
@@ -321,13 +317,8 @@ class Physics(nn.Module):
                 old_val = p.item()
                 if old_val < 0.0:
                     p.clamp_(min=0.0)
-                    changes.append(f"{p_name}: {old_val:.6e} -> {p.item():.6e} (Clamp)")
 
-        if changes:
-            print(
-                "  [DEBUG CLAMP] I parametri fisici sono stati aggiornati:\n    "
-                + "\n    ".join(changes)
-            )
+        # Nota: La stampa del log di debug [DEBUG CLAMP] è stata rimossa per evitare output continuo in console.
 
     def log_params(self):
         """Restituisce i parametri correnti estraendoli proceduralmente."""
