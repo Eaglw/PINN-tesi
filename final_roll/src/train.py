@@ -361,15 +361,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         if physics.inverse_mode:
             trainable_names = ["lam", "mu_p", "eps", "alpha"]
             for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
-                p_obj = getattr(physics, pname, None)
-                if p_obj is not None:
-                    if pname in trainable_names:
-                        if start_epoch >= WARMUP_UNLOCK_EPOCH:
-                            p_obj.requires_grad_(True)
-                        else:
-                            p_obj.requires_grad_(False)
-                    else:
-                        p_obj.requires_grad_(False)
+                is_tr = (pname in trainable_names) and (start_epoch >= WARMUP_UNLOCK_EPOCH)
+                physics.set_trainable(pname, is_tr)
 
         # Calcola chunk size ottimale
         CHUNK_SIZE_ADAM = get_optimal_chunk_size(
@@ -414,9 +407,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 print(f"\n  [Warmup Stage 1] Sblocco parametri fisici (epoca {epoch})")
                 trainable_names = ["lam", "mu_p", "eps", "alpha"]
                 for pname in trainable_names:
-                    p_obj = getattr(physics, pname, None)
-                    if p_obj is not None:
-                        p_obj.requires_grad_(True)
+                    physics.set_trainable(pname, True)
                 steps_rem = end_adam1 - epoch
                 net_params = [p for p in model.parameters() if p.requires_grad]
                 groups = [{"params": net_params, "lr": BASE_LR}]
@@ -438,13 +429,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
             torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
             if physics.inverse_mode:
-                phys_clip = [p for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha] if p.requires_grad]
+                phys_clip = [p for p in physics.parameters() if p.requires_grad]
                 if phys_clip:
                     torch.nn.utils.clip_grad_norm_(phys_clip, PARAM_CLIP_NORM)
 
             optimizer.step()
-            if physics.inverse_mode:
-                physics.clamp_params()
             scheduler.step()
 
             log_l2 = ((epoch + 1) % max(1, end_adam1 // 40) == 0) or (epoch == start_epoch) or ((epoch + 1) == end_adam1)
@@ -564,40 +553,43 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         uv_all = data["uv_data"]
         bc_data = data["boundary_groups"]
 
-        for p in model.parameters():
-            p.requires_grad = False
-        for p in model.model_psi.parameters():
-            p.requires_grad = True
-        for p in model.model_tau.parameters():
-            p.requires_grad = True
+        if STAGED_TRAINING:
+            for p in model.parameters():
+                p.requires_grad = False
+            for p in model.model_psi.parameters():
+                p.requires_grad = True
+            for p in model.model_tau.parameters():
+                p.requires_grad = True
+            active_bcs_lbfgs1 = ["u", "v", "tau_xx", "tau_xy", "tau_yy"]
+            w_mom_lbfgs1 = 0.0
+            w_con_lbfgs1 = W_CONSTITUTIVE
+        else:
+            for p in model.parameters():
+                p.requires_grad = True
+            active_bcs_lbfgs1 = None
+            w_mom_lbfgs1 = W_MOMENTUM
+            w_con_lbfgs1 = W_CONSTITUTIVE
 
-        if physics.inverse_mode:
-            for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha]:
-                p.requires_grad_(False)
-
-        all_params_ph1 = [p for p in model.parameters() if p.requires_grad]
         if physics.inverse_mode:
             trainable_names = ["lam", "mu_p", "eps", "alpha"]
-            for pname in trainable_names:
-                p_obj = getattr(physics, pname, None)
-                if p_obj is not None:
-                    p_obj.requires_grad_(True)
-                    all_params_ph1.append(p_obj)
+            for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+                physics.set_trainable(pname, pname in trainable_names)
+
+        all_params_ph1 = [p for p in model.parameters() if p.requires_grad] + [p for p in physics.parameters() if p.requires_grad]
 
         optimizer_lbfgs1 = torch.optim.LBFGS(
             all_params_ph1, lr=1.0, max_iter=iters_ph1,
-            tolerance_grad=1e-9, tolerance_change=1e-12, history_size=300, line_search_fn="strong_wolfe",
+            tolerance_grad=1e-16, tolerance_change=1e-16, history_size=300, line_search_fn="strong_wolfe",
         )
 
         local_start = start_epoch - end_adam1 if start_epoch > end_adam1 else 0
         l_it1 = [local_start]
         pbar_lbfgs1 = tqdm(total=iters_ph1, initial=local_start, desc="L-BFGS Phase 1", mininterval=2.0)
 
-        # Calcola chunk size ottimale per L-BFGS in FP64
         CHUNK_SIZE_LBFGS = get_optimal_chunk_size(
             phase=3, model=model,
             test_closure=lambda c: compute_and_backward_losses(
-                active_bcs=["u", "v", "tau_xx", "tau_xy", "tau_yy"], w_mom=0.0, w_con=W_CONSTITUTIVE,
+                active_bcs=active_bcs_lbfgs1, w_mom=w_mom_lbfgs1, w_con=w_con_lbfgs1,
                 points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
                 is_lbfgs=True, chunk_size_override=c
             )
@@ -607,7 +599,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             optimizer_lbfgs1.zero_grad()
             tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
                 compute_and_backward_losses(
-                    active_bcs=["u", "v", "tau_xx", "tau_xy", "tau_yy"], w_mom=0.0, w_con=W_CONSTITUTIVE,
+                    active_bcs=active_bcs_lbfgs1, w_mom=w_mom_lbfgs1, w_con=w_con_lbfgs1,
                     points=xy_all, labels=uv_all, is_lbfgs=True,
                 )
             )
@@ -644,8 +636,6 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             return loss_tensor
 
         optimizer_lbfgs1.step(closure1)
-        if physics.inverse_mode:
-            physics.clamp_params()
         pbar_lbfgs1.close()
 
         if save_dir is not None:
@@ -687,8 +677,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             active_bcs, w_mom, w_con, frozen_vel = None, W_MOMENTUM, W_CONSTITUTIVE, False
 
         if physics.inverse_mode:
-            for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha]:
-                p.requires_grad_(False)
+            for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+                physics.set_trainable(pname, False)
 
         # Precalcola la divergenza dello stress tau
         print("\n[Optimization] Precalcolo divergenza sforzi in corso per la Fase 2 (Adam)...")
@@ -753,13 +743,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
             torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
             if physics.inverse_mode:
-                phys_clip = [p for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha] if p.requires_grad]
+                phys_clip = [p for p in physics.parameters() if p.requires_grad]
                 if phys_clip:
                     torch.nn.utils.clip_grad_norm_(phys_clip, PARAM_CLIP_NORM)
 
             optimizer.step()
-            if physics.inverse_mode:
-                physics.clamp_params()
             scheduler.step()
 
             log_l2 = ((epoch_idx + 1) % max(1, ADAM_EPOCHS_PHASE2 // 40) == 0) or (epoch_idx == local_start) or ((epoch_idx + 1) == ADAM_EPOCHS_PHASE2)
@@ -889,14 +877,14 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             p.requires_grad = True
 
         if physics.inverse_mode:
-            for p in [physics.mu_s, physics.mu_p, physics.lam, physics.eps, physics.alpha]:
-                p.requires_grad_(False)
+            for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+                physics.set_trainable(pname, False)
 
-        all_params_ph2 = [p for p in model.parameters() if p.requires_grad]
+        all_params_ph2 = [p for p in model.parameters() if p.requires_grad] + [p for p in physics.parameters() if p.requires_grad]
 
         optimizer_lbfgs2 = torch.optim.LBFGS(
             all_params_ph2, lr=1.0, max_iter=iters_ph2,
-            tolerance_grad=1e-9, tolerance_change=1e-12, history_size=300, line_search_fn="strong_wolfe",
+            tolerance_grad=1e-16, tolerance_change=1e-16, history_size=300, line_search_fn="strong_wolfe",
         )
 
         # Precalcola la divergenza di tau in FP64

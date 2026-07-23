@@ -3,6 +3,15 @@ import torch.nn as nn
 from src.utils import weighted_mse
 
 
+def inverse_softplus(y, min_val=1e-8):
+    """Calcola l'inversa della funzione Softplus: x = softplus_inv(y).
+    Garantisce stabilità numerica per valori piccoli e grandi."""
+    if isinstance(y, (float, int)):
+        y = torch.tensor([float(y)], device=DEVICE)
+    y_clamped = torch.clamp(y, min=min_val)
+    return torch.where(y_clamped > 20.0, y_clamped, torch.log(torch.expm1(y_clamped)))
+
+
 class Physics(nn.Module):
     """PDE adimensionali + boundary conditions. Supporta modalità diretta o inversa."""
 
@@ -18,7 +27,7 @@ class Physics(nn.Module):
         self.use_roll_stress_bc = use_roll_stress_bc
         self.w_roll_stress = w_roll_stress
 
-        # Registrazione dinamica dei parametri fisici
+        # Registrazione dinamica dei parametri fisici tramite Softplus Reparameterization
         params_setup = {
             "mu_s": (GUESS_MU_S, MU_S_TRUE),
             "mu_p": (GUESS_MU_P, MU_P_TRUE),
@@ -29,22 +38,62 @@ class Physics(nn.Module):
 
         trainable_names = ["lam", "mu_p", "eps", "alpha"]
         for name, (guess_val, true_val) in params_setup.items():
-            if inverse_mode:
-                if name in trainable_names:
-                    val = guess_val
-                    tensor_val = torch.tensor([val], device=DEVICE)
-                    self.register_parameter(name, nn.Parameter(tensor_val))
-                else:
-                    val = true_val
-                    tensor_val = torch.tensor([val], device=DEVICE)
-                    self.register_parameter(name, nn.Parameter(tensor_val, requires_grad=False))
+            val = guess_val if (inverse_mode and name in trainable_names) else true_val
+            is_trainable = inverse_mode and (name in trainable_names)
+
+            raw_val = inverse_softplus(val)
+            raw_tensor = raw_val.to(device=DEVICE)
+            raw_name = f"_raw_{name}"
+
+            if is_trainable:
+                self.register_parameter(raw_name, nn.Parameter(raw_tensor))
             else:
-                val = true_val
-                tensor_val = torch.tensor([val], device=DEVICE)
-                self.register_buffer(name, tensor_val)
+                self.register_parameter(raw_name, nn.Parameter(raw_tensor, requires_grad=False))
 
         # Referenza fissa per adimensionalizzazione
         self.real_mu_tot = MU_S_TRUE + MU_P_TRUE
+
+    @property
+    def mu_s(self):
+        return torch.nn.functional.softplus(self._raw_mu_s) + 1e-8
+
+    @property
+    def mu_p(self):
+        return torch.nn.functional.softplus(self._raw_mu_p) + 1e-8
+
+    @property
+    def lam(self):
+        return torch.nn.functional.softplus(self._raw_lam) + 1e-8
+
+    @property
+    def eps(self):
+        return torch.nn.functional.softplus(self._raw_eps)
+
+    @property
+    def alpha(self):
+        return torch.nn.functional.softplus(self._raw_alpha)
+
+    def set_trainable(self, name, trainable=True):
+        """Imposta requires_grad sul parametro raw sottostante."""
+        raw_param = getattr(self, f"_raw_{name}", None)
+        if raw_param is not None and isinstance(raw_param, nn.Parameter):
+            raw_param.requires_grad_(trainable)
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        """Gestisce in modo trasparente la retrocompatibilità con i vecchi checkpoint."""
+        param_names = ["mu_s", "mu_p", "lam", "eps", "alpha"]
+        for p_name in param_names:
+            old_key = prefix + p_name
+            raw_key = prefix + f"_raw_{p_name}"
+            if old_key in state_dict and raw_key not in state_dict:
+                old_val = state_dict.pop(old_key)
+                if torch.is_tensor(old_val):
+                    raw_val = inverse_softplus(old_val).to(old_val.device)
+                else:
+                    raw_val = inverse_softplus(old_val)
+                state_dict[raw_key] = raw_val
+
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
 
     def _grad(self, y, x, create_graph=True, retain_graph=True):
         """Helper per calcolare i gradienti tramite autograd."""
@@ -290,35 +339,8 @@ class Physics(nn.Module):
         return total_loss
 
     def clamp_params(self):
-        """Vincoli fisici sui parametri dinamici (softplus e clamp nudo)."""
-        if not self.inverse_mode:
-            return
-
-        with torch.no_grad():
-            # Parametri strettamente positivi -> Softplus se sotto la soglia minima
-            strict_pos_params = [
-                ("mu_s", MIN_MU_S),
-                ("mu_p", MIN_MU_P),
-                ("lam", MIN_LAM),
-            ]
-            for p_name, min_val in strict_pos_params:
-                p = getattr(self, p_name)
-                if not p.requires_grad:
-                    continue
-                old_val = p.item()
-                if old_val < min_val:
-                    p.copy_(torch.nn.functional.softplus(p))
-
-            # Parametri che possono andare a zero -> Clamp diretto
-            for p_name in ["eps", "alpha"]:
-                p = getattr(self, p_name)
-                if not p.requires_grad:
-                    continue
-                old_val = p.item()
-                if old_val < 0.0:
-                    p.clamp_(min=0.0)
-
-        # Nota: La stampa del log di debug [DEBUG CLAMP] è stata rimossa per evitare output continuo in console.
+        """No-op: I parametri sono fisicamente garantiti positivi o non-negativi tramite Softplus Reparameterization."""
+        pass
 
     def log_params(self):
         """Restituisce i parametri correnti estraendoli proceduralmente."""
