@@ -65,7 +65,8 @@ class SimpleHistory:
 
     def plot_params(self, save_path):
         """Plot evoluzione parametri fisici."""
-        param_keys = [('param_mu_s', MU_S_TRUE, r'$\eta_s$'),
+        param_keys = [('param_beta', getattr(builtins, "BETA_TRUE", MU_S_TRUE / (MU_S_TRUE + MU_P_TRUE)), r'$\beta = \frac{\eta_s}{\eta_s + \eta_p}$'),
+                      ('param_mu_s', MU_S_TRUE, r'$\eta_s$'),
                       ('param_mu_p', MU_P_TRUE, r'$\eta_p$'),
                       ('param_lam', LAM_TRUE, r'$\lambda$'),
                       ('param_eps', EPS_TRUE, r'$\epsilon$'),
@@ -84,13 +85,24 @@ class SimpleHistory:
             if valid:
                 ep, vv = zip(*valid)
                 ax.plot(ep, vv, linewidth=2, label='Learned')
+
+                # Se i valori variano pochissimo (rumore FP32), imposta ylimits intorno al valore vero
+                min_v, max_v = min(vv), max(vv)
+                if abs(max_v - min_v) < 1e-5:
+                    if abs(true_val) > 1e-5:
+                        ax.set_ylim(true_val * 0.8, true_val * 1.2)
+                    else:
+                        ax.set_ylim(-0.02, 0.1)
+
             ax.axhline(true_val, color='k', linestyle='--', linewidth=2, label='True')
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
             ax.set_title(label)
             ax.grid(True, ls='--', alpha=0.5)
             ax.legend()
 
         axs[-1].set_xlabel('Epoch / Iter')
-        fig.suptitle('Physical Parameters Evolution', fontsize=14)
+        fig.suptitle(r'Physical Parameters Evolution ($\beta = \frac{\eta_s}{\eta_s + \eta_p}$)', fontsize=14)
         plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.savefig(save_path, dpi=150)
         plt.close()
@@ -359,10 +371,16 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         # Configura parametri fisici in modalità inversa
         if physics.inverse_mode:
-            trainable_names = ["lam", "mu_p", "eps", "alpha"]
-            for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+            trainable_names = ["lam", "beta", "eps", "alpha"]
+            for pname in ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"]:
                 is_tr = (pname in trainable_names) and (start_epoch >= WARMUP_UNLOCK_EPOCH)
                 physics.set_trainable(pname, is_tr)
+
+        # Log configurazione Fase 1
+        print(f"  Active BCs: {active_bcs}")
+        print(f"  Momentum: {'SPENTA (w=0)' if w_mom == 0.0 else f'ACCESA (w={w_mom})'} | Constitutive: {'SPENTA (w=0)' if w_con == 0.0 else f'ACCESA (w={w_con})'}")
+        if active_bcs is not None and "p" not in active_bcs:
+            print("  Pressure Point BC: DISATTIVATA in Fase 1")
 
         # Calcola chunk size ottimale
         CHUNK_SIZE_ADAM = get_optimal_chunk_size(
@@ -405,7 +423,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             # Sblocco parametri fisici (Warmup Problema Inverso)
             if physics.inverse_mode and epoch == WARMUP_UNLOCK_EPOCH and epoch > 0:
                 print(f"\n  [Warmup Stage 1] Sblocco parametri fisici (epoca {epoch})")
-                trainable_names = ["lam", "mu_p", "eps", "alpha"]
+                trainable_names = ["lam", "beta", "eps", "alpha"]
                 for pname in trainable_names:
                     physics.set_trainable(pname, True)
                 steps_rem = end_adam1 - epoch
@@ -448,6 +466,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     "pde": p_loss_accum,
                     "loss_momentum": loss_m_val,
                     "loss_constitutive": loss_c_val,
+                    "param_beta": params["beta"],
                     "param_mu_s": params["mu_s"],
                     "param_mu_p": params["mu_p"],
                     "param_lam": params["lam"],
@@ -502,11 +521,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     tb_writer.add_scalar('Loss/Momentum', loss_m_val, epoch)
                     tb_writer.add_scalar('Loss/Constitutive', loss_c_val, epoch)
                     
-                    # Log Physical Parameters (only if trainable)
+                    # Log Physical Parameters (solo quelli effettivamente addestrati)
                     if physics.inverse_mode:
-                        for name in ['mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
-                            param_obj = getattr(physics, name, None)
-                            if isinstance(param_obj, nn.Parameter) and param_obj.requires_grad:
+                        for name in ['beta', 'mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
+                            raw_p = getattr(physics, f"_raw_{name}", None)
+                            if raw_p is not None and isinstance(raw_p, nn.Parameter) and raw_p.requires_grad:
                                 tb_writer.add_scalar(f'Params/{name}', params[name], epoch)
                     
                     if log_l2:
@@ -571,9 +590,14 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             w_con_lbfgs1 = W_CONSTITUTIVE
 
         if physics.inverse_mode:
-            trainable_names = ["lam", "mu_p", "eps", "alpha"]
-            for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+            trainable_names = ["lam", "beta", "eps", "alpha"]
+            for pname in ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"]:
                 physics.set_trainable(pname, pname in trainable_names)
+
+        # Log configurazione L-BFGS Fase 1
+        print(f"  Active BCs: {active_bcs_lbfgs1}")
+        if active_bcs_lbfgs1 is not None and "p" not in active_bcs_lbfgs1:
+            print("  Pressure Point BC: DISATTIVATA in L-BFGS Fase 1")
 
         all_params_ph1 = [p for p in model.parameters() if p.requires_grad] + [p for p in physics.parameters() if p.requires_grad]
 
@@ -615,7 +639,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 
                 history.update(
                     global_step,
-                    {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
+                    {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_beta": params["beta"], "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
                 )
                 print(f"\n[L-BFGS Phase 1 - Iter {l_it1[0]+1}/{iters_ph1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
                 print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
@@ -629,6 +653,25 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                         'physics_state_dict': physics.state_dict(),
                         'history_state_dict': history.state_dict()
                     }, chk_path)
+
+                if tb_writer is not None:
+                    tb_writer.add_scalar('Loss/Total', tot_loss, global_step)
+                    tb_writer.add_scalar('Loss/Data', d_loss_accum, global_step)
+                    tb_writer.add_scalar('Loss/BC', b_loss_val, global_step)
+                    tb_writer.add_scalar('Loss/PDE', p_loss_accum, global_step)
+                    tb_writer.add_scalar('Loss/Momentum', m_loss, global_step)
+                    tb_writer.add_scalar('Loss/Constitutive', c_loss, global_step)
+
+                    if physics.inverse_mode:
+                        for name in ['beta', 'mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
+                            raw_p = getattr(physics, f"_raw_{name}", None)
+                            if raw_p is not None and isinstance(raw_p, nn.Parameter) and raw_p.requires_grad:
+                                tb_writer.add_scalar(f'Params/{name}', params[name], global_step)
+
+                    for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
+                        tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], global_step)
+
+                    tb_writer.flush()
 
             l_it1[0] += 1
             pbar_lbfgs1.update(1)
@@ -677,7 +720,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             active_bcs, w_mom, w_con, frozen_vel = None, W_MOMENTUM, W_CONSTITUTIVE, False
 
         if physics.inverse_mode:
-            for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+            physics.set_trainable("beta", False)
+            physics.set_trainable("mu_s", True)
+            for pname in ["mu_p", "lam", "eps", "alpha"]:
                 physics.set_trainable(pname, False)
 
         # Precalcola la divergenza dello stress tau
@@ -762,6 +807,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     "pde": p_loss_accum,
                     "loss_momentum": loss_m_val,
                     "loss_constitutive": loss_c_val,
+                    "param_beta": params["beta"],
                     "param_mu_s": params["mu_s"],
                     "param_mu_p": params["mu_p"],
                     "param_lam": params["lam"],
@@ -816,11 +862,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     tb_writer.add_scalar('Loss/Momentum', loss_m_val, epoch)
                     tb_writer.add_scalar('Loss/Constitutive', loss_c_val, epoch)
                     
-                    # Log Physical Parameters (only if trainable)
+                    # Log Physical Parameters (solo quelli effettivamente addestrati)
                     if physics.inverse_mode:
-                        for name in ['mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
-                            param_obj = getattr(physics, name, None)
-                            if isinstance(param_obj, nn.Parameter) and param_obj.requires_grad:
+                        for name in ['beta', 'mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
+                            raw_p = getattr(physics, f"_raw_{name}", None)
+                            if raw_p is not None and isinstance(raw_p, nn.Parameter) and raw_p.requires_grad:
                                 tb_writer.add_scalar(f'Params/{name}', params[name], epoch)
                     
                     if log_l2:
@@ -877,7 +923,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             p.requires_grad = True
 
         if physics.inverse_mode:
-            for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+            physics.set_trainable("beta", False)
+            physics.set_trainable("mu_s", True)
+            for pname in ["mu_p", "lam", "eps", "alpha"]:
                 physics.set_trainable(pname, False)
 
         all_params_ph2 = [p for p in model.parameters() if p.requires_grad] + [p for p in physics.parameters() if p.requires_grad]
@@ -928,7 +976,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 
                 history.update(
                     global_step,
-                    {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
+                    {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_beta": params["beta"], "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
                 )
                 print(f"\n[L-BFGS Phase 2 - Iter {l_it2[0]+1}/{iters_ph2}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
                 print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
@@ -942,6 +990,25 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                         'physics_state_dict': physics.state_dict(),
                         'history_state_dict': history.state_dict()
                     }, chk_path)
+
+                if tb_writer is not None:
+                    tb_writer.add_scalar('Loss/Total', tot_loss, global_step)
+                    tb_writer.add_scalar('Loss/Data', d_loss_accum, global_step)
+                    tb_writer.add_scalar('Loss/BC', b_loss_val, global_step)
+                    tb_writer.add_scalar('Loss/PDE', p_loss_accum, global_step)
+                    tb_writer.add_scalar('Loss/Momentum', m_loss, global_step)
+                    tb_writer.add_scalar('Loss/Constitutive', c_loss, global_step)
+
+                    if physics.inverse_mode:
+                        for name in ['beta', 'mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
+                            raw_p = getattr(physics, f"_raw_{name}", None)
+                            if raw_p is not None and isinstance(raw_p, nn.Parameter) and raw_p.requires_grad:
+                                tb_writer.add_scalar(f'Params/{name}', params[name], global_step)
+
+                    for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
+                        tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], global_step)
+
+                    tb_writer.flush()
 
             l_it2[0] += 1
             pbar_lbfgs2.update(1)

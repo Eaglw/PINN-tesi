@@ -1,3 +1,4 @@
+import builtins
 import torch
 import torch.nn as nn
 from src.utils import weighted_mse
@@ -10,6 +11,14 @@ def inverse_softplus(y, min_val=1e-8):
         y = torch.tensor([float(y)], device=DEVICE)
     y_clamped = torch.clamp(y, min=min_val)
     return torch.where(y_clamped > 20.0, y_clamped, torch.log(torch.expm1(y_clamped)))
+
+
+def inverse_sigmoid(y, eps=1e-7):
+    """Calcola l'inversa della funzione Sigmoide: x = logit(y)."""
+    if isinstance(y, (float, int)):
+        y = torch.tensor([float(y)], device=DEVICE)
+    y_clamped = torch.clamp(y, min=eps, max=1.0 - eps)
+    return torch.log(y_clamped / (1.0 - y_clamped))
 
 
 class Physics(nn.Module):
@@ -27,21 +36,28 @@ class Physics(nn.Module):
         self.use_roll_stress_bc = use_roll_stress_bc
         self.w_roll_stress = w_roll_stress
 
-        # Registrazione dinamica dei parametri fisici tramite Softplus Reparameterization
+        # Registrazione dinamica dei parametri fisici
+        beta_true = getattr(builtins, "BETA_TRUE", MU_S_TRUE / (MU_S_TRUE + MU_P_TRUE))
+        guess_beta = getattr(builtins, "GUESS_BETA", 0.05)
+
         params_setup = {
+            "beta": (guess_beta, beta_true),
             "mu_s": (GUESS_MU_S, MU_S_TRUE),
-            "mu_p": (GUESS_MU_P, MU_P_TRUE),
             "lam": (GUESS_LAM, LAM_TRUE),
             "eps": (GUESS_EPS, EPS_TRUE),
             "alpha": (GUESS_ALPHA, ALPHA_TRUE),
         }
 
-        trainable_names = ["lam", "mu_p", "eps", "alpha"]
+        trainable_names = ["lam", "beta", "eps", "alpha"]
         for name, (guess_val, true_val) in params_setup.items():
             val = guess_val if (inverse_mode and name in trainable_names) else true_val
             is_trainable = inverse_mode and (name in trainable_names)
 
-            raw_val = inverse_softplus(val)
+            if name == "beta":
+                raw_val = inverse_softplus(val)
+            else:
+                raw_val = inverse_softplus(val)
+
             raw_tensor = raw_val.to(device=DEVICE)
             raw_name = f"_raw_{name}"
 
@@ -54,12 +70,24 @@ class Physics(nn.Module):
         self.real_mu_tot = MU_S_TRUE + MU_P_TRUE
 
     @property
+    def beta(self):
+        return torch.clamp(torch.nn.functional.softplus(self._raw_beta) + 1e-8, max=0.99)
+
+    @property
+    def beta_poly(self):
+        return 1.0 - self.beta
+
+    @property
     def mu_s(self):
         return torch.nn.functional.softplus(self._raw_mu_s) + 1e-8
 
     @property
+    def mu_tot(self):
+        return self.mu_s / self.beta
+
+    @property
     def mu_p(self):
-        return torch.nn.functional.softplus(self._raw_mu_p) + 1e-8
+        return self.mu_tot * self.beta_poly
 
     @property
     def lam(self):
@@ -81,16 +109,17 @@ class Physics(nn.Module):
 
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
         """Gestisce in modo trasparente la retrocompatibilità con i vecchi checkpoint."""
-        param_names = ["mu_s", "mu_p", "lam", "eps", "alpha"]
+        param_names = ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"]
         for p_name in param_names:
             old_key = prefix + p_name
             raw_key = prefix + f"_raw_{p_name}"
             if old_key in state_dict and raw_key not in state_dict:
                 old_val = state_dict.pop(old_key)
+                inv_fn = inverse_softplus  # beta ora usa softplus (non più sigmoid)
                 if torch.is_tensor(old_val):
-                    raw_val = inverse_softplus(old_val).to(old_val.device)
+                    raw_val = inv_fn(old_val).to(old_val.device)
                 else:
-                    raw_val = inverse_softplus(old_val)
+                    raw_val = inv_fn(old_val)
                 state_dict[raw_key] = raw_val
 
         super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
@@ -121,11 +150,11 @@ class Physics(nn.Module):
 
     def _nondim(self):
         """Parametri adimensionali correnti."""
-        mu_tot = self.mu_s + self.mu_p
+        mu_tot = self.mu_tot
         Re = RHO * self.U_ref * self.H_ref / mu_tot
         Wi = self.lam * self.U_ref / self.H_ref
-        beta = self.mu_s / mu_tot
-        beta_poly = self.mu_p / mu_tot
+        beta = self.beta
+        beta_poly = self.beta_poly
         return Re, Wi, beta, beta_poly, self.eps, self.alpha
 
     def compute_residuals(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0, frozen_velocity=False, precomputed_div_tau=None):
@@ -345,8 +374,8 @@ class Physics(nn.Module):
     def log_params(self):
         """Restituisce i parametri correnti estraendoli proceduralmente."""
         return {
-            name: getattr(self, name).item()
-            for name in ["mu_s", "mu_p", "lam", "eps", "alpha"]
+            name: getattr(self, name).item() if isinstance(getattr(self, name), torch.Tensor) else getattr(self, name)
+            for name in ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"]
         }
 
 

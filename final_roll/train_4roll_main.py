@@ -81,11 +81,12 @@ BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = BASE_DIR / "output_4rollmill" / "Inverse_all_TBC_4_roll_mill_L8x128_E100000_SiLU_stagedTrue_invTrue_20260720_191853" / "checkpoint.pth"
+RESUME_CHECKPOINT = None
 
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
 MU_P_TRUE = 0.9  # Viscosità polimerica [Pa·s]
+BETA_TRUE = MU_S_TRUE / (MU_S_TRUE + MU_P_TRUE)  # Rapporto di viscosità (0.10)
 LAM_TRUE = 0.05  # Tempo di rilassamento [s]
 EPS_TRUE = 0.0  # Parametro PTT
 ALPHA_TRUE = 0.0  # Parametro Giesekus
@@ -99,6 +100,7 @@ MIN_LAM = 1e-6
 GUESS_MULTIPLIER = 0.8
 GUESS_MU_S = MU_S_TRUE * GUESS_MULTIPLIER
 GUESS_MU_P = MU_P_TRUE * GUESS_MULTIPLIER
+GUESS_BETA = 0.05
 GUESS_LAM = LAM_TRUE * GUESS_MULTIPLIER
 GUESS_EPS = 0.05
 GUESS_ALPHA = 0.05
@@ -108,11 +110,11 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS_PHASE1 = 100000
+ADAM_EPOCHS_PHASE1 = 30000
 ADAM_EPOCHS_PHASE2 = 0
 USE_LBFGS_PHASE1 = True  # Attivato per procedere alla fase 1.5 L-BFGS
 USE_LBFGS_PHASE2 = False   # Disattivato per terminare dopo la fase 1.5
-LBFGS_MAX_ITERS_PHASE1 = 20000
+LBFGS_MAX_ITERS_PHASE1 = 10000
 LBFGS_MAX_ITERS_PHASE2 = 0
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -188,12 +190,12 @@ if __name__ == "__main__":
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nModello: {total_params:,} parametri totali")
     if INVERSE_PROBLEM:
-        print("Modalità: PROBLEMA INVERSO MULTI-PARAMETRO (lam, mu_p, eps, alpha da identificare, mu_s fisso)")
-        print(f" Guess: lam={GUESS_LAM} (true: {LAM_TRUE}), mu_p={GUESS_MU_P} (true: {MU_P_TRUE}), eps={GUESS_EPS} (true: {EPS_TRUE}), alpha={GUESS_ALPHA} (true: {ALPHA_TRUE})")
-        print(f" Parametri fissi: mu_s={MU_S_TRUE}")
+        print("Modalità: PROBLEMA INVERSO MULTI-PARAMETRO (lam, beta, eps, alpha da identificare in Fase 1)")
+        print(f" Guess: lam={GUESS_LAM} (true: {LAM_TRUE}), beta={GUESS_BETA} (true: {BETA_TRUE:.4f}), eps={GUESS_EPS} (true: {EPS_TRUE}), alpha={GUESS_ALPHA} (true: {ALPHA_TRUE})")
+        print(f" Parametri fissi in Fase 1: mu_s={MU_S_TRUE} (mu_tot=1.0)")
     else:
         print("Modalità: PROBLEMA DIRETTO (Parametri fisici bloccati ai valori veri)")
-        print(f" Valori veri: mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, lam={LAM_TRUE}")
+        print(f" Valori veri: beta={BETA_TRUE}, mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, lam={LAM_TRUE}")
 
     obsidian_dest_dir = None
     obsidian_run_name = None
@@ -235,8 +237,8 @@ if __name__ == "__main__":
     params = physics.log_params()
     print(f"\n{'=' * 60}\nRISULTATI FINALI PARAMETRI FISICI\n{'=' * 60}")
     for p_name, true_val in zip(
-        ["mu_s", "mu_p", "lam", "eps", "alpha"],
-        [MU_S_TRUE, MU_P_TRUE, LAM_TRUE, EPS_TRUE, ALPHA_TRUE],
+        ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"],
+        [BETA_TRUE, MU_S_TRUE, MU_P_TRUE, LAM_TRUE, EPS_TRUE, ALPHA_TRUE],
     ):
         print(f"  {p_name:<5s}: {params[p_name]:.6f}  (true: {true_val})")
 
@@ -270,7 +272,7 @@ if __name__ == "__main__":
         results_details = {
             "status": "completed"
         }
-        for p_name in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
+        for p_name in ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"]:
             if p_name in params:
                 results_details[f"Param {p_name}"] = f"{params[p_name]:.6f}"
                 
