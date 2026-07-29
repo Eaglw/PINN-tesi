@@ -92,7 +92,7 @@ class PhysicsClampedLam(Physics):
 # ============================================================================
 
 # --- Opzioni di Controllo ---
-EXPORT_TO_OBSIDIAN = True
+EXPORT_TO_OBSIDIAN = False
 STAGED_TRAINING = True
 INVERSE_PROBLEM = True
 DEBUG_MODE = False
@@ -106,7 +106,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = None
+RESUME_CHECKPOINT = BASE_DIR / "checkpoints" / "kaggle_clamp_lamba_29k.pth"
 
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1
@@ -139,7 +139,7 @@ ADAM_EPOCHS_PHASE1 = 30000
 ADAM_EPOCHS_PHASE2 = 0
 USE_LBFGS_PHASE1 = True
 USE_LBFGS_PHASE2 = False
-LBFGS_MAX_ITERS_PHASE1 = 10000
+LBFGS_MAX_ITERS_PHASE1 = 5000
 LBFGS_MAX_ITERS_PHASE2 = 0
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
