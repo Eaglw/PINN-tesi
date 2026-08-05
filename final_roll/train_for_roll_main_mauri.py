@@ -72,12 +72,12 @@ DEBUG_MODE = False  # True: stampa info e test avanzati
 USE_ROLL_STRESS_BC = True
 W_ROLL_STRESS = 1.0
 
-# --- Checkpointing ---
-RESUME_CHECKPOINT = None
-
 # --- Percorsi Base ---
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4_roll_mill_lambda1.csv"
+
+# --- Checkpointing ---
+RESUME_CHECKPOINT = BASE_DIR / "checkpoints" / "checkpoint_lambda=1_100k+100k.pth"
 
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
@@ -104,8 +104,8 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training ---
-ADAM_EPOCHS_PHASE1 = 100000
-ADAM_EPOCHS_PHASE2 = 100000
+ADAM_EPOCHS_PHASE1 = 50000
+ADAM_EPOCHS_PHASE2 = 50000
 USE_LBFGS_PHASE1 = True
 USE_LBFGS_PHASE2 = True
 LBFGS_MAX_ITERS_PHASE1 = 10000
