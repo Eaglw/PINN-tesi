@@ -122,6 +122,26 @@ class Physics(nn.Module):
                     raw_val = inv_fn(old_val)
                 state_dict[raw_key] = raw_val
 
+        # Conversione automatica da _raw_mu_p a _raw_beta per vecchi checkpoint
+        raw_beta_key = prefix + "_raw_beta"
+        raw_mup_key = prefix + "_raw_mu_p"
+        raw_mus_key = prefix + "_raw_mu_s"
+
+        if raw_mup_key in state_dict and raw_beta_key not in state_dict:
+            raw_mup_val = state_dict.pop(raw_mup_key)
+            if raw_mus_key in state_dict:
+                raw_mus_val = state_dict[raw_mus_key]
+                mu_s_val = torch.nn.functional.softplus(raw_mus_val) + 1e-8
+                mu_p_val = torch.nn.functional.softplus(raw_mup_val) + 1e-8
+                beta_val = torch.clamp(mu_s_val / (mu_s_val + mu_p_val), min=1e-6, max=0.99)
+                raw_beta_val = inverse_softplus(beta_val)
+            else:
+                beta_val = torch.tensor(0.10, device=DEVICE)
+                raw_beta_val = inverse_softplus(beta_val)
+            state_dict[raw_beta_key] = raw_beta_val
+        elif raw_mup_key in state_dict and hasattr(self, "_raw_beta") and not hasattr(self, "_raw_mu_p"):
+            state_dict.pop(raw_mup_key, None)
+
         super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
 
     def _grad(self, y, x, create_graph=True, retain_graph=True):

@@ -259,7 +259,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             chk = torch.load(resume_checkpoint, map_location=DEVICE)
             
             model.load_state_dict(chk['model_state_dict'])
-            physics.load_state_dict(chk['physics_state_dict'])
+            physics.load_state_dict(chk['physics_state_dict'], strict=False)
             history.load_state_dict(chk['history_state_dict'])
             
             loaded_opt_state = chk.get('optimizer_state_dict', None)
