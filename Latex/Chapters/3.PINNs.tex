@@ -1,0 +1,123 @@
+\chapter{Physics-Informed Neural Networks}
+\label{chap:pinn_literature}
+
+In this chapter, we present a literature review of Physics-Informed Neural Networks (PINNs) and their application to complex fluid mechanics. The discussion is structured into three main sections: first, a general overview of the PINN paradigm and its advantages over classical numerical methods and purely data-driven models; second, an in-depth analysis of the foundational framework introduced by Raissi et al. \cite{raissi2019physics}; and third, a detailed examination of the ViscoelasticNet framework developed by Thakur, Raissi, and Ardekani \cite{thakur2024viscoelasticnet}, which represents a significant methodological advance for stress discovery and constitutive model identification in viscoelastic fluid dynamics.
+
+% ============================================================
+% 3.1 GENERAL OVERVIEW OF PHYSICS-INFORMED NEURAL NETWORKS
+% ============================================================
+\section{General Overview of Physics-Informed Neural Networks}
+\label{sec:pinn_overview}
+
+Over the past decade, scientific machine learning (SciML) has emerged as a transformative discipline at the intersection of deep learning and mathematical physics \cite{cai2021physics}. Traditional numerical techniques for solving partial differential equations (PDEs)—such as the Finite Element Method (FEM), Finite Volume Method (FVM), and Finite Difference Method (FDM)—rely on spatial discretization grids. While highly accurate, these conventional solvers face significant limitations:
+\begin{itemize}
+    \item \textbf{Meshing Complexity}: Generating high-quality computational meshes around intricate geometries or singular flow regions requires substantial computational overhead.
+    \item \textbf{Curse of Dimensionality}: Grid-based methods scale poorly to high-dimensional state spaces or parametric optimization problems.
+    \item \textbf{Inability to Handle Sparse Data}: Traditional CFD solvers are strictly designed for forward initial-boundary value problems and cannot naturally ingest sparse experimental measurements to solve inverse problems.
+\end{itemize}
+
+Conversely, standard black-box machine learning models\textemdash such as convolutional neural networks (CNNs) for spatial field reconstruction, recurrent architectures for temporal dynamics, and generative adversarial networks (GANs) for stochastic flow synthesis\textemdash require vast quantities of high-fidelity training data. Furthermore, because they lack physical awareness, these purely data-driven networks often produce predictions that violate basic conservation laws (such as mass or momentum conservation) when evaluated outside their training distribution, and they offer no guarantee of physical consistency in extrapolation regimes.
+
+Physics-Informed Neural Networks (PINNs) bridge this gap by leveraging the universal approximation property of neural networks \cite{hornik1989multilayer} while embedding the governing differential equations directly into the training process \cite{raissi2019physics}. By penalizing violations of physical laws during optimization, PINNs act as physics-constrained surrogate models that offer several distinct advantages over both traditional solvers and black-box approaches:
+\begin{itemize}
+    \item \textbf{Mesh-free operation}: PINNs evaluate the solution at arbitrary collocation points without requiring a spatial discretization grid, eliminating meshing overhead.
+    \item \textbf{Natural inverse problem support}: Unknown physical parameters can be jointly optimized alongside the network weights, enabling simultaneous field reconstruction and parameter identification.
+    \item \textbf{Sparse and noisy data assimilation}: PINNs can incorporate scattered experimental measurements, using the governing equations as a regularizer to fill in spatial and temporal gaps.
+    \item \textbf{Continuous differentiable solutions}: The neural network output provides an infinitely differentiable analytical representation of the solution field throughout the entire domain.
+\end{itemize}
+
+% ============================================================
+% 3.2 THE FOUNDATIONAL PINN FRAMEWORK: RAISSI ET AL. (2019)
+% ============================================================
+\section{The Foundational PINN Framework: Raissi et al. (2019)}
+\label{sec:raissi_pinn_framework}
+
+The foundational methodology of PINNs was formally introduced by Raissi, Perdikaris, and Karniadakis in their landmark 2019 publication \cite{raissi2019physics}. Their key innovation was to leverage \textit{Automatic Differentiation} (AD) to seamlessly integrate general non-linear PDEs into deep learning computational graphs.
+
+\subsection{Automatic Differentiation via Computational Graphs}
+Consider a general non-linear partial differential equation governing a continuous state variable $u(\mathbf{x}, t)$:
+\begin{equation}
+    \mathcal{F}[u(\mathbf{x}, t); \boldsymbol{\lambda}] = 0 , \quad \mathbf{x} \in \Omega , \; t \in [0, T] ,
+    \label{eq:general_pde}
+\end{equation}
+where $\mathcal{F}$ is a differential operator and $\boldsymbol{\lambda}$ denotes a set of physical parameters.
+
+In the PINN framework, the unknown solution $u(\mathbf{x}, t)$ is approximated by a deep Multi-Layer Perceptron (MLP) parameterized by trainable weights and biases $\boldsymbol{\theta}$:
+\begin{equation}
+    \hat{u}(\mathbf{x}, t) = \mathcal{N}_{\boldsymbol{\theta}}(\mathbf{x}, t) .
+\end{equation}
+Specifically, this MLP architecture consists of an input layer for the coordinates, hidden layers equipped with non-linear activation functions (typically \texttt{tanh} or \texttt{Swish}), and an output layer for the predicted field variables. The parameters are commonly initialized using the Xavier/Glorot scheme.
+
+To bridge this representation with the underlying physics, analytical derivatives are required. Instead of approximating spatial and temporal derivatives using finite-difference stencils on a grid, PINNs compute exact analytical derivatives using Automatic Differentiation (AD) via reverse-mode accumulation in computational graphs (e.g., PyTorch's \texttt{autograd}). This approach is fundamentally superior for PINNs because AD provides exact derivatives (up to floating-point precision) without introducing discretization error or requiring an underlying grid. Derivatives such as $\partial \hat{u}/\partial x$ or $\partial^2 \hat{u}/\partial x^2$ are evaluated to machine precision by applying the chain rule directly across the hidden layers of the network.
+
+\subsection{Physics-Constrained Loss Function Formulation}
+To enforce the governing PDE \eqref{eq:general_pde}, a \textit{PDE residual network} $f(\mathbf{x}, t)$ is constructed by substituting the neural network output $\hat{u}$ into the differential operator:
+\begin{equation}
+    f(\mathbf{x}, t) \equiv \mathcal{F}[\mathcal{N}_{\boldsymbol{\theta}}(\mathbf{x}, t); \boldsymbol{\lambda}] .
+    \label{eq:pde_residual_def}
+\end{equation}
+
+The network parameters $\boldsymbol{\theta}$ are optimized by minimizing a composite loss function $L(\boldsymbol{\theta})$ defined over three distinct sets of points \cite{raissi2019physics}:
+\begin{equation}
+    L(\boldsymbol{\theta}) = w_{\mathrm{data}} L_{\mathrm{data}}(\boldsymbol{\theta}) + w_{\mathrm{bc}} L_{\mathrm{bc}}(\boldsymbol{\theta}) + w_{\mathrm{pde}} L_{\mathrm{pde}}(\boldsymbol{\theta}) ,
+    \label{eq:raissi_composite_loss}
+\end{equation}
+where:
+\begin{align}
+    L_{\mathrm{data}}(\boldsymbol{\theta}) &= \frac{1}{N_{\mathrm{data}}} \sum_{i=1}^{N_{\mathrm{data}}} \left| \mathcal{N}_{\boldsymbol{\theta}}(\mathbf{x}_i^{\mathrm{data}}, t_i^{\mathrm{data}}) - u_i^{\mathrm{data}} \right|^2 , \label{eq:loss_data_def} \\
+    L_{\mathrm{bc}}(\boldsymbol{\theta}) &= \frac{1}{N_{\mathrm{bc}}} \sum_{j=1}^{N_{\mathrm{bc}}} \left| \mathcal{B}[\mathcal{N}_{\boldsymbol{\theta}}(\mathbf{x}_j^{\mathrm{bc}}, t_j^{\mathrm{bc}})] - g_j^{\mathrm{bc}} \right|^2 , \label{eq:loss_bc_def} \\
+    L_{\mathrm{pde}}(\boldsymbol{\theta}) &= \frac{1}{N_{\mathrm{pde}}} \sum_{k=1}^{N_{\mathrm{pde}}} \left| f(\mathbf{x}_k^{\mathrm{pde}}, t_k^{\mathrm{pde}}) \right|^2 . \label{eq:loss_pde_def}
+\end{align}
+Here, $\mathcal{B}$ represents boundary operators, while $N_{\mathrm{data}}, N_{\mathrm{bc}}$, and $N_{\mathrm{pde}}$ denote the number of data observation points, boundary condition points, and interior PDE collocation points, respectively. Physically, $L_{\mathrm{data}}$ fits the model to empirical observations, $L_{\mathrm{bc}}$ enforces the requisite boundary and initial conditions, and $L_{\mathrm{pde}}$ enforces the governing physical laws. The weights $w_{\mathrm{data}}$, $w_{\mathrm{bc}}$, and $w_{\mathrm{pde}}$ control the relative importance of these constraints; their tuning is a recognized challenge due to gradient pathologies \cite{wang2021understanding}.
+
+Transitioning to practical applications, this unified loss minimization paradigm naturally supports two distinct scientific computing modes:
+
+\begin{enumerate}
+    \item \textbf{Forward Problems (Data-Driven Solutions)}: When the physical parameters $\boldsymbol{\lambda}$ are fully known, PINNs optimize $\boldsymbol{\theta}$ to solve for the continuous field variables throughout the spatio-temporal domain without requiring a grid.
+    \item \textbf{Inverse Problems (Data-Driven Discovery)}: When the underlying parameters $\boldsymbol{\lambda}$ are unknown (e.g., uncharacterized fluid viscosity or relaxation time), $\boldsymbol{\lambda}$ is treated as a set of extra trainable parameters alongside $\boldsymbol{\theta}$. By training on a small set of sparse field observations, PINNs simultaneously reconstruct the continuous state fields and identify the exact physical parameters $\boldsymbol{\lambda}^*$.
+\end{enumerate}
+
+Despite these broad capabilities, PINN training introduces specific challenges: spectral bias (the network's tendency to learn low-frequency solutions first), gradient imbalance between competing loss terms, and a strong sensitivity to the spatiotemporal distribution of collocation points \cite{wang2021understanding}.
+
+% ============================================================
+% 3.3 VISCOELASTICNET: STRESS DISCOVERY AND MODEL SELECTION (THAKUR ET AL., 2024)
+% ============================================================
+\section{ViscoelasticNet: Stress Discovery and Model Selection}
+\label{sec:viscoelasticnet_paper}
+
+Building upon the foundational PINN methodology, Thakur, Raissi, and Ardekani \cite{thakur2024viscoelasticnet} developed \textit{ViscoelasticNet}, a specialized physics-informed neural network framework published in the \textit{Journal of Non-Newtonian Fluid Mechanics}. Their work represents a major breakthrough in complex fluid mechanics, addressing long-standing experimental and computational bottlenecks in viscoelastic flow modeling.
+
+\begin{figure}[htbp]
+    \centering
+    \IfFileExists{media/pinn_architecture.pdf}{%
+        \includegraphics[width=0.85\linewidth]{media/pinn_architecture.pdf}%
+    }{%
+        \framebox[0.85\linewidth]{\vbox to 5cm{\vfill\centering [Figure Placeholder: media/pinn\_architecture.pdf]\vfill}}%
+    }
+    \caption{Conceptual diagram of the ViscoelasticNet framework (Thakur et al., 2024), illustrating the physics-informed architecture for learning hidden stress tensors and identifying viscoelastic constitutive models using velocity field inputs. The diagram highlights the input layer (spatiotemporal coordinates), hidden layers, output layer (predicted fields), and the physics loss evaluation.}
+    \label{fig:pinn_architecture}
+\end{figure}
+
+\subsection{The Challenge of Viscoelastic Flow Characterization}
+Viscoelastic fluids—such as polymer solutions, biological fluids, and molten plastics—exhibit complex non-linear behaviors, including shear-thinning, stress relaxation, and elastic memory \cite{bird1987dynamics}. Modeling these fluids presents two major challenges:
+\begin{itemize}
+    \item \textbf{Experimental Measurement Limits}: While modern optical techniques (such as Particle Image Velocimetry - PIV and flow birefringence \cite{fuller1980flow}) can measure velocity fields $\boldsymbol{u} = (u, v)$ with high spatial resolution, direct non-intrusive experimental measurement of internal stress tensor fields $\boldsymbol{\tau} = (\tau_{xx}, \tau_{xy}, \tau_{yy})$ and pressure $p$ inside complex flows remains extremely difficult or impossible.
+    \item \textbf{Computational Solvers Instability}: Traditional computational viscoelasticity solvers (FEM/FVM) suffer from the \textit{High Weissenberg Number Problem} (HWNP). At elevated elastic rates ($\text{Wi} > 0.5$), numerical discretization of the upper-convected stress advection term $(\boldsymbol{u} \cdot \boldsymbol{\nabla} \boldsymbol{\tau})$ leads to severe numerical instabilities, artificial stress singularities, and catastrophic solver divergence \cite{owens2002computational}. Numerically, the upper-convected derivative introduces a hyperbolic character to the constitutive equation. Traditional methods struggle because the stress equation transitions from elliptic to hyperbolic behavior at high Weissenberg numbers. Stabilization techniques used in FEM, such as Streamline Upwind Petrov-Galerkin (SUPG) and the log-conformation transformation, can mitigate these issues but often fail at sufficiently high elasticity or introduce excessive numerical diffusion.
+\end{itemize}
+
+Given these limitations, deep learning provides a compelling alternative methodology.
+
+\subsection{Why ViscoelasticNet is Revolutionary}
+ViscoelasticNet \cite{thakur2024viscoelasticnet} solves these challenges by reformulating viscoelastic stress characterization as a physics-informed inverse discovery problem. The revolutionary contributions of the ViscoelasticNet framework can be summarized as follows:
+
+\begin{enumerate}
+    \item \textbf{Latent Stress and Pressure Discovery from Velocity Data Only}: ViscoelasticNet requires \textit{only velocity field observations} (which can be readily obtained from experimental PIV or synthetic datasets) as input. By embedding the momentum conservation and Oldroyd-B constitutive equations into the loss function, the network infers the hidden, unmeasurable polymeric extra-stress tensor $\boldsymbol{\tau}$ and pressure field $p$ throughout the entire domain without needing any experimental stress measurements. More precisely, ViscoelasticNet uses the momentum equation $\boldsymbol{\nabla} \cdot \boldsymbol{\sigma} = \rho(\boldsymbol{u} \cdot \boldsymbol{\nabla}\boldsymbol{u})$ to constrain the stress divergence, while the constitutive equation constrains the full stress tensor field. The combination of these physics constraints with empirical velocity data creates a well-posed inverse problem.
+    
+    \item \textbf{Robustness to High Weissenberg Numbers}: By framing PDE solving as an optimization task over continuous neural network spaces rather than step-by-step time integration on a spatial mesh, ViscoelasticNet bypasses the mesh-dependent numerical instabilities associated with the HWNP \cite{thakur2024viscoelasticnet}.
+    
+    \item \textbf{Constitutive Model Selection and Parameter Identification}: ViscoelasticNet provides a data-driven mechanism to select the correct constitutive model (such as Oldroyd-B, linear PTT, or Giesekus) for an uncharacterized fluid. By optimizing residual losses corresponding to candidate constitutive models, the framework identifies both the governing constitutive model and its underlying physical parameters (relaxation time $\lambda$, polymeric viscosity $\mu_p$, non-linear mobility parameters).
+\end{enumerate}
+
+To validate this approach, Thakur et al. \cite{thakur2024viscoelasticnet} evaluated the framework on specific benchmark flows: steady Couette flow, flow past a circular cylinder, and a four-roll mill. The four-roll mill configuration proved particularly challenging due to the strong extensional kinematics near the stagnation point, which rigorously tests the network's capacity to resolve steep stress gradients.
+
+By demonstrating that continuous stress fields and constitutive parameters can be discovered non-intrusively from velocity data alone, Thakur et al. \cite{thakur2024viscoelasticnet} established a mathematically rigorous foundation for applying physics-informed machine learning to complex rheological flows.
