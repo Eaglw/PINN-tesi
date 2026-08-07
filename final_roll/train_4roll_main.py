@@ -119,10 +119,11 @@ LBFGS_MAX_ITERS_PHASE2 = 0
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
+BETA_LR_FACTOR = 5.0  # Moltiplicatore LR dedicato solo per il parametro beta
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
-WARMUP_UNLOCK_EPOCH = 0
+WARMUP_UNLOCK_EPOCH = 5000  # Sblocco parametri fisici dopo 5000 epoche di warmup cinematica
 
 # --- Pesi Funzione di Loss ---
 W_BC = 5.0      # Aumentato da 2.0 a 5.0 per vincolare meglio l'ancoraggio del punto di pressione

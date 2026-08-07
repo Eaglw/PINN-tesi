@@ -259,7 +259,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             chk = torch.load(resume_checkpoint, map_location=DEVICE)
             
             model.load_state_dict(chk['model_state_dict'])
-            physics.load_state_dict(chk['physics_state_dict'])
+            physics.load_state_dict(chk['physics_state_dict'], strict=False)
             history.load_state_dict(chk['history_state_dict'])
             
             loaded_opt_state = chk.get('optimizer_state_dict', None)
@@ -397,9 +397,13 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         net_params = [p for p in model.parameters() if p.requires_grad]
         groups = [{"params": net_params, "lr": BASE_LR}]
         if physics.inverse_mode:
-            phys_params = [p for p in physics.parameters() if p.requires_grad]
-            if phys_params:
-                groups.append({"params": phys_params, "lr": BASE_LR * PARAM_LR_FACTOR})
+            beta_lr_mult = getattr(builtins, "BETA_LR_FACTOR", 1.0)
+            other_phys = [p for n, p in physics.named_parameters() if n != "_raw_beta" and p.requires_grad]
+            beta_phys = [p for n, p in physics.named_parameters() if n == "_raw_beta" and p.requires_grad]
+            if other_phys:
+                groups.append({"params": other_phys, "lr": BASE_LR * PARAM_LR_FACTOR})
+            if beta_phys:
+                groups.append({"params": beta_phys, "lr": BASE_LR * PARAM_LR_FACTOR * beta_lr_mult})
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=1e-6)
 
@@ -429,9 +433,13 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 steps_rem = end_adam1 - epoch
                 net_params = [p for p in model.parameters() if p.requires_grad]
                 groups = [{"params": net_params, "lr": BASE_LR}]
-                phys_params = [p for p in physics.parameters() if p.requires_grad]
-                if phys_params:
-                    groups.append({"params": phys_params, "lr": BASE_LR * PARAM_LR_FACTOR})
+                beta_lr_mult = getattr(builtins, "BETA_LR_FACTOR", 1.0)
+                other_phys = [p for n, p in physics.named_parameters() if n != "_raw_beta" and p.requires_grad]
+                beta_phys = [p for n, p in physics.named_parameters() if n == "_raw_beta" and p.requires_grad]
+                if other_phys:
+                    groups.append({"params": other_phys, "lr": BASE_LR * PARAM_LR_FACTOR})
+                if beta_phys:
+                    groups.append({"params": beta_phys, "lr": BASE_LR * PARAM_LR_FACTOR * beta_lr_mult})
                 optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
                 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=1e-6)
 
