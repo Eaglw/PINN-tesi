@@ -79,4 +79,5 @@ To ensure optimization stability, training is split into distinct stages:
 Prima di implementare o modificare effettivamente qualsiasi codice (escluse le letture, analisi del repo o prove innocue), spiegami sempre cosa stai cercando di fare. 
 Se sei su windows non usare && per dare più comandi in uno, usa il modo corretto o runna singolarmente i comandi.
 Su Windows, esegui SEMPRE i comandi python e pip facendo riferimento all'interprete del virtual environment (es. `.\venv\Scripts\python` o `.\venv\Scripts\pip`), senza dare per scontato che l'eseguibile globale sia presente nel PATH.
-Inoltre, non passare mai i dati di stress provenienti da COMSOL alla PINN, poiché non avrebbe senso usare una PINN avendo già tutti i dati a disposizione.
+Inoltre, non passare mai i dati di stress provenienti da COMSOL alla PINN(tranne nelle BC), poiché non avrebbe senso usare una PINN avendo già tutti i dati a disposizione.
+Quando si lavora su macOS, l'ambiente locale viene usato solo per la modifica del codice e la preparazione dello script; non eseguire esperimenti o script di training in locale su macOS, in quanto le run verranno eseguite su una macchina remota/estena.

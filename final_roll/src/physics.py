@@ -51,10 +51,11 @@ class Physics(nn.Module):
         trainable_names = ["lam", "beta", "eps", "alpha"]
         for name, (guess_val, true_val) in params_setup.items():
             val = guess_val if (inverse_mode and name in trainable_names) else true_val
-            is_trainable = inverse_mode and (name in trainable_names)
+            warmup_epoch = getattr(builtins, "WARMUP_UNLOCK_EPOCH", 0)
+            is_trainable = inverse_mode and (name in trainable_names) and (warmup_epoch == 0)
 
             if name == "beta":
-                raw_val = inverse_softplus(val)
+                raw_val = inverse_sigmoid(val / 0.99)
             else:
                 raw_val = inverse_softplus(val)
 
@@ -71,7 +72,7 @@ class Physics(nn.Module):
 
     @property
     def beta(self):
-        return torch.clamp(torch.nn.functional.softplus(self._raw_beta) + 1e-8, max=0.99)
+        return torch.sigmoid(self._raw_beta) * 0.99
 
     @property
     def beta_poly(self):
@@ -115,7 +116,7 @@ class Physics(nn.Module):
             raw_key = prefix + f"_raw_{p_name}"
             if old_key in state_dict and raw_key not in state_dict:
                 old_val = state_dict.pop(old_key)
-                inv_fn = inverse_softplus  # beta ora usa softplus (non più sigmoid)
+                inv_fn = (lambda y: inverse_sigmoid(y / 0.99)) if p_name == "beta" else inverse_softplus
                 if torch.is_tensor(old_val):
                     raw_val = inv_fn(old_val).to(old_val.device)
                 else:
@@ -134,10 +135,10 @@ class Physics(nn.Module):
                 mu_s_val = torch.nn.functional.softplus(raw_mus_val) + 1e-8
                 mu_p_val = torch.nn.functional.softplus(raw_mup_val) + 1e-8
                 beta_val = torch.clamp(mu_s_val / (mu_s_val + mu_p_val), min=1e-6, max=0.99)
-                raw_beta_val = inverse_softplus(beta_val)
+                raw_beta_val = inverse_sigmoid(beta_val / 0.99)
             else:
                 beta_val = torch.tensor(0.10, device=DEVICE)
-                raw_beta_val = inverse_softplus(beta_val)
+                raw_beta_val = inverse_sigmoid(beta_val / 0.99)
             state_dict[raw_beta_key] = raw_beta_val
         elif raw_mup_key in state_dict and hasattr(self, "_raw_beta") and not hasattr(self, "_raw_mu_p"):
             state_dict.pop(raw_mup_key, None)
