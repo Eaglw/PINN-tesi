@@ -3,12 +3,12 @@ from datetime import datetime
 from pathlib import Path
 
 import matplotlib
+matplotlib.use("Agg")
+logging.getLogger("matplotlib").setLevel(logging.ERROR)
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 from tqdm import tqdm

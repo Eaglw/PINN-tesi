@@ -40,17 +40,26 @@ class Physics(nn.Module):
         mod_globals = globals()
         mu_s_true_val = getattr(builtins, "MU_S_TRUE", mod_globals.get("MU_S_TRUE", 0.1))
         mu_p_true_val = getattr(builtins, "MU_P_TRUE", mod_globals.get("MU_P_TRUE", 0.9))
+        lam_true_val = getattr(builtins, "LAM_TRUE", mod_globals.get("LAM_TRUE", 1.0))
+        eps_true_val = getattr(builtins, "EPS_TRUE", mod_globals.get("EPS_TRUE", 0.0))
+        alpha_true_val = getattr(builtins, "ALPHA_TRUE", mod_globals.get("ALPHA_TRUE", 0.0))
+
         tot_v = mu_s_true_val + mu_p_true_val
         def_beta = mu_s_true_val / tot_v if tot_v > 0 else 0.1
         beta_true = getattr(builtins, "BETA_TRUE", mod_globals.get("BETA_TRUE", def_beta))
-        guess_beta = getattr(builtins, "GUESS_BETA", 0.05)
+        guess_beta = getattr(builtins, "GUESS_BETA", mod_globals.get("GUESS_BETA", 0.05))
+
+        guess_mu_s = getattr(builtins, "GUESS_MU_S", mod_globals.get("GUESS_MU_S", mu_s_true_val * 0.8))
+        guess_lam = getattr(builtins, "GUESS_LAM", mod_globals.get("GUESS_LAM", lam_true_val * 0.8))
+        guess_eps = getattr(builtins, "GUESS_EPS", mod_globals.get("GUESS_EPS", 0.05))
+        guess_alpha = getattr(builtins, "GUESS_ALPHA", mod_globals.get("GUESS_ALPHA", 0.05))
 
         params_setup = {
             "beta": (guess_beta, beta_true),
-            "mu_s": (GUESS_MU_S, MU_S_TRUE),
-            "lam": (GUESS_LAM, LAM_TRUE),
-            "eps": (GUESS_EPS, EPS_TRUE),
-            "alpha": (GUESS_ALPHA, ALPHA_TRUE),
+            "mu_s": (guess_mu_s, mu_s_true_val),
+            "lam": (guess_lam, lam_true_val),
+            "eps": (guess_eps, eps_true_val),
+            "alpha": (guess_alpha, alpha_true_val),
         }
 
         trainable_names = ["lam", "beta", "eps", "alpha"]

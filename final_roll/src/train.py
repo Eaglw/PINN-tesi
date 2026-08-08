@@ -181,10 +181,11 @@ class CombinedModel(nn.Module):
 
     def __init__(self, p_scale=1.0, tau_scale=1.0):
         super().__init__()
-        # Utilizzo della variabile globale HIDDEN_LAYERS
-        self.model_psi = FCN(2, 1, HIDDEN_LAYERS)
-        self.model_p = FCN(2, 1, HIDDEN_LAYERS)
-        self.model_tau = FCN(2, 3, HIDDEN_LAYERS)
+        mod_globals = globals()
+        hidden_layers = getattr(builtins, "HIDDEN_LAYERS", mod_globals.get("HIDDEN_LAYERS", [128] * 8))
+        self.model_psi = FCN(2, 1, hidden_layers)
+        self.model_p = FCN(2, 1, hidden_layers)
+        self.model_tau = FCN(2, 3, hidden_layers)
 
         self.p_scale = p_scale
         self.tau_scale = tau_scale

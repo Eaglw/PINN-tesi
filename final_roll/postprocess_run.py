@@ -49,9 +49,17 @@ Uso:
 import os
 import sys
 import argparse
+import tempfile
+import logging
 from pathlib import Path
+
+# Configurazione cartella di cache scrivibile per Matplotlib prima di importarlo
+if "MPLCONFIGDIR" not in os.environ:
+    os.environ["MPLCONFIGDIR"] = os.path.join(tempfile.gettempdir(), "matplotlib_cache")
+
 import matplotlib
 matplotlib.use("Agg")
+logging.getLogger("matplotlib").setLevel(logging.ERROR)
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
@@ -140,7 +148,7 @@ def find_all_available_datasets(comsol_dir):
     return datasets
 
 
-def resolve_dataset(run_dir, explicit_dataset=None):
+def resolve_dataset(checkpoint_path, run_dir, explicit_dataset=None):
     """Individua in modo autonomo o esplicito il file di dataset COMSOL (.csv)."""
     comsol_dir = BASE_DIR.parent / "COMSOL"
     available_datasets = find_all_available_datasets(comsol_dir)
@@ -156,16 +164,28 @@ def resolve_dataset(run_dir, explicit_dataset=None):
             return available_datasets[Path(explicit_dataset).name]
         raise FileNotFoundError(f"Dataset specificato non trovato: {explicit_dataset}")
 
-    # 2. Auto-deduzione dal nome della cartella di run
-    folder_name = run_dir.name
+    # 2. Auto-deduzione dal nome della cartella di run e del file di checkpoint
+    search_target = f"{run_dir.name}_{checkpoint_path.stem}".replace("=", "").lower()
     matched_ds = None
-    best_match_len = 0
+    best_match_score = 0
+
     for ds_key, ds_path in available_datasets.items():
         if ds_key.endswith(".csv"):
             continue
-        if ds_key in folder_name and len(ds_key) > best_match_len:
+        key_norm = ds_key.replace("=", "").lower()
+
+        # Match diretto di sottostringa
+        if key_norm in search_target:
+            score = len(key_norm) * 10
+        else:
+            # Match su token rilevanti (es. 'lambda1' o 'lambda=1')
+            tokens = [t for t in key_norm.split("_") if len(t) > 2]
+            matched_tokens = [t for t in tokens if t in search_target]
+            score = len(matched_tokens) * 2 if matched_tokens else 0
+
+        if score > best_match_score:
             matched_ds = ds_path
-            best_match_len = len(ds_key)
+            best_match_score = score
 
     if matched_ds:
         return matched_ds
@@ -177,8 +197,9 @@ def resolve_dataset(run_dir, explicit_dataset=None):
 
     # Se non determinato, solleva errore con l'elenco dei dataset trovati
     avail_str = "\n".join([f"  - {p.relative_to(BASE_DIR.parent)}" for p in unique_csvs])
+    target_descr = f"{run_dir.name}/{checkpoint_path.name}"
     raise ValueError(
-        f"Impossibile auto-dedurre il dataset per la run '{folder_name}'.\n"
+        f"Impossibile auto-dedurre il dataset per '{target_descr}'.\n"
         f"Dataset trovati in COMSOL/:\n{avail_str}\n\n"
         f"Per favore specifica il dataset da riga di comando:\n"
         f"  python postprocess_run.py <run_dir_o_checkpoint> <percorso_dataset.csv>"
@@ -194,6 +215,22 @@ def inject_global_constants(dataset_path):
         "EPS_TRUE": EPS_TRUE,
         "ALPHA_TRUE": ALPHA_TRUE,
         "BETA_TRUE": BETA_TRUE,
+        "GUESS_MULTIPLIER": 0.8,
+        "GUESS_MU_S": MU_S_TRUE * 0.8,
+        "GUESS_MU_P": MU_P_TRUE * 0.8,
+        "GUESS_LAM": LAM_TRUE * 0.8,
+        "GUESS_EPS": 0.05,
+        "GUESS_ALPHA": 0.05,
+        "HIDDEN_LAYERS": [128] * 8,
+        "RHO": 1000.0,
+        "VARIANCE_EPS": 1e-4,
+        "W_BC": 5.0,
+        "W_PHYSICS": 3.0,
+        "W_DATA": 1.0,
+        "W_MOMENTUM": 1.0,
+        "W_CONSTITUTIVE": 1.0,
+        "USE_ROLL_STRESS_BC": True,
+        "W_ROLL_STRESS": 1.0,
         "ACTIVATION": ACTIVATION,
         "DEVICE": DEVICE,
         "DATASET_PATH": dataset_path,
@@ -218,7 +255,7 @@ def main():
 
     # Resolving Checkpoint and Dataset
     checkpoint_path, run_dir = resolve_checkpoint_and_dir(target_input)
-    dataset_path = resolve_dataset(run_dir, dataset_input)
+    dataset_path = resolve_dataset(checkpoint_path, run_dir, dataset_input)
 
     # Iniezione del contesto globale
     inject_global_constants(dataset_path)

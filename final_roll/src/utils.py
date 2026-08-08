@@ -1,4 +1,5 @@
 import os
+import builtins
 import shutil
 from datetime import datetime
 import numpy as np
@@ -132,15 +133,20 @@ def load_data(filepath=None, use_fp64=False):
     )
 
     # --- 5. Calcolo Varianze Automatizzato ---
+    variance_eps = getattr(builtins, "VARIANCE_EPS", mod_globals.get("VARIANCE_EPS", 1e-4))
+    rho_val = getattr(builtins, "RHO", mod_globals.get("RHO", 1000.0))
+    mu_s_val = getattr(builtins, "MU_S_TRUE", mod_globals.get("MU_S_TRUE", 0.1))
+    lam_val = getattr(builtins, "LAM_TRUE", mod_globals.get("LAM_TRUE", 1.0))
+
     var_weights = {
-        name: max(t.var().item(), VARIANCE_EPS) for name, t in tensors.items()
+        name: max(t.var().item(), variance_eps) for name, t in tensors.items()
     }
 
     # --- 6. Stampa Statistiche ---
     print(f"  Punti totali: {N}")
     print(f"  H={H:.6e}, H_coord={H_coord:.6e}, U_ref={U_ref:.6e}, p_ref={p_ref:.6e}")
     print(
-        f"  Re={RHO * U_ref * H / mu_tot:.4f}, Wi={LAM_TRUE * U_ref / H:.4f}, beta={MU_S_TRUE / mu_tot:.4f}"
+        f"  Re={rho_val * U_ref * H / mu_tot:.4f}, Wi={lam_val * U_ref / H:.4f}, beta={mu_s_val / mu_tot:.4f}"
     )
     print(f"  [Output Scaling] p_scale={p_scale:.4f}, tau_scale={tau_scale:.4f}")
 
