@@ -73,6 +73,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Pressure_Point_Anchoring]]: Pressure anchoring mechanism and fallback strategy for incompressible flows
 - [[Viscoelastic_Residual_Scaling]]: PDE residual normalization using velocity-only heuristics
 - [[Vorticity_Regularization]]: Vorticity transport equation as Phase 1 regularizer to ensure conservative momentum fields
+- [[Postprocessing_and_Evaluation]]: Standalone checkpoint restoration, metric evaluation, and diagnostic plot generation protocol
 
 
 

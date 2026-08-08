@@ -37,7 +37,12 @@ class Physics(nn.Module):
         self.w_roll_stress = w_roll_stress
 
         # Registrazione dinamica dei parametri fisici
-        beta_true = getattr(builtins, "BETA_TRUE", MU_S_TRUE / (MU_S_TRUE + MU_P_TRUE))
+        mod_globals = globals()
+        mu_s_true_val = getattr(builtins, "MU_S_TRUE", mod_globals.get("MU_S_TRUE", 0.1))
+        mu_p_true_val = getattr(builtins, "MU_P_TRUE", mod_globals.get("MU_P_TRUE", 0.9))
+        tot_v = mu_s_true_val + mu_p_true_val
+        def_beta = mu_s_true_val / tot_v if tot_v > 0 else 0.1
+        beta_true = getattr(builtins, "BETA_TRUE", mod_globals.get("BETA_TRUE", def_beta))
         guess_beta = getattr(builtins, "GUESS_BETA", 0.05)
 
         params_setup = {

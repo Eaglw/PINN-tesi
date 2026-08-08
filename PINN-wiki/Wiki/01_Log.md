@@ -396,3 +396,18 @@
 
 
 
+## [2026-08-08] update_wiki | Post-Processing Script & Resilient Evaluation Protocol
+
+### Modifiche e Soluzioni nel Codice
+- **Rinomina Script**: Rinominato `final_roll/train_for_roll_main_mauri.py` in `final_roll/train_4roll_main_mauri.py` rispettando la convenzione del progetto.
+- **Risoluzione NameError**: Risolto il bug `NameError: name 'builtins' is not defined` in `src/train.py` (`plot_params`) e `src/physics.py` introducendo un recupero sicuro dei parametri di riferimento ($\eta_s, \eta_p, \lambda, \epsilon, \alpha, \beta$) tramite `builtins` e fallback sui moduli globali.
+- **Nuovo Script `postprocess_run.py`**: Creata la suite autonoma di post-processing in `final_roll/postprocess_run.py`. Supporta auto-detection dell'ultima run in `output_4rollmill/`, ripristino di `model_state_dict`, `physics_state_dict` e `history_state_dict`, calcolo metriche L2 e generazione automatica dei plot diagnostici nella sottocartella `postprocess_plots/`.
+
+### Pagine Create
+- **[[Postprocessing_and_Evaluation]]** (Methods): Nuova pagina tecnica atomica che descrive il protocollo di post-processing, risoluzione dei checkpoint, gestione fail-safe del contesto e generazione della diagnostica dei campi.
+
+### Pagine Modificate
+- **[[00_Index]]**: Aggiunta voce [[Postprocessing_and_Evaluation]] nella sezione Technical Methods.
+
+
+

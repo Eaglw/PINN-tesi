@@ -66,12 +66,23 @@ class SimpleHistory:
 
     def plot_params(self, save_path):
         """Plot evoluzione parametri fisici."""
-        param_keys = [('param_beta', getattr(builtins, "BETA_TRUE", MU_S_TRUE / (MU_S_TRUE + MU_P_TRUE)), r'$\beta = \frac{\eta_s}{\eta_s + \eta_p}$'),
-                      ('param_mu_s', MU_S_TRUE, r'$\eta_s$'),
-                      ('param_mu_p', MU_P_TRUE, r'$\eta_p$'),
-                      ('param_lam', LAM_TRUE, r'$\lambda$'),
-                      ('param_eps', EPS_TRUE, r'$\epsilon$'),
-                      ('param_alpha', ALPHA_TRUE, r'$\alpha$')]
+        mod_globals = globals()
+        mu_s_true = getattr(builtins, "MU_S_TRUE", mod_globals.get("MU_S_TRUE", 0.1))
+        mu_p_true = getattr(builtins, "MU_P_TRUE", mod_globals.get("MU_P_TRUE", 0.9))
+        lam_true = getattr(builtins, "LAM_TRUE", mod_globals.get("LAM_TRUE", 1.0))
+        eps_true = getattr(builtins, "EPS_TRUE", mod_globals.get("EPS_TRUE", 0.0))
+        alpha_true = getattr(builtins, "ALPHA_TRUE", mod_globals.get("ALPHA_TRUE", 0.0))
+
+        tot_visc = mu_s_true + mu_p_true
+        default_beta = mu_s_true / tot_visc if tot_visc > 0 else 0.1
+        beta_true = getattr(builtins, "BETA_TRUE", mod_globals.get("BETA_TRUE", default_beta))
+
+        param_keys = [('param_beta', beta_true, r'$\beta = \frac{\eta_s}{\eta_s + \eta_p}$'),
+                      ('param_mu_s', mu_s_true, r'$\eta_s$'),
+                      ('param_mu_p', mu_p_true, r'$\eta_p$'),
+                      ('param_lam', lam_true, r'$\lambda$'),
+                      ('param_eps', eps_true, r'$\epsilon$'),
+                      ('param_alpha', alpha_true, r'$\alpha$')]
 
         active = [(k, t, l) for k, t, l in param_keys if k in self.losses]
         if not active:
