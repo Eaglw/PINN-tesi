@@ -54,14 +54,22 @@ def weighted_mse(pred, target, var):
     return torch.mean(((pred - target) ** 2) / var)
 
 
-def load_data(use_fp64=False):
+def load_data(filepath=None, use_fp64=False):
     """Carica il dataset COMSOL, adimensionalizza, estrae boundary groups e prepara i tensori."""
+    mod_globals = globals()
+    target_path = filepath or getattr(builtins, "DATASET_PATH", mod_globals.get("DATASET_PATH", None))
+
+    if target_path is None:
+        raise ValueError(
+            "DATASET_PATH non specificato! Fornire un percorso valido al file dataset COMSOL (.csv)."
+        )
+
     print("=" * 60)
-    print("Caricamento dataset COMSOL (4rollmill)...")
+    print(f"Caricamento dataset COMSOL: {target_path}")
     pt_dtype = torch.float64 if use_fp64 else torch.float32
 
     data_np = np.loadtxt(
-        str(DATASET_PATH), dtype=np.float64, delimiter=",", comments="%"
+        str(target_path), dtype=np.float64, delimiter=",", comments="%"
     )
     assert data_np.shape[1] >= 8, f"Attese almeno 8 colonne, trovate {data_np.shape[1]}"
     N = data_np.shape[0]

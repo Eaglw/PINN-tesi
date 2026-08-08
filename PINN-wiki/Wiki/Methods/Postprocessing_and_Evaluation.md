@@ -5,26 +5,22 @@ The standalone post-processing protocol (`postprocess_run.py`) provides an auton
 
 ## Technical Implementation & Architecture
 
-### 1. State Restoration & Checkpoint Resolution
+### 1. State Restoration & Dynamic Resolution
 The post-processing framework loads PyTorch checkpoint binaries (`.pth`) saved during or at the conclusion of training stages (such as Phase 2 L-BFGS or Phase 2 Adam).
 - **State Dict Ingestion**: Restores model parameters (`model_state_dict`), physical model states (`physics_state_dict`), and historical loss/parameter trajectories (`history_state_dict`).
-- **Auto-Detection Strategy**: When launched without arguments, it scans `output_4rollmill/`, selects the directory with the latest modification timestamp (`st_mtime`), and selects the optimal available checkpoint file in order of priority:
-  1. `checkpoint_lbfgs_phase2.pth`
-  2. `checkpoint.pth`
-  3. `checkpoint_lbfgs_phase1.pth`
-  4. `checkpoint_phase2_adam.pth`
-  5. `checkpoint_phase1_adam.pth`
-- **Explicit Target Resolution**: Accepts direct paths to `.pth` files or run output folders.
+- **Auto-Detection Strategy**: 
+  - **Checkpoint**: When launched without arguments, it scans `output_4rollmill/`, selects the directory with the latest modification timestamp (`st_mtime`), and selects the optimal available checkpoint file in order of priority (`checkpoint_lbfgs_phase2.pth`, `checkpoint.pth`, etc.).
+  - **Dataset Resolution**: Auto-deduces the matching dataset `.csv` from `COMSOL/` by pattern-matching the run folder name (e.g. `4_roll_mill_lambda1` extracted from folder name). Alternatively, accepts an explicit dataset path via CLI arguments.
+- **Terminal Summary Output**: Prominently prints the exact checkpoint and dataset path used prior to evaluation:
 
-```python
-# Checkpoint resolution priority snippet
-checkpoint_candidates = [
-    "checkpoint_lbfgs_phase2.pth",
-    "checkpoint.pth",
-    "checkpoint_lbfgs_phase1.pth",
-    "checkpoint_phase2_adam.pth",
-    "checkpoint_phase1_adam.pth",
-]
+```text
+======================================================================
+ POST-PROCESSING E VALUTAZIONE RUN
+======================================================================
+ Cartella Run : output_4rollmill/...
+ CHECKPOINT   : output_4rollmill/.../checkpoint_lbfgs_phase2.pth
+ DATASET      : COMSOL/4_roll_mill_lambda1.csv
+======================================================================
 ```
 
 ### 2. Resilient Environment & Constant Safe-Guarding

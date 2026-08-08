@@ -16,31 +16,39 @@ Funzionalità Principali:
      - Se avviato fornendo un percorso come argomento CLI (es. un file .pth o 
        una cartella di run), carica il checkpoint specificato.
 
-  2. Ripristino dello Stato:
+  2. Auto-detection / Selezione Dataset:
+     - Se il dataset non viene specificato da CLI, lo script deduce automaticamente 
+       il file .csv corretto analizzando il nome della cartella della run e cercando 
+       la corrispondenza nella cartella 'COMSOL/'.
+     - Stampa a video in modo chiaro il checkpoint ed il dataset utilizzati.
+
+  3. Ripristino dello Stato:
      - Ricostruisce l'architettura 'CombinedModel', la classe di fisica 'Physics' 
        e lo storico 'SimpleHistory'.
      - Ricarica pesi del modello, parametri identificati e cronologia delle loss.
 
-  3. Calcolo Metriche & Report:
+  4. Calcolo Metriche & Report:
      - Stampa i parametri fisici identificati vs Ground Truth (mu_s, mu_p, lam, eps, alpha).
      - Calcola le loss finali sui vincoli PDE, BC e dati.
      - Calcola gli errori relativi L2 per velocità (u, v), pressione (p) e stress (tau_xx, tau_xy, tau_yy).
 
-  4. Output Grafici:
+  5. Output Grafici:
      - Crea/aggiorna i grafici dello storico: loss_history.png, params_evolution.png, l2_errors_history.png.
      - Genera tutte le mappe 2D dei campi e i profili di errore tramite 'generate_all_diagnostics'.
      - Salva tutti i grafici prodotti sia nella cartella principale di run che nella 
        sottocartella dedicata 'postprocess_plots/'.
 
 Uso:
-  python postprocess_run.py                              # Auto-detect dell'ultima run
-  python postprocess_run.py output_4rollmill/NOME_RUN    # Specificando la cartella di run
-  python postprocess_run.py path/to/checkpoint.pth       # Specificando il file .pth
+  python postprocess_run.py                                             # Auto-detect ultima run e relativo dataset
+  python postprocess_run.py output_4rollmill/NOME_RUN                   # Specificando la cartella di run
+  python postprocess_run.py output_4rollmill/NOME_RUN dataset.csv       # Cartella run + dataset specifico
+  python postprocess_run.py path/to/checkpoint.pth path/to/dataset.csv # Checkpoint + dataset specifico
 ===============================================================================
 """
 
 import os
 import sys
+import argparse
 from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
@@ -63,9 +71,7 @@ from src.train import CombinedModel, SimpleHistory
 from src.physics import Physics, evaluate_final_losses, compute_l2_errors
 from src.utils import load_data, generate_all_diagnostics
 
-# ============================================================================
-# 1. IMPOSTAZIONE COSTANTI DI RIFERIMENTO E AMBIENTE
-# ============================================================================
+# Setup PyTorch
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.float32)
 
@@ -77,21 +83,6 @@ EPS_TRUE = 0.0
 ALPHA_TRUE = 0.0
 BETA_TRUE = MU_S_TRUE / (MU_S_TRUE + MU_P_TRUE)
 ACTIVATION = nn.SiLU
-
-# Iniezione nei builtins e nei moduli src
-for k, v in [
-    ("MU_S_TRUE", MU_S_TRUE),
-    ("MU_P_TRUE", MU_P_TRUE),
-    ("LAM_TRUE", LAM_TRUE),
-    ("EPS_TRUE", EPS_TRUE),
-    ("ALPHA_TRUE", ALPHA_TRUE),
-    ("BETA_TRUE", BETA_TRUE),
-    ("ACTIVATION", ACTIVATION),
-    ("DEVICE", DEVICE),
-]:
-    setattr(builtins, k, v)
-    for mod in [src.debug, src.physics, src.train, src.utils]:
-        setattr(mod, k, v)
 
 
 def resolve_checkpoint_and_dir(target_arg=None):
@@ -114,7 +105,7 @@ def resolve_checkpoint_and_dir(target_arg=None):
         if not subdirs:
             raise FileNotFoundError(f"Nessuna cartella trovata in {output_base}")
         run_dir = max(subdirs, key=lambda d: d.stat().st_mtime)
-        print(f"[Auto-detect] Selezione dell'ultima run registrata: {run_dir.name}")
+        print(f"[Auto-detect Run] Selezione dell'ultima run registrata: {run_dir.name}")
 
     # Priorità di ricerca del checkpoint
     checkpoint_candidates = [
@@ -138,26 +129,119 @@ def resolve_checkpoint_and_dir(target_arg=None):
     raise FileNotFoundError(f"Nessun file di checkpoint (.pth) trovato in {run_dir}")
 
 
-def main():
-    target_arg = sys.argv[1] if len(sys.argv) > 1 else None
+def find_all_available_datasets(comsol_dir):
+    """Restituisce un dizionario con i dataset .csv disponibili in COMSOL."""
+    datasets = {}
+    if not comsol_dir.exists():
+        return datasets
+    for p in comsol_dir.rglob("*.csv"):
+        datasets[p.stem] = p
+        datasets[p.name] = p
+    return datasets
 
-    checkpoint_path, run_dir = resolve_checkpoint_and_dir(target_arg)
-    print(f"\n{'='*60}")
-    print(f"POST-PROCESSING E VALUTAZIONE RUN")
-    print(f"{'='*60}")
-    print(f"Cartella Run: {run_dir}")
-    print(f"Checkpoint:   {checkpoint_path.name}")
+
+def resolve_dataset(run_dir, explicit_dataset=None):
+    """Individua in modo autonomo o esplicito il file di dataset COMSOL (.csv)."""
+    comsol_dir = BASE_DIR.parent / "COMSOL"
+    available_datasets = find_all_available_datasets(comsol_dir)
+
+    # 1. Se fornito esplicitamente da CLI
+    if explicit_dataset:
+        exp_path = Path(explicit_dataset).resolve()
+        if exp_path.is_file():
+            return exp_path
+        if explicit_dataset in available_datasets:
+            return available_datasets[explicit_dataset]
+        if Path(explicit_dataset).name in available_datasets:
+            return available_datasets[Path(explicit_dataset).name]
+        raise FileNotFoundError(f"Dataset specificato non trovato: {explicit_dataset}")
+
+    # 2. Auto-deduzione dal nome della cartella di run
+    folder_name = run_dir.name
+    matched_ds = None
+    best_match_len = 0
+    for ds_key, ds_path in available_datasets.items():
+        if ds_key.endswith(".csv"):
+            continue
+        if ds_key in folder_name and len(ds_key) > best_match_len:
+            matched_ds = ds_path
+            best_match_len = len(ds_key)
+
+    if matched_ds:
+        return matched_ds
+
+    # 3. Fallback se c'è un solo file .csv nella cartella COMSOL
+    unique_csvs = list(set(available_datasets.values()))
+    if len(unique_csvs) == 1:
+        return unique_csvs[0]
+
+    # Se non determinato, solleva errore con l'elenco dei dataset trovati
+    avail_str = "\n".join([f"  - {p.relative_to(BASE_DIR.parent)}" for p in unique_csvs])
+    raise ValueError(
+        f"Impossibile auto-dedurre il dataset per la run '{folder_name}'.\n"
+        f"Dataset trovati in COMSOL/:\n{avail_str}\n\n"
+        f"Per favore specifica il dataset da riga di comando:\n"
+        f"  python postprocess_run.py <run_dir_o_checkpoint> <percorso_dataset.csv>"
+    )
+
+
+def inject_global_constants(dataset_path):
+    """Inietta le costanti globali in builtins e nei moduli src."""
+    constants = {
+        "MU_S_TRUE": MU_S_TRUE,
+        "MU_P_TRUE": MU_P_TRUE,
+        "LAM_TRUE": LAM_TRUE,
+        "EPS_TRUE": EPS_TRUE,
+        "ALPHA_TRUE": ALPHA_TRUE,
+        "BETA_TRUE": BETA_TRUE,
+        "ACTIVATION": ACTIVATION,
+        "DEVICE": DEVICE,
+        "DATASET_PATH": dataset_path,
+    }
+    for k, v in constants.items():
+        setattr(builtins, k, v)
+        for mod in [src.debug, src.physics, src.train, src.utils]:
+            setattr(mod, k, v)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Script di Post-Processing PINN (4-Roll Mill)")
+    parser.add_argument("target", nargs="?", default=None, help="Percorso della cartella di run o del file checkpoint (.pth)")
+    parser.add_argument("dataset", nargs="?", default=None, help="Percorso o nome del file dataset COMSOL (.csv)")
+    parser.add_argument("--checkpoint", type=str, default=None, help="File di checkpoint (.pth)")
+    parser.add_argument("--dataset-path", type=str, default=None, help="File di dataset COMSOL (.csv)")
+
+    args = parser.parse_args()
+
+    target_input = args.checkpoint or args.target
+    dataset_input = args.dataset_path or args.dataset
+
+    # Resolving Checkpoint and Dataset
+    checkpoint_path, run_dir = resolve_checkpoint_and_dir(target_input)
+    dataset_path = resolve_dataset(run_dir, dataset_input)
+
+    # Iniezione del contesto globale
+    inject_global_constants(dataset_path)
+
+    # Stampa in evidenza di Checkpoint e Dataset utilizzati
+    print(f"\n{'='*70}")
+    print(f" POST-PROCESSING E VALUTAZIONE RUN")
+    print(f"{'='*70}")
+    print(f" Cartella Run : {run_dir}")
+    print(f" CHECKPOINT   : {checkpoint_path}")
+    print(f" DATASET      : {dataset_path}")
+    print(f"{'='*70}\n")
 
     # Sottocartella dei plot per il postprocessing
     postprocess_dir = run_dir / "postprocess_plots"
     postprocess_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Caricamento dati
-    print("\n[1/4] Caricamento dataset...")
-    data = load_data()
+    print("[1/4] Caricamento dataset...")
+    data = load_data(filepath=dataset_path)
 
     # 2. Inizializzazione e caricamento checkpoint
-    print("[2/4] Caricamento stato modello e fisica...")
+    print("\n[2/4] Caricamento stato modello e fisica...")
     model = CombinedModel(p_scale=data["p_scale"], tau_scale=data["tau_scale"]).to(DEVICE)
     physics = Physics(
         U_ref=data["U_ref"],
@@ -212,7 +296,9 @@ def main():
     generate_all_diagnostics(model, physics, data, str(postprocess_dir))
 
     print(f"\n[OK] Post-processing completato con successo!")
-    print(f"I grafici sono stati salvati in: {postprocess_dir}")
+    print(f"    Checkpoint utilizzato : {checkpoint_path}")
+    print(f"    Dataset utilizzato    : {dataset_path}")
+    print(f"    Grafici salvati in    : {postprocess_dir}")
 
 
 if __name__ == "__main__":
