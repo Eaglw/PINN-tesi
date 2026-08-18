@@ -120,19 +120,16 @@ class SimpleHistory:
         plt.close()
 
     def plot_l2_errors(self, save_path):
-        """Plot evoluzione errori L2 globali e mascherati."""
+        """Plot evoluzione errori L2 globali."""
         fig, ax = plt.subplots(figsize=(10, 5))
-        keys_plot = ['l2_u', 'l2_v', 'l2_p', 'l2_tau_xx', 'l2_tau_xy', 'l2_tau_yy', 'l2_tau_xx_masked', 'l2_tau_xy_masked', 'l2_tau_yy_masked']
+        keys_plot = ['l2_u', 'l2_v', 'l2_p', 'l2_tau_xx', 'l2_tau_xy', 'l2_tau_yy']
         colors = {
             'l2_u': 'blue',
             'l2_v': 'deepskyblue',
             'l2_p': 'green',
             'l2_tau_xx': 'red',
             'l2_tau_xy': 'orange',
-            'l2_tau_yy': 'purple',
-            'l2_tau_xx_masked': 'brown',
-            'l2_tau_xy_masked': 'magenta',
-            'l2_tau_yy_masked': 'cyan'
+            'l2_tau_yy': 'purple'
         }
         for k in keys_plot:
             if k not in self.losses:
@@ -141,13 +138,13 @@ class SimpleHistory:
             valid = [(e, v) for e, v in zip(self.epochs, vals) if v is not None]
             if valid:
                 ep, vv = zip(*valid)
-                linestyle = '--' if 'masked' in k else '-'
+                linestyle = '-'
                 label = k.replace('l2_', '')
                 ax.plot(ep, vv, label=label, color=colors.get(k, None), linestyle=linestyle, alpha=0.85)
         ax.set_yscale('log')
         ax.set_xlabel('Epoch / Iter')
         ax.set_ylabel('L2 Relative Error')
-        ax.set_title('L2 Relative Error History (Global & Masked Stress)')
+        ax.set_title('L2 Relative Error History')
         ax.legend()
         ax.grid(True, ls='--', alpha=0.5)
         plt.tight_layout()
