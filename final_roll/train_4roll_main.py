@@ -81,49 +81,56 @@ BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = r"C:\Users\eaglw\Documents\PINN tesi\final_roll\output_4rollmill\4_roll_mill_L8x128_E30000_SiLU_stagedTrue_invTrue_20260807_130617\checkpoint.pth"
+RESUME_CHECKPOINT = None
 
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
 MU_P_TRUE = 0.9  # Viscosità polimerica [Pa·s]
-BETA_TRUE = MU_S_TRUE / (MU_S_TRUE + MU_P_TRUE)  # Rapporto di viscosità (0.10)
+MU_TOT_TRUE = MU_S_TRUE + MU_P_TRUE  # Viscosità totale [Pa·s] (1.0)
+BETA_TRUE = MU_S_TRUE / MU_TOT_TRUE  # Rapporto di viscosità (0.10)
 LAM_TRUE = 0.05  # Tempo di rilassamento [s]
-EPS_TRUE = 0.0  # Parametro PTT
-ALPHA_TRUE = 0.0  # Parametro Giesekus
+EPS_TRUE = 0.0  # Parametro PTT (bloccato a 0)
+ALPHA_TRUE = 0.0  # Parametro Giesekus (bloccato a 0)
 RHO = 1000.0  # Densità [kg/m³]
 
-# --- Costanti e Guess Iniziali ---
+# --- Costanti e Calcolo Dinamico dei Guess Iniziali ---
 MIN_MU_S = 1e-6
 MIN_MU_P = 1e-6
 MIN_LAM = 1e-6
 
-GUESS_MULTIPLIER = 0.8
-GUESS_MU_S = MU_S_TRUE * GUESS_MULTIPLIER
-GUESS_MU_P = MU_P_TRUE * GUESS_MULTIPLIER
-GUESS_BETA = 0.05
-GUESS_LAM = LAM_TRUE * GUESS_MULTIPLIER
-GUESS_EPS = 0.05
-GUESS_ALPHA = 0.05
+# Fattore di perturbazione per i parametri del problema inverso (es. 0.80 = 80% del valore reale)
+GUESS_FACTOR = 0.80
+
+GUESS_LAM = LAM_TRUE * GUESS_FACTOR                      # 0.05 * 0.80 = 0.0400 s
+GUESS_MU_TOT = MU_TOT_TRUE * GUESS_FACTOR                # 1.00 * 0.80 = 0.8000 Pa·s
+GUESS_BETA = BETA_TRUE * GUESS_FACTOR                    # 0.10 * 0.80 = 0.0800
+GUESS_MU_S = MU_S_TRUE * GUESS_FACTOR                    # 0.10 * 0.80 = 0.0800 Pa·s
+GUESS_MU_P = MU_P_TRUE * GUESS_FACTOR                    # 0.90 * 0.80 = 0.7200 Pa·s
+GUESS_EPS = EPS_TRUE * GUESS_FACTOR if EPS_TRUE > 0 else 0.0
+GUESS_ALPHA = ALPHA_TRUE * GUESS_FACTOR if ALPHA_TRUE > 0 else 0.0
 
 # --- Architettura Neural Network ---
 HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
-# --- Iperparametri di Training ---
-ADAM_EPOCHS_PHASE1 = 30000
-ADAM_EPOCHS_PHASE2 = 0
-USE_LBFGS_PHASE1 = True  # Attivato per procedere alla fase 1.5 L-BFGS
-USE_LBFGS_PHASE2 = False   # Disattivato per terminare dopo la fase 1.5
-LBFGS_MAX_ITERS_PHASE1 = 10000
-LBFGS_MAX_ITERS_PHASE2 = 0
+# --- Iperparametri di Training a 2 Fasi Disaccoppiate ---
+# Fase 1: Cinematica & Reologia (psi + tau -> lam)
+ADAM_EPOCHS_PHASE1 = 20000
+USE_LBFGS_PHASE1 = True
+LBFGS_MAX_ITERS_PHASE1 = 5000
+
+# Fase 2: Idrodinamica & Pressione (p -> beta, mu_tot)
+ADAM_EPOCHS_PHASE2 = 10000
+USE_LBFGS_PHASE2 = True
+LBFGS_MAX_ITERS_PHASE2 = 5000
+
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
-BETA_LR_FACTOR = 5.0  # Moltiplicatore LR dedicato solo per il parametro beta
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
-WARMUP_UNLOCK_EPOCH = 5000  # Sblocco parametri fisici dopo 5000 epoche di warmup cinematica
+WARMUP_UNLOCK_EPOCH = 5000  # Sblocco lam dopo 5000 epoche di warmup cinematica
 
 # --- Pesi Funzione di Loss ---
 W_BC = 5.0      # Aumentato da 2.0 a 5.0 per vincolare meglio l'ancoraggio del punto di pressione
@@ -238,10 +245,10 @@ if __name__ == "__main__":
     params = physics.log_params()
     print(f"\n{'=' * 60}\nRISULTATI FINALI PARAMETRI FISICI\n{'=' * 60}")
     for p_name, true_val in zip(
-        ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"],
-        [BETA_TRUE, MU_S_TRUE, MU_P_TRUE, LAM_TRUE, EPS_TRUE, ALPHA_TRUE],
+        ["beta", "mu_tot", "mu_s", "mu_p", "lam", "eps", "alpha"],
+        [BETA_TRUE, MU_TOT_TRUE, MU_S_TRUE, MU_P_TRUE, LAM_TRUE, EPS_TRUE, ALPHA_TRUE],
     ):
-        print(f"  {p_name:<5s}: {params[p_name]:.6f}  (true: {true_val})")
+        print(f"  {p_name:<7s}: {params[p_name]:.6f}  (true: {true_val})")
 
     final_losses = evaluate_final_losses(model, physics, data)
     print(f"\n{'=' * 60}\nREPORT FINALE DETTAGLIATO\n{'=' * 60}")

@@ -78,11 +78,10 @@ class SimpleHistory:
         beta_true = getattr(builtins, "BETA_TRUE", mod_globals.get("BETA_TRUE", default_beta))
 
         param_keys = [('param_beta', beta_true, r'$\beta = \frac{\eta_s}{\eta_s + \eta_p}$'),
+                      ('param_mu_tot', tot_visc, r'$\eta_{tot} = \eta_s + \eta_p$'),
                       ('param_mu_s', mu_s_true, r'$\eta_s$'),
                       ('param_mu_p', mu_p_true, r'$\eta_p$'),
-                      ('param_lam', lam_true, r'$\lambda$'),
-                      ('param_eps', eps_true, r'$\epsilon$'),
-                      ('param_alpha', alpha_true, r'$\alpha$')]
+                      ('param_lam', lam_true, r'$\lambda$')]
 
         active = [(k, t, l) for k, t, l in param_keys if k in self.losses]
         if not active:
@@ -379,10 +378,10 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 p.requires_grad = True
             active_bcs, w_mom, w_con, frozen_vel = None, W_MOMENTUM, W_CONSTITUTIVE, False
 
-        # Configura parametri fisici in modalità inversa
+        # Configura parametri fisici in modalità inversa (Fase 1: solo lam)
         if physics.inverse_mode:
-            trainable_names = ["lam", "beta", "eps", "alpha"]
-            for pname in ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"]:
+            trainable_names = ["lam"]
+            for pname in ["beta", "mu_tot", "mu_s", "mu_p", "lam", "eps", "alpha"]:
                 is_tr = (pname in trainable_names) and (start_epoch >= WARMUP_UNLOCK_EPOCH)
                 physics.set_trainable(pname, is_tr)
 
@@ -407,13 +406,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         net_params = [p for p in model.parameters() if p.requires_grad]
         groups = [{"params": net_params, "lr": BASE_LR}]
         if physics.inverse_mode:
-            beta_lr_mult = getattr(builtins, "BETA_LR_FACTOR", 1.0)
-            other_phys = [p for n, p in physics.named_parameters() if n != "_raw_beta" and p.requires_grad]
-            beta_phys = [p for n, p in physics.named_parameters() if n == "_raw_beta" and p.requires_grad]
-            if other_phys:
-                groups.append({"params": other_phys, "lr": BASE_LR * PARAM_LR_FACTOR})
-            if beta_phys:
-                groups.append({"params": beta_phys, "lr": BASE_LR * PARAM_LR_FACTOR * beta_lr_mult})
+            phys_params = [p for p in physics.parameters() if p.requires_grad]
+            if phys_params:
+                groups.append({"params": phys_params, "lr": BASE_LR * PARAM_LR_FACTOR})
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=1e-6)
 
@@ -436,20 +431,14 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         for epoch in pbar:
             # Sblocco parametri fisici (Warmup Problema Inverso)
             if physics.inverse_mode and epoch == WARMUP_UNLOCK_EPOCH and epoch > 0:
-                print(f"\n  [Warmup Stage 1] Sblocco parametri fisici (epoca {epoch})")
-                trainable_names = ["lam", "beta", "eps", "alpha"]
-                for pname in trainable_names:
-                    physics.set_trainable(pname, True)
+                print(f"\n  [Warmup Stage 1] Sblocco tempo di rilassamento lam (epoca {epoch})")
+                physics.set_trainable("lam", True)
                 steps_rem = end_adam1 - epoch
                 net_params = [p for p in model.parameters() if p.requires_grad]
                 groups = [{"params": net_params, "lr": BASE_LR}]
-                beta_lr_mult = getattr(builtins, "BETA_LR_FACTOR", 1.0)
-                other_phys = [p for n, p in physics.named_parameters() if n != "_raw_beta" and p.requires_grad]
-                beta_phys = [p for n, p in physics.named_parameters() if n == "_raw_beta" and p.requires_grad]
-                if other_phys:
-                    groups.append({"params": other_phys, "lr": BASE_LR * PARAM_LR_FACTOR})
-                if beta_phys:
-                    groups.append({"params": beta_phys, "lr": BASE_LR * PARAM_LR_FACTOR * beta_lr_mult})
+                phys_params = [p for p in physics.parameters() if p.requires_grad]
+                if phys_params:
+                    groups.append({"params": phys_params, "lr": BASE_LR * PARAM_LR_FACTOR})
                 optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
                 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=1e-6)
 
@@ -608,8 +597,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             w_con_lbfgs1 = W_CONSTITUTIVE
 
         if physics.inverse_mode:
-            trainable_names = ["lam", "beta", "eps", "alpha"]
-            for pname in ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"]:
+            trainable_names = ["lam"]
+            for pname in ["beta", "mu_tot", "mu_s", "mu_p", "lam", "eps", "alpha"]:
                 physics.set_trainable(pname, pname in trainable_names)
 
         # Log configurazione L-BFGS Fase 1
@@ -724,23 +713,21 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         model.zero_grad(set_to_none=True)
 
         if STAGED_TRAINING:
-            # Fase 2: Pressione e Psi sbloccati, tau congelato
+            # Fase 2: Pressione sbloccata, psi e tau CONGELATI
             for p in model.parameters():
                 p.requires_grad = False
-            for p in model.model_psi.parameters():
-                p.requires_grad = True
             for p in model.model_p.parameters():
                 p.requires_grad = True
-            active_bcs, w_mom, w_con, frozen_vel = ["u", "v", "p"], W_MOMENTUM, 0.0, False
+            active_bcs, w_mom, w_con, frozen_vel = ["p"], W_MOMENTUM, 0.0, True
         else:
             for p in model.parameters():
                 p.requires_grad = True
             active_bcs, w_mom, w_con, frozen_vel = None, W_MOMENTUM, W_CONSTITUTIVE, False
 
         if physics.inverse_mode:
-            physics.set_trainable("beta", False)
-            physics.set_trainable("mu_s", True)
-            for pname in ["mu_p", "lam", "eps", "alpha"]:
+            physics.set_trainable("beta", True)
+            physics.set_trainable("mu_tot", True)
+            for pname in ["lam", "eps", "alpha"]:
                 physics.set_trainable(pname, False)
 
         # Precalcola la divergenza dello stress tau
@@ -760,14 +747,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         )
 
         # Costruisci l'ottimizzatore Fase 2 (LR differenziati)
-        psi_params = [p for p in model.model_psi.parameters() if p.requires_grad]
-        other_net_params = [p for p in model.model_p.parameters() if p.requires_grad]
-        
-        groups = []
-        if psi_params:
-            groups.append({"params": psi_params, "lr": 1e-4})
-        if other_net_params:
-            groups.append({"params": other_net_params, "lr": BASE_LR})
+        p_params = [p for p in model.model_p.parameters() if p.requires_grad]
+        groups = [{"params": p_params, "lr": BASE_LR}]
+        if physics.inverse_mode:
+            phys_params = [p for p in physics.parameters() if p.requires_grad]
+            if phys_params:
+                groups.append({"params": phys_params, "lr": BASE_LR * PARAM_LR_FACTOR})
 
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
         
@@ -941,9 +926,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             p.requires_grad = True
 
         if physics.inverse_mode:
-            physics.set_trainable("beta", False)
-            physics.set_trainable("mu_s", True)
-            for pname in ["mu_p", "lam", "eps", "alpha"]:
+            physics.set_trainable("beta", True)
+            physics.set_trainable("mu_tot", True)
+            for pname in ["lam", "eps", "alpha"]:
                 physics.set_trainable(pname, False)
 
         all_params_ph2 = [p for p in model.parameters() if p.requires_grad] + [p for p in physics.parameters() if p.requires_grad]

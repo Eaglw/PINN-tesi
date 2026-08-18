@@ -47,26 +47,24 @@ class Physics(nn.Module):
         tot_v = mu_s_true_val + mu_p_true_val
         def_beta = mu_s_true_val / tot_v if tot_v > 0 else 0.1
         beta_true = getattr(builtins, "BETA_TRUE", mod_globals.get("BETA_TRUE", def_beta))
-        guess_beta = getattr(builtins, "GUESS_BETA", mod_globals.get("GUESS_BETA", 0.05))
+        guess_beta = getattr(builtins, "GUESS_BETA", mod_globals.get("GUESS_BETA", beta_true * 0.8))
 
-        guess_mu_s = getattr(builtins, "GUESS_MU_S", mod_globals.get("GUESS_MU_S", mu_s_true_val * 0.8))
+        guess_mu_tot = getattr(builtins, "GUESS_MU_TOT", mod_globals.get("GUESS_MU_TOT", tot_v * 0.8))
         guess_lam = getattr(builtins, "GUESS_LAM", mod_globals.get("GUESS_LAM", lam_true_val * 0.8))
-        guess_eps = getattr(builtins, "GUESS_EPS", mod_globals.get("GUESS_EPS", 0.05))
-        guess_alpha = getattr(builtins, "GUESS_ALPHA", mod_globals.get("GUESS_ALPHA", 0.05))
 
         params_setup = {
             "beta": (guess_beta, beta_true),
-            "mu_s": (guess_mu_s, mu_s_true_val),
+            "mu_tot": (guess_mu_tot, tot_v),
             "lam": (guess_lam, lam_true_val),
-            "eps": (guess_eps, eps_true_val),
-            "alpha": (guess_alpha, alpha_true_val),
+            "eps": (0.0, eps_true_val),
+            "alpha": (0.0, alpha_true_val),
         }
 
-        trainable_names = ["lam", "beta", "eps", "alpha"]
+        trainable_names = ["lam", "beta", "mu_tot"]
         for name, (guess_val, true_val) in params_setup.items():
             val = guess_val if (inverse_mode and name in trainable_names) else true_val
             warmup_epoch = getattr(builtins, "WARMUP_UNLOCK_EPOCH", 0)
-            is_trainable = inverse_mode and (name in trainable_names) and (warmup_epoch == 0)
+            is_trainable = inverse_mode and (name == "lam") and (warmup_epoch == 0)
 
             if name == "beta":
                 raw_val = inverse_sigmoid(val / 0.99)
@@ -93,28 +91,28 @@ class Physics(nn.Module):
         return 1.0 - self.beta
 
     @property
-    def mu_s(self):
-        return torch.nn.functional.softplus(self._raw_mu_s) + 1e-8
+    def mu_tot(self):
+        return torch.nn.functional.softplus(self._raw_mu_tot) + 1e-6
 
     @property
-    def mu_tot(self):
-        return self.mu_s / self.beta
+    def mu_s(self):
+        return self.beta * self.mu_tot
 
     @property
     def mu_p(self):
-        return self.mu_tot * self.beta_poly
+        return self.beta_poly * self.mu_tot
 
     @property
     def lam(self):
-        return torch.nn.functional.softplus(self._raw_lam) + 1e-8
+        return torch.nn.functional.softplus(self._raw_lam) + 1e-6
 
     @property
     def eps(self):
-        return torch.nn.functional.softplus(self._raw_eps)
+        return torch.tensor(0.0, device=self._raw_lam.device, dtype=self._raw_lam.dtype)
 
     @property
     def alpha(self):
-        return torch.nn.functional.softplus(self._raw_alpha)
+        return torch.tensor(0.0, device=self._raw_lam.device, dtype=self._raw_lam.dtype)
 
     def set_trainable(self, name, trainable=True):
         """Imposta requires_grad sul parametro raw sottostante."""
@@ -410,7 +408,7 @@ class Physics(nn.Module):
         """Restituisce i parametri correnti estraendoli proceduralmente."""
         return {
             name: getattr(self, name).item() if isinstance(getattr(self, name), torch.Tensor) else getattr(self, name)
-            for name in ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"]
+            for name in ["beta", "mu_s", "mu_p", "mu_tot", "lam", "eps", "alpha"]
         }
 
 
