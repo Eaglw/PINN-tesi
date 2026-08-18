@@ -70,10 +70,9 @@ $env:PYTHONPATH="final_roll;."
 - **Constitutive Models**: Supports Oldroyd-B, PTT (Phan-Thien-Tanner), and Giesekus formulations through Weissenberg ($Wi$), Reynolds ($Re$), viscosity ratio ($\beta$), and model parameters ($\epsilon, \alpha$).
 
 ### 4. Staged Training Strategy (ViscoelasticNet Framework)
-To ensure optimization stability, training is split into distinct stages:
-1. **Phase 1 (Adam)**: Train only $\psi$ (velocity fields) and stress tensor $\tau$, while pressure $p$ is frozen.
-2. **Phase 2 (Adam)**: Train $\psi$ and pressure $p$, keeping stress parameters adjusted or frozen depending on settings.
-3. **Phase 3 (L-BFGS)**: Fine-tune the entire combined model jointly with FP64 precision.
+To ensure optimization stability, training is split into distinct decoupled stages (Fase 3 di ottimizzazione congiunta globale è deprecata/esclusa in quanto deleteria per la stabilità fisica dei campi):
+1. **Phase 1 (Cinematica e Reologia - Adam + L-BFGS)**: Train stream function $\psi$ (velocity fields) and stress tensor $\tau$, while pressure $p$ is frozen and momentum is off ($w_{mom}=0$). Learns $\lambda$ and topological stress distribution.
+2. **Phase 2 (Idrodinamica e Pressione - Adam + L-BFGS)**: Freeze $\psi$ and $\tau$, train pressure $p$ with active Momentum equation ($w_{mom}=1$). Identifies solvent viscosity parameter $\beta$ (and $\eta_{tot}$) anchoring physical scales without polluting stress fields.
 
 ## Note aggiunte
 Prima di implementare o modificare effettivamente qualsiasi codice (escluse le letture, analisi del repo o prove innocue), spiegami sempre cosa stai cercando di fare. 
