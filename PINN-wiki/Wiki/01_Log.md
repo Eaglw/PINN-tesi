@@ -411,3 +411,18 @@
 
 
 
+## [2026-08-18] update_wiki | Lasso Regularization for Parsimonious Viscoelastic Discovery
+
+### Contesto e Teoria
+- Documentata la formulazione della penalizzazione $L_1$ (Lasso) per la selezione e discovery autonoma dei modelli costitutivi (PTT / Giesekus / Oldroyd-B).
+- Spiegata la differenza fondamentale tra contrazione $L_2$ (Ridge) e sparsità esatta $L_1$ (forza costante di restore verso zero).
+
+### Pagine Create
+- **[[Lasso_Regularization]]** (Methods): Nuova pagina metodologica con formulazione matematica, confronto $L_1$ vs $L_2$ e workflow di integrazione nel framework PINN.
+
+### Pagine Modificate
+- **[[00_Index]]**: Aggiunta voce [[Lasso_Regularization]] nella sezione Technical Methods.
+
+
+
+

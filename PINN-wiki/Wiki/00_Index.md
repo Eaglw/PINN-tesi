@@ -74,6 +74,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Viscoelastic_Residual_Scaling]]: PDE residual normalization using velocity-only heuristics
 - [[Vorticity_Regularization]]: Vorticity transport equation as Phase 1 regularizer to ensure conservative momentum fields
 - [[Postprocessing_and_Evaluation]]: Standalone checkpoint restoration, metric evaluation, and diagnostic plot generation protocol
+- [[Lasso_Regularization]]: L1 regularization for parsimonious constitutive model discovery (PTT/Giesekus pruning)
 
 
 
