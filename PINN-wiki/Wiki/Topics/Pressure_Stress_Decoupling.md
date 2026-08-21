@@ -34,14 +34,12 @@ $$ \rho \frac{D\mathbf{u}}{Dt} = -\nabla p + \eta_s \nabla^2 \mathbf{u} + \nabla
 
 This separation isolates the viscoelastic rheological response of the fluid from the isotropic pressure force balances, improving convergence and parameter identification.
 
+---
 
 ## The Helmholtz-Hodge Pressure Inference Limit
 
 In an incompressible flow, pressure $p$ is governed by the momentum equation:
-$$ \nabla p = - Re (\mathbf{u} \cdot \nabla \mathbf{u}) + \beta \nabla^2 \mathbf{u} + \nabla \cdot \boldsymbol{\tau} $$
-
-Let the right-hand side be a vector field $\mathbf{f}(\mathbf{u}, \boldsymbol{\tau})$:
-$$ \nabla p = \mathbf{f} $$
+$$ \nabla p = - Re_{\text{scale}} (\mathbf{u} \cdot \nabla \mathbf{u}) + \tilde{\eta}_s \nabla^2 \mathbf{u} + \nabla \cdot \boldsymbol{\tau} \equiv \mathbf{f}(\mathbf{u}, \boldsymbol{\tau}) $$
 
 For a scalar field $p$ to exist such that the momentum residual is exactly zero, the vector field $\mathbf{f}$ must be conservative (irrotational). Mathematically, this requires:
 $$ \nabla \times \mathbf{f} = 0 \quad \iff \quad \frac{\partial f_y}{\partial x} - \frac{\partial f_x}{\partial y} = 0 $$
@@ -53,27 +51,29 @@ $$ \mathbf{f} = \nabla p_{\text{true}} + \mathbf{g}, \quad \text{with } \nabla \
 The momentum loss minimized by the PINN is:
 $$ L_{\text{momentum}} = \frac{1}{2} \int_\Omega \|\nabla p - \mathbf{f}\|^2 d\Omega = \frac{1}{2} \int_\Omega \|\nabla(p - p_{\text{true}})\|^2 d\Omega + \frac{1}{2} \int_\Omega \|\mathbf{g}\|^2 d\Omega $$
 
-Since the pressure network `model_p` can only represent a gradient field, it can at best fit the conservative part $p_{\text{true}}$, reducing the first term to zero. The second term, representing the rotational component $\|\mathbf{g}\|^2$, remains as a **constant residual bottleneck** as long as velocity $\mathbf{u}$ and stress $\boldsymbol{\tau}$ are frozen.
+Since the pressure network `model_p` can only represent a gradient field ($\nabla \times \nabla p \equiv 0$), it can at best fit the conservative part $p_{\text{true}}$, reducing the first term to zero. The second term, representing the rotational component $\|\mathbf{g}\|^2$, remains as a **constant residual bottleneck** as long as velocity $\mathbf{u}$ and stress $\boldsymbol{\tau}$ are rigidly frozen.
 
 ### Noise Amplification in Frozen Training
-When $\mathbf{u}$ (or stream function $\psi$) and $\boldsymbol{\tau}$ are predicted by frozen, pre-trained neural networks, they inevitably contain small approximation errors (typically $1\% - 5\%$ L2 error). 
+When $\mathbf{u}$ (or stream function $\psi$) and $\boldsymbol{\tau}$ are predicted by frozen, pre-trained neural networks, they inevitably contain small approximation errors (typically $0.5\% - 1\%$ L2 error). 
 Because the term $\mathbf{f}$ contains high-order spatial derivatives (up to second-order derivatives of velocity $\mathbf{u}$, which translate to **third-order derivatives** of $\psi$):
 * Numerical differentiation acts as a high-pass filter.
-* Even tiny, smooth errors in $\psi$ are amplified dramatically in its third derivatives (often exceeding $50\% - 100\%$ local error).
-* This amplifies the curl of the error, leading to a large non-zero rotational component $\mathbf{g}$.
-* Since `model_p` cannot fit this rotational noise, the loss becomes stuck at a high value.
+* Even tiny, smooth errors in $\psi$ are amplified dramatically in its third derivatives.
+* This creates a substantial non-zero rotational component $\mathbf{g}$.
+* Since `model_p` cannot fit this rotational noise, the momentum loss hits an artificial plateau, leading to severe pressure divergence (e.g., $L_2(p) \approx 258\%$ in Run 010).
 
-### Resolution via Joint Velocity-Pressure Training
-Unfreezing `model_psi` (velocity) during Phase 2 allows the optimizer to backpropagate momentum residuals to the stream function. By making minute, high-frequency adjustments to $\psi$ (often $<0.1\%$ change in L2 velocity error), the optimizer eliminates the rotational component of the noise, forcing $\mathbf{g} \to 0$. This aligns the velocity fields with the pressure gradient, allowing the momentum loss to drop and the pressure field to converge.
+### Resolution: Soft Anti-Drift vs Hard Freeze
+To resolve the Helmholtz-Hodge bottleneck without allowing unconstrained velocity drift:
+1. `model_psi` is unlocked in Phase 2 with a low learning rate ($LR_\psi = 10^{-4}$).
+2. The network is constrained by the [[Soft_Anti_Drift]] loss $\mathcal{L}_{\text{drift}} = \frac{\|\mathbf{u} - \mathbf{u}_{\text{ckpt}}\|^2}{\|\mathbf{u}_{\text{ckpt}}\|^2 + \epsilon}$.
+3. This allows the micro-adjustments ($\Delta u / u \ll 0.1\%$) necessary to force $\mathbf{g} \to 0$ without destroying the kinematic profile discovered in Phase 1.
 
-### Alternative Resolution: Vorticity Regularization in Phase 1
-Instead of unfreezing $\psi$ in Phase 2, one can prevent the rotational noise from forming in the first place by adding the [[Vorticity_Regularization|vorticity transport equation]] as a regularizer during Phase 1. Since $\nabla \times \nabla p \equiv 0$, the vorticity equation constrains the higher-order derivatives of $\psi$ without involving pressure, ensuring $\mathbf{F}$ is nearly conservative when Phase 2 begins. See [[Vorticity_Regularization]] for full details.
+---
 
 ## References & Back-links
-- [[Viscoelasticity]]
-- [[ViscoelasticNet]]
-- [[Viscoelastic_Fluids]]
-- [[Thakur_et_al_ViscoelasticNet]]
-- [[Staged_Training_Procedure]]
-- [[Viscoelastic_Training]]
-- [[Vorticity_Regularization]]
+- [[Soft_Anti_Drift]] (Kinematic stabilization method)
+- [[Viscoelasticity]] (Theoretical foundation)
+- [[ViscoelasticNet]] (Multi-head PINN framework)
+- [[Viscoelastic_Fluids]] (Physical benchmark systems)
+- [[Staged_Training_Procedure]] (Multi-phase training implementation)
+- [[Viscoelastic_Training]] (Experiment orchestration guide)
+- [[Vorticity_Regularization]] (Alternative regularizer formulation)

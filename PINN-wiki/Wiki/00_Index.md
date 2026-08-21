@@ -58,6 +58,8 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Cosine_Annealing_LR]]: Cosine annealing learning rate scheduling
 - [[Staged_Precision_Strategy]]: Hybrid FP32/FP64 training
 - [[Staged_Training_Procedure]]: Decoupled multi-phase training strategy
+- [[Soft_Anti_Drift]]: Kinematic drift prevention resolving the Helmholtz-Hodge pressure inference limit
+- [[Adaptive_Nondimensionalization]]: Block-wise adaptive scaling protocol decoupling numerical Reynolds from physical viscosities
 - [[DeepXDE]]: Multi-backend PIML library
 - [[SDF_for_Discontinuities]]: Handling sharp transitions in BCs
 - [[Sobolev_Regularization]]: Derivative supervision for stream function kinematics
