@@ -213,11 +213,11 @@ def init_weights_xavier(m, activation_name="tanh"):
         # Gestisce classi di attivazione convertendole in stringa
         if not isinstance(activation_name, str):
             activation_name = activation_name.__name__
-        
+
         activation_name = activation_name.lower()
         if activation_name == 'silu':
             activation_name = 'relu'
-            
+
         gain = nn.init.calculate_gain(activation_name)
         nn.init.xavier_normal_(m.weight, gain=gain)
         if m.bias is not None:
@@ -266,14 +266,14 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         if os.path.exists(resume_checkpoint):
             print(f"\n[Checkpoint] Caricamento da: {resume_checkpoint}")
             chk = torch.load(resume_checkpoint, map_location=DEVICE)
-            
+
             model.load_state_dict(chk['model_state_dict'])
             physics.load_state_dict(chk['physics_state_dict'], strict=False)
             history.load_state_dict(chk['history_state_dict'])
-            
+
             loaded_opt_state = chk.get('optimizer_state_dict', None)
             loaded_sch_state = chk.get('scheduler_state_dict', None)
-            
+
             start_epoch = chk.get('epoch', 0) + 1
             print(f"[Checkpoint] Ripresa dall'epoca {start_epoch}")
         else:
@@ -296,10 +296,21 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
     # Motore di calcolo centralizzato con Accumulazione dei Gradienti in Chunk.
     def compute_and_backward_losses(
-        active_bcs, w_mom, w_con, points, labels, is_lbfgs=False, chunk_size_override=None, frozen_velocity=False, precomputed_div_tau=None
+        active_bcs,
+        w_mom,
+        w_con,
+        points,
+        labels,
+        is_lbfgs=False,
+        chunk_size_override=None,
+        frozen_velocity=False,
+        precomputed_div_tau=None,
+        u_ckpt=None,
+        v_ckpt=None,
+        w_drift=0.0,
     ):
         d_loss_accum, p_loss_accum, loss_m_val, loss_c_val = 0.0, 0.0, 0.0, 0.0
-        
+
         # Selezione dinamica del chunk size (L-BFGS necessita di chunk più piccoli)
         if chunk_size_override is not None:
             chunk_size = chunk_size_override
@@ -314,7 +325,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             # Estrazione cinematica UNIFICATA
             xph = xc.clone().requires_grad_(True)
             u, v, p, tau = physics.get_velocity(model, xph)
-            
+
             chunk_total_loss = 0.0
 
             # --- 1. DATA LOSS ---
@@ -322,6 +333,13 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 dl = physics.data_loss(u, v, yc, var_w)
                 d_loss_accum += dl.item() * w_chunk
                 chunk_total_loss = chunk_total_loss + W_DATA * dl * w_chunk
+
+            # --- 1b. SOFT ANTI-DRIFT LOSS ---
+            if u_ckpt is not None and v_ckpt is not None and w_drift > 0.0:
+                u_ckpt_c = u_ckpt[i : i + chunk_size]
+                v_ckpt_c = v_ckpt[i : i + chunk_size]
+                drl = physics.drift_loss(u, v, u_ckpt_c, v_ckpt_c)
+                chunk_total_loss = chunk_total_loss + w_drift * drl * w_chunk
 
             # --- 2. PDE LOSS ---
             if precomputed_div_tau is not None:
@@ -340,7 +358,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
             p_loss_accum += pl.item() * w_chunk
             chunk_total_loss = chunk_total_loss + W_PHYSICS * pl * w_chunk
-            
+
             # Unico backward per il chunk corrente: distrugge il grafo intermediario
             chunk_total_loss.backward()
 
@@ -355,6 +373,10 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         )
         return tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val
 
+    # Variabili cache cinematica per anti-drift in Fase 2
+    u_ckpt_cache = None
+    v_ckpt_cache = None
+
     # ==================================================================
     # FASE 1 ADAM (Cinematica e Reologia)
     # ==================================================================
@@ -362,7 +384,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         print(
             f"\n{'=' * 60}\nFASE 1 ADAM (Cinematica e Reologia): {ADAM_EPOCHS_PHASE1} epoche\n{'=' * 60}"
         )
-        
+
         # Configura requires_grad per Fase 1
         if STAGED_TRAINING:
             # Fase 1: Cinematica e Reologia (Congela Pressione)
@@ -378,9 +400,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 p.requires_grad = True
             active_bcs, w_mom, w_con, frozen_vel = None, W_MOMENTUM, W_CONSTITUTIVE, False
 
-        # Configura parametri fisici in modalità inversa (Fase 1: solo lam)
+        # Configura parametri fisici in modalità inversa (Fase 1: lam ed eta_p)
         if physics.inverse_mode:
-            trainable_names = ["lam"]
+            trainable_names = ["lam", "mu_p"]
             for pname in ["beta", "mu_tot", "mu_s", "mu_p", "lam", "eps", "alpha"]:
                 is_tr = (pname in trainable_names) and (start_epoch >= WARMUP_UNLOCK_EPOCH)
                 physics.set_trainable(pname, is_tr)
@@ -431,8 +453,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         for epoch in pbar:
             # Sblocco parametri fisici (Warmup Problema Inverso)
             if physics.inverse_mode and epoch == WARMUP_UNLOCK_EPOCH and epoch > 0:
-                print(f"\n  [Warmup Stage 1] Sblocco tempo di rilassamento lam (epoca {epoch})")
+                print(f"\n  [Warmup Stage 1] Sblocco parametri reologici lam, mu_p (epoca {epoch})")
                 physics.set_trainable("lam", True)
+                physics.set_trainable("mu_p", True)
                 steps_rem = end_adam1 - epoch
                 net_params = [p for p in model.parameters() if p.requires_grad]
                 groups = [{"params": net_params, "lr": BASE_LR}]
@@ -480,7 +503,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     "param_eps": params["eps"],
                     "param_alpha": params["alpha"],
                 }
-                
+
                 if log_l2:
                     print(f"\n[Epoch {epoch+1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
                     model.eval()
@@ -489,7 +512,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                         print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
                         print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
                     model.train()
-                    
+
                     loss_dict.update({
                         "l2_u": l2_errs["u"],
                         "l2_v": l2_errs["v"],
@@ -511,7 +534,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                         }
                         torch.save(state, chk_path)
                         print(f"  [Checkpoint] Salvato in: {chk_path}")
-                        
+
                         if (epoch + 1) == end_adam1:
                             phase1_path = os.path.join(save_dir, "checkpoint_phase1_adam.pth")
                             torch.save(state, phase1_path)
@@ -527,18 +550,18 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     tb_writer.add_scalar('Loss/PDE', p_loss_accum, epoch)
                     tb_writer.add_scalar('Loss/Momentum', loss_m_val, epoch)
                     tb_writer.add_scalar('Loss/Constitutive', loss_c_val, epoch)
-                    
+
                     # Log Physical Parameters (solo quelli effettivamente addestrati)
                     if physics.inverse_mode:
                         for name in ['beta', 'mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
                             raw_p = getattr(physics, f"_raw_{name}", None)
                             if raw_p is not None and isinstance(raw_p, nn.Parameter) and raw_p.requires_grad:
                                 tb_writer.add_scalar(f'Params/{name}', params[name], epoch)
-                    
+
                     if log_l2:
                         for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
                             tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], epoch)
-                            
+
                     # Calculate and Log Gradient Norms (normgrad) for model sub-networks
                     grad_norms = {'Psi': 0.0, 'Pressure': 0.0, 'Stress': 0.0}
                     for name, param in model.named_parameters():
@@ -549,7 +572,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                                 grad_norms['Pressure'] += param.grad.data.norm(2).item() ** 2
                             elif name.startswith('model_tau'):
                                 grad_norms['Stress'] += param.grad.data.norm(2).item() ** 2
-                                
+
                     for sm, norm in grad_norms.items():
                         if norm > 0:
                             tb_writer.add_scalar(f'GradNorm/{sm}', norm ** 0.5, epoch)
@@ -573,7 +596,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
     # ==================================================================
     if USE_LBFGS_PHASE1 and start_epoch < end_lbfgs1:
         print(f"\n{'=' * 60}\nFASE L-BFGS 1 (Psi + Tau): {iters_ph1} iterazioni (FP64)\n{'=' * 60}")
-        
+
         convert_to_fp64(model, physics, data)
         xy_all = data["coords"]
         uv_all = data["uv_data"]
@@ -597,8 +620,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             w_con_lbfgs1 = W_CONSTITUTIVE
 
         if physics.inverse_mode:
-            trainable_names = ["lam"]
-            for pname in ["beta", "mu_tot", "mu_s", "mu_p", "lam", "eps", "alpha"]:
+            trainable_names = ["lam", "mu_p"]
+            for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
                 physics.set_trainable(pname, pname in trainable_names)
 
         # Log configurazione L-BFGS Fase 1
@@ -635,15 +658,15 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 )
             )
             loss_tensor = torch.tensor(tot_loss, device=DEVICE)
-            
+
             global_step = end_adam1 + l_it1[0]
             log_l2_lbfgs = (l_it1[0] % max(1, iters_ph1 // 40) == 0) or (l_it1[0] == iters_ph1 - 1)
-            
+
             if log_l2_lbfgs:
                 params = physics.log_params()
                 with torch.no_grad():
                     l2_errs = compute_l2_errors(model, physics, data)
-                
+
                 history.update(
                     global_step,
                     {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_beta": params["beta"], "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
@@ -693,47 +716,67 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             torch.save({'model_state_dict': model.state_dict(), 'physics_state_dict': physics.state_dict(), 'history_state_dict': history.state_dict()}, chk_path)
             print(f"  [Checkpoint Phase 1 L-BFGS] Salvato in: {chk_path}")
 
+        # Salva stato cinematico di riferimento per la soft anti-drift loss in Fase 2
+        with torch.enable_grad():
+            x_in = xy_all.clone().requires_grad_(True)
+            u_ph1, v_ph1, _, _ = physics.get_velocity(model, x_in, create_graph=False)
+            u_ckpt_cache = u_ph1.detach().clone()
+            v_ckpt_cache = v_ph1.detach().clone()
+            print("  [Checkpoint Reologico] Cache cinematica per soft anti-drift loss inizializzata.")
+
         start_epoch = end_lbfgs1
         loaded_opt_state = None
         loaded_sch_state = None
 
     # ==================================================================
-    # FASE 2 ADAM (Dinamica - Pressione)
+    # FASE 2 ADAM (Idrodinamica - Pressione & Solvente)
     # ==================================================================
     if start_epoch < end_adam2:
-        print(f"\n{'=' * 60}\nFASE 2 ADAM (Dinamica - Pressione): {ADAM_EPOCHS_PHASE2} epoche\n{'=' * 60}")
-        
+        print(f"\n{'=' * 60}\nFASE 2 ADAM (Idrodinamica - Pressione & Solvente): {ADAM_EPOCHS_PHASE2} epoche\n{'=' * 60}")
+
         # Converte modello/fisica/dati di nuovo in FP32
         convert_to_fp32(model, physics, data)
         xy_all = data["coords"]
         uv_all = data["uv_data"]
         bc_data = data["boundary_groups"]
 
+        # Se u_ckpt_cache non è ancora presente (es. resume da checkpoint), calcolalo subito
+        if u_ckpt_cache is None:
+            with torch.enable_grad():
+                x_in = xy_all.clone().requires_grad_(True)
+                u_ph1, v_ph1, _, _ = physics.get_velocity(model, x_in, create_graph=False)
+                u_ckpt_cache = u_ph1.detach().clone().float()
+                v_ckpt_cache = v_ph1.detach().clone().float()
+
         # Azzera i gradienti residui accumulati della Fase 1
         model.zero_grad(set_to_none=True)
 
         if STAGED_TRAINING:
-            # Fase 2: Pressione sbloccata, psi e tau CONGELATI
+            # Fase 2: Pressione sbloccata (LR pieno), Psi sbloccata a basso LR (micro-unfreezing), Tau congelato
             for p in model.parameters():
                 p.requires_grad = False
             for p in model.model_p.parameters():
                 p.requires_grad = True
-            active_bcs, w_mom, w_con, frozen_vel = ["p"], W_MOMENTUM, 0.0, True
+            for p in model.model_psi.parameters():
+                p.requires_grad = True
+            active_bcs, w_mom, w_con, frozen_vel = ["p", "u", "v"], W_MOMENTUM, 0.0, False
         else:
             for p in model.parameters():
                 p.requires_grad = True
             active_bcs, w_mom, w_con, frozen_vel = None, W_MOMENTUM, W_CONSTITUTIVE, False
 
+        # In modalità inversa Fase 2: allena solo mu_s (solvente)
         if physics.inverse_mode:
-            physics.set_trainable("beta", True)
-            physics.set_trainable("mu_tot", True)
-            for pname in ["lam", "eps", "alpha"]:
-                physics.set_trainable(pname, False)
+            physics.set_trainable("mu_s", True)
+            physics.set_trainable("mu_p", False)
+            physics.set_trainable("lam", False)
 
-        # Precalcola la divergenza dello stress tau
+        # Precalcola la divergenza dello stress tau (tau è congelato)
         print("\n[Optimization] Precalcolo divergenza sforzi in corso per la Fase 2 (Adam)...")
         precomputed_div_tau = precompute_stress_divergence(model, physics, xy_all)
         print("[Optimization] Divergenza sforzi precalcolata.")
+
+        w_drift_val = getattr(builtins, "W_DRIFT", 0.1)
 
         # Calcola chunk size ottimale in FP32
         CHUNK_SIZE_ADAM = get_optimal_chunk_size(
@@ -742,20 +785,27 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 active_bcs=active_bcs, w_mom=w_mom, w_con=w_con,
                 points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
                 is_lbfgs=False, chunk_size_override=c, frozen_velocity=frozen_vel,
-                precomputed_div_tau=(precomputed_div_tau[0][:c], precomputed_div_tau[1][:c]) if precomputed_div_tau is not None else None
+                precomputed_div_tau=(precomputed_div_tau[0][:c], precomputed_div_tau[1][:c]) if precomputed_div_tau is not None else None,
+                u_ckpt=u_ckpt_cache[:c] if u_ckpt_cache is not None else None,
+                v_ckpt=v_ckpt_cache[:c] if v_ckpt_cache is not None else None,
+                w_drift=w_drift_val
             )
         )
 
-        # Costruisci l'ottimizzatore Fase 2 (LR differenziati)
+        # Costruisci l'ottimizzatore Fase 2 (LR differenziati: p=1e-3, psi=1e-4, mu_s=1e-4)
         p_params = [p for p in model.model_p.parameters() if p.requires_grad]
-        groups = [{"params": p_params, "lr": BASE_LR}]
+        psi_params = [p for p in model.model_psi.parameters() if p.requires_grad]
+        groups = [
+            {"params": p_params, "lr": BASE_LR},
+            {"params": psi_params, "lr": BASE_LR * 0.1},
+        ]
         if physics.inverse_mode:
             phys_params = [p for p in physics.parameters() if p.requires_grad]
             if phys_params:
-                groups.append({"params": phys_params, "lr": BASE_LR * PARAM_LR_FACTOR})
+                groups.append({"params": phys_params, "lr": BASE_LR * 0.1})
 
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
-        
+
         local_start = start_epoch - end_lbfgs1 if start_epoch > end_lbfgs1 else 0
         steps_rem = ADAM_EPOCHS_PHASE2 - local_start
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=1e-6)
@@ -775,9 +825,22 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             except Exception:
                 pass
 
+        update_eta0_freq = getattr(builtins, "PHASE2_UPDATE_ETA0_FREQ", 2000)
+
         pbar = tqdm(range(local_start, ADAM_EPOCHS_PHASE2), desc="Adam Fase 2", mininterval=2.0)
         for epoch_idx in pbar:
             epoch = end_lbfgs1 + epoch_idx
+
+            # Aggiornamento adattivo della scala eta_0 ogni K epoche
+            if (epoch_idx > 0) and (epoch_idx % update_eta0_freq == 0):
+                new_eta0 = physics.update_eta0(alpha=0.1)
+                params_ad = physics.log_params()
+                print(
+                    f"\n  [Adaptive Scaling - Epoca {epoch+1}] eta_0: {new_eta0:.4f} Pa·s | "
+                    f"Re_scale: {params_ad['Re_scale']:.6f} | "
+                    f"Re_phys (stimato): {params_ad['Re_phys']:.6f} | "
+                    f"eta_tot: {params_ad['mu_tot']:.4f} Pa·s"
+                )
 
             model.train()
             optimizer.zero_grad(set_to_none=True)
@@ -785,7 +848,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val = (
                 compute_and_backward_losses(
                     active_bcs, w_mom, w_con, xy_all, uv_all,
-                    frozen_velocity=frozen_vel, precomputed_div_tau=precomputed_div_tau
+                    frozen_velocity=frozen_vel, precomputed_div_tau=precomputed_div_tau,
+                    u_ckpt=u_ckpt_cache, v_ckpt=v_ckpt_cache, w_drift=w_drift_val
                 )
             )
 
@@ -816,17 +880,20 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     "param_lam": params["lam"],
                     "param_eps": params["eps"],
                     "param_alpha": params["alpha"],
+                    "param_eta0": params["eta_0"],
+                    "param_Re_scale": params["Re_scale"],
+                    "param_Re_phys": params["Re_phys"],
                 }
-                
+
                 if log_l2:
-                    print(f"\n[Epoch {epoch+1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
+                    print(f"\n[Epoch {epoch+1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e} | eta_0: {params['eta_0']:.4f} | Re_phys: {params['Re_phys']:.6f}")
                     model.eval()
                     with torch.no_grad():
                         l2_errs = compute_l2_errors(model, physics, data)
                         print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
                         print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
                     model.train()
-                    
+
                     loss_dict.update({
                         "l2_u": l2_errs["u"],
                         "l2_v": l2_errs["v"],
@@ -848,35 +915,26 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                         }
                         torch.save(state, chk_path)
                         print(f"  [Checkpoint] Salvato in: {chk_path}")
-                        
-                        if (epoch_idx + 1) == ADAM_EPOCHS_PHASE2:
-                            phase2_path = os.path.join(save_dir, "checkpoint_phase2_adam.pth")
-                            torch.save(state, phase2_path)
-                            print(f"  [Checkpoint Phase 2 Adam] Salvato in: {phase2_path}")
 
                 history.update(epoch, loss_dict)
 
                 if tb_writer is not None:
-                    # Log Loss Scalars
                     tb_writer.add_scalar('Loss/Total', tot_loss, epoch)
                     tb_writer.add_scalar('Loss/Data', d_loss_accum, epoch)
                     tb_writer.add_scalar('Loss/BC', b_loss_val, epoch)
                     tb_writer.add_scalar('Loss/PDE', p_loss_accum, epoch)
                     tb_writer.add_scalar('Loss/Momentum', loss_m_val, epoch)
                     tb_writer.add_scalar('Loss/Constitutive', loss_c_val, epoch)
-                    
-                    # Log Physical Parameters (solo quelli effettivamente addestrati)
+
                     if physics.inverse_mode:
-                        for name in ['beta', 'mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
-                            raw_p = getattr(physics, f"_raw_{name}", None)
-                            if raw_p is not None and isinstance(raw_p, nn.Parameter) and raw_p.requires_grad:
+                        for name in ['beta', 'mu_s', 'mu_p', 'lam', 'eps', 'alpha', 'eta_0', 'Re_scale', 'Re_phys']:
+                            if name in params:
                                 tb_writer.add_scalar(f'Params/{name}', params[name], epoch)
-                    
+
                     if log_l2:
                         for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
                             tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], epoch)
-                            
-                    # Calculate and Log Gradient Norms (normgrad) for model sub-networks
+
                     grad_norms = {'Psi': 0.0, 'Pressure': 0.0, 'Stress': 0.0}
                     for name, param in model.named_parameters():
                         if param.grad is not None:
@@ -886,7 +944,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                                 grad_norms['Pressure'] += param.grad.data.norm(2).item() ** 2
                             elif name.startswith('model_tau'):
                                 grad_norms['Stress'] += param.grad.data.norm(2).item() ** 2
-                                
+
                     for sm, norm in grad_norms.items():
                         if norm > 0:
                             tb_writer.add_scalar(f'GradNorm/{sm}', norm ** 0.5, epoch)
@@ -906,30 +964,35 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         loaded_sch_state = None
 
     # ==================================================================
-    # FASE L-BFGS 2 (Psi + P) - FP64
+    # FASE L-BFGS 2 (Psi + Pressione) - FP64
     # ==================================================================
     if USE_LBFGS_PHASE2 and start_epoch < end_lbfgs2:
         print(f"\n{'=' * 60}\nFASE L-BFGS 2 (Psi + Pressione): {iters_ph2} iterazioni (FP64)\n{'=' * 60}")
-        
+
         convert_to_fp64(model, physics, data)
         xy_all = data["coords"]
         uv_all = data["uv_data"]
         bc_data = data["boundary_groups"]
 
+        if u_ckpt_cache is not None:
+            u_ckpt_cache = u_ckpt_cache.double()
+            v_ckpt_cache = v_ckpt_cache.double()
+
         # Azzera i gradienti prima dell'avvio di L-BFGS
         model.zero_grad(set_to_none=True)
 
-        # Congela psi e tau, sblocca solo p
+        # Attiva model_p e model_psi, congela model_tau
         for p in model.parameters():
             p.requires_grad = False
         for p in model.model_p.parameters():
             p.requires_grad = True
+        for p in model.model_psi.parameters():
+            p.requires_grad = True
 
         if physics.inverse_mode:
-            physics.set_trainable("beta", True)
-            physics.set_trainable("mu_tot", True)
-            for pname in ["lam", "eps", "alpha"]:
-                physics.set_trainable(pname, False)
+            physics.set_trainable("mu_s", True)
+            physics.set_trainable("mu_p", False)
+            physics.set_trainable("lam", False)
 
         all_params_ph2 = [p for p in model.parameters() if p.requires_grad] + [p for p in physics.parameters() if p.requires_grad]
 
@@ -943,14 +1006,19 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         precomputed_div_tau_lbfgs = precompute_stress_divergence(model, physics, xy_all)
         print("[Optimization] Divergenza sforzi precalcolata.")
 
+        w_drift_val = getattr(builtins, "W_DRIFT", 0.1)
+
         # Calcola chunk size ottimale per L-BFGS in FP64
         CHUNK_SIZE_LBFGS = get_optimal_chunk_size(
             phase=3, model=model,
             test_closure=lambda c: compute_and_backward_losses(
-                active_bcs=["p"], w_mom=W_MOMENTUM, w_con=0.0,
+                active_bcs=["p", "u", "v"], w_mom=W_MOMENTUM, w_con=0.0,
                 points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
-                is_lbfgs=True, chunk_size_override=c, frozen_velocity=True,
-                precomputed_div_tau=(precomputed_div_tau_lbfgs[0][:c], precomputed_div_tau_lbfgs[1][:c]) if precomputed_div_tau_lbfgs is not None else None
+                is_lbfgs=True, chunk_size_override=c, frozen_velocity=False,
+                precomputed_div_tau=(precomputed_div_tau_lbfgs[0][:c], precomputed_div_tau_lbfgs[1][:c]) if precomputed_div_tau_lbfgs is not None else None,
+                u_ckpt=u_ckpt_cache[:c] if u_ckpt_cache is not None else None,
+                v_ckpt=v_ckpt_cache[:c] if v_ckpt_cache is not None else None,
+                w_drift=w_drift_val
             )
         )
 
@@ -962,21 +1030,22 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             optimizer_lbfgs2.zero_grad()
             tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
                 compute_and_backward_losses(
-                    active_bcs=["p"], w_mom=W_MOMENTUM, w_con=0.0,
-                    points=xy_all, labels=uv_all, is_lbfgs=True, frozen_velocity=True,
-                    precomputed_div_tau=precomputed_div_tau_lbfgs
+                    active_bcs=["p", "u", "v"], w_mom=W_MOMENTUM, w_con=0.0,
+                    points=xy_all, labels=uv_all, is_lbfgs=True, frozen_velocity=False,
+                    precomputed_div_tau=precomputed_div_tau_lbfgs,
+                    u_ckpt=u_ckpt_cache, v_ckpt=v_ckpt_cache, w_drift=w_drift_val
                 )
             )
             loss_tensor = torch.tensor(tot_loss, device=DEVICE)
-            
+
             global_step = end_adam2 + l_it2[0]
             log_l2_lbfgs = (l_it2[0] % max(1, iters_ph2 // 40) == 0) or (l_it2[0] == iters_ph2 - 1)
-            
+
             if log_l2_lbfgs:
                 params = physics.log_params()
                 with torch.no_grad():
                     l2_errs = compute_l2_errors(model, physics, data)
-                
+
                 history.update(
                     global_step,
                     {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_beta": params["beta"], "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}

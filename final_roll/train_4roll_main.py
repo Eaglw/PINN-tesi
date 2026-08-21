@@ -93,33 +93,36 @@ EPS_TRUE = 0.0  # Parametro PTT (bloccato a 0)
 ALPHA_TRUE = 0.0  # Parametro Giesekus (bloccato a 0)
 RHO = 1000.0  # Densità [kg/m³]
 
-# --- Costanti e Calcolo Dinamico dei Guess Iniziali ---
+# --- Costanti e Calcolo Dinamico dei Guess Iniziali (Log-Space Parametrization) ---
 MIN_MU_S = 1e-6
 MIN_MU_P = 1e-6
 MIN_LAM = 1e-6
+
+# Scala di normalizzazione iniziale (arbitraria, default 2.0 Pa*s)
+ETA_0_INIT = 2.0
 
 # Fattore di perturbazione per i parametri del problema inverso (es. 0.80 = 80% del valore reale)
 GUESS_FACTOR = 0.80
 
 GUESS_LAM = LAM_TRUE * GUESS_FACTOR                      # 0.05 * 0.80 = 0.0400 s
-GUESS_MU_TOT = MU_TOT_TRUE * GUESS_FACTOR                # 1.00 * 0.80 = 0.8000 Pa·s
-GUESS_BETA = BETA_TRUE * GUESS_FACTOR                    # 0.10 * 0.80 = 0.0800
 GUESS_MU_S = MU_S_TRUE * GUESS_FACTOR                    # 0.10 * 0.80 = 0.0800 Pa·s
 GUESS_MU_P = MU_P_TRUE * GUESS_FACTOR                    # 0.90 * 0.80 = 0.7200 Pa·s
-GUESS_EPS = EPS_TRUE * GUESS_FACTOR if EPS_TRUE > 0 else 0.0
-GUESS_ALPHA = ALPHA_TRUE * GUESS_FACTOR if ALPHA_TRUE > 0 else 0.0
+GUESS_MU_TOT = GUESS_MU_S + GUESS_MU_P                  # 0.8000 Pa·s
+GUESS_BETA = GUESS_MU_S / GUESS_MU_TOT                  # 0.1000
+GUESS_EPS = 0.0
+GUESS_ALPHA = 0.0
 
 # --- Architettura Neural Network ---
 HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training a 2 Fasi Disaccoppiate ---
-# Fase 1: Cinematica & Reologia (psi + tau -> lam)
+# Fase 1: Cinematica & Reologia (model_psi, model_tau -> lam, mu_p)
 ADAM_EPOCHS_PHASE1 = 20000
 USE_LBFGS_PHASE1 = True
 LBFGS_MAX_ITERS_PHASE1 = 5000
 
-# Fase 2: Idrodinamica & Pressione (p -> beta, mu_tot)
+# Fase 2: Idrodinamica & Pressione (model_p, model_psi low-LR -> mu_s)
 ADAM_EPOCHS_PHASE2 = 15000
 USE_LBFGS_PHASE2 = True
 LBFGS_MAX_ITERS_PHASE2 = 5000
@@ -130,14 +133,16 @@ PARAM_LR_FACTOR = 0.1
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
-WARMUP_UNLOCK_EPOCH = 5000  # Sblocco lam dopo 5000 epoche di warmup cinematica
+WARMUP_UNLOCK_EPOCH = 5000  # Sblocco lam ed eta_p dopo 5000 epoche di warmup cinematica
+PHASE2_UPDATE_ETA0_FREQ = 2000  # Aggiornamento adattivo scala eta_0 ogni 2000 epoche in Fase 2
 
 # --- Pesi Funzione di Loss ---
-W_BC = 5.0      # Aumentato da 2.0 a 5.0 per vincolare meglio l'ancoraggio del punto di pressione
+W_BC = 5.0      # Vincola l'ancoraggio del punto di pressione e boundary
 W_PHYSICS = 3.0
 W_DATA = 1.0    
 W_MOMENTUM = 1.0
 W_CONSTITUTIVE = 1.0
+W_DRIFT = 0.1   # Soft Anti-drift penalty per model_psi in Fase 2
 VARIANCE_EPS = 1e-4
 
 # ============================================================================
@@ -198,9 +203,10 @@ if __name__ == "__main__":
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nModello: {total_params:,} parametri totali")
     if INVERSE_PROBLEM:
-        print("Modalità: PROBLEMA INVERSO MULTI-PARAMETRO (lam, beta, eps, alpha da identificare in Fase 1)")
-        print(f" Guess: lam={GUESS_LAM} (true: {LAM_TRUE}), beta={GUESS_BETA} (true: {BETA_TRUE:.4f}), eps={GUESS_EPS} (true: {EPS_TRUE}), alpha={GUESS_ALPHA} (true: {ALPHA_TRUE})")
-        print(f" Parametri fissi in Fase 1: mu_s={MU_S_TRUE} (mu_tot=1.0)")
+        print("Modalità: PROBLEMA INVERSO MULTI-PARAMETRO LOG-SPACE (lam, mu_p in Fase 1 -> mu_s in Fase 2)")
+        print(f" Scala Iniziale: eta_0={physics.eta_0.item():.2f} Pa·s (arbitraria)")
+        print(f" Guess Iniziali: lam={physics.lam.item():.4f} s (true: {LAM_TRUE}), mu_p={physics.mu_p.item():.4f} Pa·s (true: {MU_P_TRUE}), mu_s={physics.mu_s.item():.4f} Pa·s (true: {MU_S_TRUE})")
+        print(f" Derivati: eta_tot={physics.mu_tot.item():.4f} Pa·s (true: {MU_TOT_TRUE}), beta={physics.beta.item():.4f} (true: {BETA_TRUE:.4f})")
     else:
         print("Modalità: PROBLEMA DIRETTO (Parametri fisici bloccati ai valori veri)")
         print(f" Valori veri: beta={BETA_TRUE}, mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, lam={LAM_TRUE}")
