@@ -73,15 +73,20 @@ class SimpleHistory:
         eps_true = getattr(builtins, "EPS_TRUE", mod_globals.get("EPS_TRUE", 0.0))
         alpha_true = getattr(builtins, "ALPHA_TRUE", mod_globals.get("ALPHA_TRUE", 0.0))
 
+        eta_0_val = getattr(builtins, "ETA_0", getattr(builtins, "ETA_0_INIT", mod_globals.get("ETA_0", 1.0)))
         tot_visc = mu_s_true + mu_p_true
         default_beta = mu_s_true / tot_visc if tot_visc > 0 else 0.1
         beta_true = getattr(builtins, "BETA_TRUE", mod_globals.get("BETA_TRUE", default_beta))
+        mu_p_nd_true = mu_p_true / eta_0_val
+        mu_s_nd_true = mu_s_true / eta_0_val
 
         param_keys = [('param_beta', beta_true, r'$\beta = \frac{\eta_s}{\eta_s + \eta_p}$'),
-                      ('param_mu_tot', tot_visc, r'$\eta_{tot} = \eta_s + \eta_p$'),
-                      ('param_mu_s', mu_s_true, r'$\eta_s$'),
-                      ('param_mu_p', mu_p_true, r'$\eta_p$'),
-                      ('param_lam', lam_true, r'$\lambda$')]
+                      ('param_mu_tot', tot_visc, r'$\eta_{tot} = \eta_s + \eta_p$ [Pa·s]'),
+                      ('param_mu_p', mu_p_true, r'$\mu_p$ [Pa·s]'),
+                      ('param_mu_p_nd', mu_p_nd_true, r'$\mu_p^* = \mu_p / \eta_0$'),
+                      ('param_mu_s', mu_s_true, r'$\mu_s$ [Pa·s]'),
+                      ('param_mu_s_nd', mu_s_nd_true, r'$\mu_s^* = \mu_s / \eta_0$'),
+                      ('param_lam', lam_true, r'$\lambda$ [s]')]
 
         active = [(k, t, l) for k, t, l in param_keys if k in self.losses]
         if not active:
@@ -400,11 +405,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 p.requires_grad = True
             active_bcs, w_mom, w_con, frozen_vel = None, W_MOMENTUM, W_CONSTITUTIVE, False
 
+        warmup_epoch = getattr(builtins, "WARMUP_UNLOCK_EPOCH", 0)
         # Configura parametri fisici in modalità inversa (Fase 1: lam ed eta_p)
         if physics.inverse_mode:
             trainable_names = ["lam", "mu_p"]
             for pname in ["beta", "mu_tot", "mu_s", "mu_p", "lam", "eps", "alpha"]:
-                is_tr = (pname in trainable_names) and (start_epoch >= WARMUP_UNLOCK_EPOCH)
+                is_tr = (pname in trainable_names) and (start_epoch >= warmup_epoch)
                 physics.set_trainable(pname, is_tr)
 
         # Log configurazione Fase 1
@@ -423,14 +429,14 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             )
         )
 
-        # Costruisci l'ottimizzatore
+        # Costruisci l'ottimizzatore (con param group dedicato permanente per i parametri fisici)
         steps_rem = end_adam1 - start_epoch
         net_params = [p for p in model.parameters() if p.requires_grad]
         groups = [{"params": net_params, "lr": BASE_LR}]
         if physics.inverse_mode:
-            phys_params = [p for p in physics.parameters() if p.requires_grad]
-            if phys_params:
-                groups.append({"params": phys_params, "lr": BASE_LR * PARAM_LR_FACTOR})
+            phys_params_ph1 = [physics._raw_lam, physics._raw_mu_p]
+            phys_lr = BASE_LR * PARAM_LR_FACTOR if start_epoch >= warmup_epoch else 0.0
+            groups.append({"params": phys_params_ph1, "lr": phys_lr})
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=1e-6)
 
@@ -451,19 +457,13 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         pbar = tqdm(range(start_epoch, end_adam1), desc="Adam Fase 1", mininterval=2.0)
         for epoch in pbar:
-            # Sblocco parametri fisici (Warmup Problema Inverso)
-            if physics.inverse_mode and epoch == WARMUP_UNLOCK_EPOCH and epoch > 0:
+            # Sblocco parametri fisici se warmup attivo (SENZA ricreare l'ottimizzatore Adam)
+            if physics.inverse_mode and warmup_epoch > 0 and epoch == warmup_epoch:
                 print(f"\n  [Warmup Stage 1] Sblocco parametri reologici lam, mu_p (epoca {epoch})")
                 physics.set_trainable("lam", True)
                 physics.set_trainable("mu_p", True)
-                steps_rem = end_adam1 - epoch
-                net_params = [p for p in model.parameters() if p.requires_grad]
-                groups = [{"params": net_params, "lr": BASE_LR}]
-                phys_params = [p for p in physics.parameters() if p.requires_grad]
-                if phys_params:
-                    groups.append({"params": phys_params, "lr": BASE_LR * PARAM_LR_FACTOR})
-                optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
-                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=1e-6)
+                if len(optimizer.param_groups) > 1:
+                    optimizer.param_groups[1]["lr"] = BASE_LR * PARAM_LR_FACTOR
 
             model.train()
             optimizer.zero_grad(set_to_none=True)
@@ -497,11 +497,17 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     "loss_momentum": loss_m_val,
                     "loss_constitutive": loss_c_val,
                     "param_beta": params["beta"],
+                    "param_mu_tot": params["mu_tot"],
                     "param_mu_s": params["mu_s"],
+                    "param_mu_s_nd": params["mu_s_nd"],
                     "param_mu_p": params["mu_p"],
+                    "param_mu_p_nd": params["mu_p_nd"],
                     "param_lam": params["lam"],
                     "param_eps": params["eps"],
                     "param_alpha": params["alpha"],
+                    "param_eta0": params["eta_0"],
+                    "param_Re_scale": params["Re_scale"],
+                    "param_Re_phys": params["Re_phys"],
                 }
 
                 if log_l2:
@@ -669,7 +675,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
                 history.update(
                     global_step,
-                    {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_beta": params["beta"], "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
+                    {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_beta": params["beta"], "param_mu_tot": params["mu_tot"], "param_mu_s": params["mu_s"], "param_mu_s_nd": params["mu_s_nd"], "param_mu_p": params["mu_p"], "param_mu_p_nd": params["mu_p_nd"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "param_eta0": params["eta_0"], "param_Re_scale": params["Re_scale"], "param_Re_phys": params["Re_phys"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
                 )
                 print(f"\n[L-BFGS Phase 1 - Iter {l_it1[0]+1}/{iters_ph1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
                 print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
@@ -825,22 +831,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             except Exception:
                 pass
 
-        update_eta0_freq = getattr(builtins, "PHASE2_UPDATE_ETA0_FREQ", 2000)
-
         pbar = tqdm(range(local_start, ADAM_EPOCHS_PHASE2), desc="Adam Fase 2", mininterval=2.0)
         for epoch_idx in pbar:
             epoch = end_lbfgs1 + epoch_idx
-
-            # Aggiornamento adattivo della scala eta_0 ogni K epoche
-            if (epoch_idx > 0) and (epoch_idx % update_eta0_freq == 0):
-                new_eta0 = physics.update_eta0(alpha=0.1)
-                params_ad = physics.log_params()
-                print(
-                    f"\n  [Adaptive Scaling - Epoca {epoch+1}] eta_0: {new_eta0:.4f} Pa·s | "
-                    f"Re_scale: {params_ad['Re_scale']:.6f} | "
-                    f"Re_phys (stimato): {params_ad['Re_phys']:.6f} | "
-                    f"eta_tot: {params_ad['mu_tot']:.4f} Pa·s"
-                )
 
             model.train()
             optimizer.zero_grad(set_to_none=True)
@@ -875,8 +868,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     "loss_momentum": loss_m_val,
                     "loss_constitutive": loss_c_val,
                     "param_beta": params["beta"],
+                    "param_mu_tot": params["mu_tot"],
                     "param_mu_s": params["mu_s"],
+                    "param_mu_s_nd": params["mu_s_nd"],
                     "param_mu_p": params["mu_p"],
+                    "param_mu_p_nd": params["mu_p_nd"],
                     "param_lam": params["lam"],
                     "param_eps": params["eps"],
                     "param_alpha": params["alpha"],
@@ -1048,7 +1044,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
                 history.update(
                     global_step,
-                    {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_beta": params["beta"], "param_mu_s": params["mu_s"], "param_mu_p": params["mu_p"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
+                    {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_beta": params["beta"], "param_mu_tot": params["mu_tot"], "param_mu_s": params["mu_s"], "param_mu_s_nd": params["mu_s_nd"], "param_mu_p": params["mu_p"], "param_mu_p_nd": params["mu_p_nd"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "param_eta0": params["eta_0"], "param_Re_scale": params["Re_scale"], "param_Re_phys": params["Re_phys"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
                 )
                 print(f"\n[L-BFGS Phase 2 - Iter {l_it2[0]+1}/{iters_ph2}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
                 print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")

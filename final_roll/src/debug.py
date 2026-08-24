@@ -35,15 +35,10 @@ def debug_physics_magnitudes(model, physics, data, num_points=2000):
         idx_diag = torch.randperm(data["coords"].shape[0])[:num_points]
         x = data["coords"][idx_diag].to(_dtype).clone().requires_grad_(True)
 
-        psi = model.model_psi(x)
-        p = model.model_p(x) * model.p_scale
-        tau = model.model_tau(x) * model.tau_scale
+        u, v, p, tau = physics.get_velocity(model, x, create_graph=True)
         tau_xx, tau_xy, tau_yy = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
 
         # --- Derivate Prime (Velocità e Pressione) ---
-        grad_psi = physics._grad(psi, x, create_graph=True)
-        u, v = grad_psi[:, 1:2], -grad_psi[:, 0:1]
-
         grad_u = physics._grad(u, x, create_graph=True)
         u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
 
@@ -84,15 +79,15 @@ def debug_physics_magnitudes(model, physics, data, num_points=2000):
             - tau_xy * v_y
         )
 
-        Re, Wi, beta, beta_poly, eps, alpha = physics._nondim()
+        Re, Wi, mu_s_nd, mu_p_nd, eps, alpha = physics._nondim()
 
-        source_xx = -2.0 * beta_poly * u_x
-        source_yy = -2.0 * beta_poly * v_y
-        source_xy = -beta_poly * (u_y + v_x)
+        source_xx = -2.0 * mu_p_nd * u_x
+        source_yy = -2.0 * mu_p_nd * v_y
+        source_xy = -mu_p_nd * (u_y + v_x)
 
         # --- Termini Momentum ---
         div_tau_x, div_tau_y = (tau_xx_x + tau_xy_y), (tau_xy_x + tau_yy_y)
-        viscous_x, viscous_y = beta * (u_xx + u_yy), beta * (v_xx + v_yy)
+        viscous_x, viscous_y = mu_s_nd * (u_xx + u_yy), mu_s_nd * (v_xx + v_yy)
         advection_x = Re * (u * u_x + v * u_y)
         advection_y = Re * (u * v_x + v * v_y)
 

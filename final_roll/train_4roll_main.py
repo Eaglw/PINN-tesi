@@ -98,8 +98,8 @@ MIN_MU_S = 1e-6
 MIN_MU_P = 1e-6
 MIN_LAM = 1e-6
 
-# Scala di normalizzazione iniziale (arbitraria, default 2.0 Pa*s)
-ETA_0_INIT = 2.0
+# Scala di normalizzazione globale di riferimento (arbitraria, default 2.0 Pa*s)
+ETA_0 = 2.0
 
 # Fattore di perturbazione per i parametri del problema inverso (es. 0.80 = 80% del valore reale)
 GUESS_FACTOR = 0.80
@@ -133,8 +133,7 @@ PARAM_LR_FACTOR = 0.1
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
-WARMUP_UNLOCK_EPOCH = 5000  # Sblocco lam ed eta_p dopo 5000 epoche di warmup cinematica
-PHASE2_UPDATE_ETA0_FREQ = 2000  # Aggiornamento adattivo scala eta_0 ogni 2000 epoche in Fase 2
+WARMUP_UNLOCK_EPOCH = 0  # 0: parametri attivi fin da epoca 0; >0: sblocco senza reset Adam
 
 # --- Pesi Funzione di Loss ---
 W_BC = 5.0      # Vincola l'ancoraggio del punto di pressione e boundary
@@ -149,7 +148,7 @@ VARIANCE_EPS = 1e-4
 # 3. INIZIALIZZAZIONE OUTPUT
 # ============================================================================
 layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
-config_name = f"{DATASET_PATH.stem}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+config_name = f"{DATASET_PATH.stem}_eta0_{ETA_0}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 if RESUME_CHECKPOINT is not None:
     OUTPUT_DIR = Path(RESUME_CHECKPOINT).parent
@@ -177,7 +176,7 @@ if __name__ == "__main__":
         print("=" * 60)
 
     # 1. Caricamento Dati
-    data = load_data()
+    data = load_data(eta_0=ETA_0)
 
     # 2. Inizializzazione Modello e Fisica
     model = CombinedModel(p_scale=data["p_scale"], tau_scale=data["tau_scale"]).to(
@@ -197,6 +196,7 @@ if __name__ == "__main__":
         inverse_mode=INVERSE_PROBLEM,
         tau_scale=data["tau_scale"],
         p_scale=data["p_scale"],
+        eta_0=ETA_0,
     ).to(DEVICE)
 
     # Recap Configurazione
@@ -204,8 +204,9 @@ if __name__ == "__main__":
     print(f"\nModello: {total_params:,} parametri totali")
     if INVERSE_PROBLEM:
         print("Modalità: PROBLEMA INVERSO MULTI-PARAMETRO LOG-SPACE (lam, mu_p in Fase 1 -> mu_s in Fase 2)")
-        print(f" Scala Iniziale: eta_0={physics.eta_0.item():.2f} Pa·s (arbitraria)")
-        print(f" Guess Iniziali: lam={physics.lam.item():.4f} s (true: {LAM_TRUE}), mu_p={physics.mu_p.item():.4f} Pa·s (true: {MU_P_TRUE}), mu_s={physics.mu_s.item():.4f} Pa·s (true: {MU_S_TRUE})")
+        print(f" Scala di Riferimento Costante: eta_0={physics.eta_0.item():.2f} Pa·s (arbitraria)")
+        print(f" Guess Dimensionali:  lam={physics.lam.item():.4f} s (true: {LAM_TRUE}), mu_p={physics.mu_p.item():.4f} Pa·s (true: {MU_P_TRUE}), mu_s={physics.mu_s.item():.4f} Pa·s (true: {MU_S_TRUE})")
+        print(f" Guess Adimensionali: mu_p*={physics.mu_p_nd.item():.4f} (true: {MU_P_TRUE/ETA_0:.4f}), mu_s*={physics.mu_s_nd.item():.4f} (true: {MU_S_TRUE/ETA_0:.4f})")
         print(f" Derivati: eta_tot={physics.mu_tot.item():.4f} Pa·s (true: {MU_TOT_TRUE}), beta={physics.beta.item():.4f} (true: {BETA_TRUE:.4f})")
     else:
         print("Modalità: PROBLEMA DIRETTO (Parametri fisici bloccati ai valori veri)")
@@ -218,6 +219,7 @@ if __name__ == "__main__":
         from src.utils import init_run_in_obsidian
         config_details = {
             "dataset": DATASET_PATH.name,
+            "eta_0": ETA_0,
             "epochs": ADAM_EPOCHS_PHASE1 + ADAM_EPOCHS_PHASE2,
             "inverse_problem": INVERSE_PROBLEM,
             "staged_training": STAGED_TRAINING,
@@ -249,12 +251,17 @@ if __name__ == "__main__":
 
     # 4. Report Risultati Finali
     params = physics.log_params()
-    print(f"\n{'=' * 60}\nRISULTATI FINALI PARAMETRI FISICI\n{'=' * 60}")
-    for p_name, true_val in zip(
-        ["beta", "mu_tot", "mu_s", "mu_p", "lam", "eps", "alpha"],
-        [BETA_TRUE, MU_TOT_TRUE, MU_S_TRUE, MU_P_TRUE, LAM_TRUE, EPS_TRUE, ALPHA_TRUE],
-    ):
-        print(f"  {p_name:<7s}: {params[p_name]:.6f}  (true: {true_val})")
+    print(f"\n{'=' * 60}\nRISULTATI FINALI PARAMETRI FISICI (Dimensionali e Adimensionali)\n{'=' * 60}")
+    print(f"  eta_0 (scala rif.) : {params['eta_0']:.6f} Pa·s")
+    print(f"  mu_p* (adimens.)   : {params['mu_p_nd']:.6f}  (true: {MU_P_TRUE/ETA_0:.6f})")
+    print(f"  mu_p  (dimension.) : {params['mu_p']:.6f} Pa·s (true: {MU_P_TRUE:.6f})")
+    print(f"  mu_s* (adimens.)   : {params['mu_s_nd']:.6f}  (true: {MU_S_TRUE/ETA_0:.6f})")
+    print(f"  mu_s  (dimension.) : {params['mu_s']:.6f} Pa·s (true: {MU_S_TRUE:.6f})")
+    print(f"  mu_tot (dimension.): {params['mu_tot']:.6f} Pa·s (true: {MU_TOT_TRUE:.6f})")
+    print(f"  beta  (ratio)      : {params['beta']:.6f}  (true: {BETA_TRUE:.6f})")
+    print(f"  lam   (dimension.) : {params['lam']:.6f} s (true: {LAM_TRUE:.6f})")
+    print(f"  eps   (PTT)        : {params['eps']:.6f}  (true: {EPS_TRUE:.6f})")
+    print(f"  alpha (Giesekus)   : {params['alpha']:.6f}  (true: {ALPHA_TRUE:.6f})")
 
     final_losses = evaluate_final_losses(model, physics, data)
     print(f"\n{'=' * 60}\nREPORT FINALE DETTAGLIATO\n{'=' * 60}")

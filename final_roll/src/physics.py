@@ -24,7 +24,7 @@ def inverse_sigmoid(y, eps=1e-7):
 class Physics(nn.Module):
     """PDE adimensionali + boundary conditions. Supporta modalità diretta o inversa."""
 
-    def __init__(self, U_ref, H_ref, H_coord=0.05, var_weights=None, inverse_mode=True, tau_scale=1.0, p_scale=50.0, use_roll_stress_bc=True, w_roll_stress=1.0):
+    def __init__(self, U_ref, H_ref, H_coord=0.05, var_weights=None, inverse_mode=True, tau_scale=1.0, p_scale=50.0, use_roll_stress_bc=True, w_roll_stress=1.0, eta_0=None):
         super().__init__()
         self.U_ref = U_ref
         self.H_ref = H_ref
@@ -47,9 +47,10 @@ class Physics(nn.Module):
         guess_mu_p = getattr(builtins, "GUESS_MU_P", mu_p_true_val * guess_factor)
         guess_lam = getattr(builtins, "GUESS_LAM", lam_true_val * guess_factor)
 
-        # Scala di normalizzazione iniziale (arbitraria, default 2.0 Pa*s)
-        eta_0_init = getattr(builtins, "ETA_0_INIT", 2.0)
-        self.register_buffer("eta_0", torch.tensor(eta_0_init, device=DEVICE, dtype=torch.float32))
+        # Scala di normalizzazione globale di riferimento costante (arbitraria)
+        if eta_0 is None:
+            eta_0 = getattr(builtins, "ETA_0", getattr(builtins, "ETA_0_INIT", mod_globals.get("ETA_0", 1.0)))
+        self.register_buffer("eta_0", torch.tensor(float(eta_0), device=DEVICE, dtype=torch.float32))
 
         # Guess base per la log-parametrizzazione (lambda = guess_lam * exp(r_lam))
         self.register_buffer("guess_lam", torch.tensor(guess_lam, device=DEVICE, dtype=torch.float32))
@@ -74,13 +75,23 @@ class Physics(nn.Module):
 
     @property
     def mu_p(self):
-        """Viscosita' polimerica in log-space: eta_p = guess_mu_p * exp(r_mup)."""
+        """Viscosita' polimerica dimensionale: eta_p = guess_mu_p * exp(r_mup)."""
         return self.guess_mu_p * torch.exp(self._raw_mu_p).squeeze()
 
     @property
+    def mu_p_nd(self):
+        """Viscosita' polimerica adimensionale: mu_p* = mu_p / eta_0."""
+        return self.mu_p / self.eta_0
+
+    @property
     def mu_s(self):
-        """Viscosita' solvente in log-space: eta_s = guess_mu_s * exp(r_mus)."""
+        """Viscosita' solvente dimensionale: eta_s = guess_mu_s * exp(r_mus)."""
         return self.guess_mu_s * torch.exp(self._raw_mu_s).squeeze()
+
+    @property
+    def mu_s_nd(self):
+        """Viscosita' solvente adimensionale: mu_s* = mu_s / eta_0."""
+        return self.mu_s / self.eta_0
 
     @property
     def mu_tot(self):
@@ -99,7 +110,7 @@ class Physics(nn.Module):
 
     @property
     def Re_scale(self):
-        """Numero di Reynolds basato sulla scala corrente di normalizzazione eta_0."""
+        """Numero di Reynolds basato sulla scala costante di normalizzazione eta_0."""
         return RHO * self.U_ref * self.H_ref / self.eta_0
 
     @property
@@ -120,17 +131,6 @@ class Physics(nn.Module):
         raw_param = getattr(self, f"_raw_{name}", None)
         if raw_param is not None and isinstance(raw_param, nn.Parameter):
             raw_param.requires_grad_(trainable)
-
-    def update_eta0(self, alpha=0.1):
-        """Aggiornamento adattivo smussato della scala di normalizzazione eta_0 (Fase 2)."""
-        with torch.no_grad():
-            eta_tot_est = (self.mu_s + self.mu_p).detach().item()
-            old_eta0 = self.eta_0.item()
-            new_eta0 = (1.0 - alpha) * old_eta0 + alpha * eta_tot_est
-            # Protezione oscillazioni: variazione limitata al fattore [0.5, 2.0]
-            new_eta0 = max(0.5 * old_eta0, min(2.0 * old_eta0, new_eta0))
-            self.eta_0.fill_(new_eta0)
-            return new_eta0
 
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
         """Gestisce in modo trasparente la retrocompatibilità con i vecchi checkpoint."""
@@ -411,10 +411,20 @@ class Physics(nn.Module):
         pass
 
     def log_params(self):
-        """Restituisce i parametri correnti estraendoli proceduralmente."""
+        """Restituisce i parametri correnti estraendoli proceduralmente (sia dimensionali che adimensionali)."""
         return {
-            name: getattr(self, name).item() if isinstance(getattr(self, name), torch.Tensor) else getattr(self, name)
-            for name in ["beta", "mu_s", "mu_p", "mu_tot", "lam", "eps", "alpha", "eta_0", "Re_scale", "Re_phys"]
+            "beta": self.beta.item(),
+            "mu_s": self.mu_s.item(),
+            "mu_p": self.mu_p.item(),
+            "mu_tot": self.mu_tot.item(),
+            "mu_s_nd": self.mu_s_nd.item(),
+            "mu_p_nd": self.mu_p_nd.item(),
+            "lam": self.lam.item(),
+            "eps": self.eps.item(),
+            "alpha": self.alpha.item(),
+            "eta_0": self.eta_0.item(),
+            "Re_scale": self.Re_scale.item(),
+            "Re_phys": self.Re_phys.item(),
         }
 
 
