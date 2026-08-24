@@ -14,26 +14,27 @@ $$\mathcal{L}_{u} = \frac{1}{N} \sum_{i=1}^N \left| \frac{\partial \psi}{\partia
 the neural network is constrained to learn a smooth representation of the stream function, preventing velocity degradation over long-epoch training.
 
 ## Technical Implementation & Physical Details
-In the context of the `PINN-tesi` repository, this technique is suggested for Goal 2 (`SoloData`). 
+In the production framework (`final_roll`), Sobolev derivative supervision is the fundamental mechanism through which the stream function network `model_psi` is trained on internal flow data:
 
-### Proposed Extension
-1. **Target Extension**: Expand the input data structure for `SoloData` to include the exact velocity components $u$ and $v$ in addition to $\psi, p, \tau_{xx}, \tau_{xy}, \tau_{yy}$, moving from a 5-channel target to a 7-channel target:
-   `[psi_exact, p_exact, txx_exact, txy_exact, tyy_exact, u_exact, v_exact]`
-2. **Loss Calculation (`compute_pinn_loss`)**: In `func/history_tracker.py`, if the target has 7 channels, extract the exact velocity data and compute the derivative loss:
+### Pure Velocity Supervision (Semi-Inverse Benchmark)
+Per foundational project design rules, **no internal stress or pressure data from CFD is ever fed to the PINN** in the interior domain:
+1. **Target Structure**: The observed internal dataset contains strictly $(x, y, u_{\text{obs}}, v_{\text{obs}})$.
+2. **Derivative Supervision**: The stream function network outputs a scalar $\psi(x, y)$, and the autograd derivatives:
+   $$u_{\text{pred}} = \frac{\partial \psi}{\partial y}, \quad v_{\text{pred}} = -\frac{\partial \psi}{\partial x}$$
+   are directly supervised against $(u_{\text{obs}}, v_{\text{obs}})$ via MSE:
    ```python
-   # Compute predicted velocities from psi
-   u_pred = torch.autograd.grad(psi_pred.sum(), coords, create_graph=True)[0][..., 1:2]
-   v_pred = -torch.autograd.grad(psi_pred.sum(), coords, create_graph=True)[0][..., 0:1]
-   
-   # Add Sobolev terms
-   loss_u_sobolev = torch.mean((u_pred - u_exact) ** 2)
-   loss_v_sobolev = torch.mean((v_pred - v_exact) ** 2)
-   
-   loss_data = loss_data + gamma * (loss_u_sobolev + loss_v_sobolev)
+   # Autograd velocity derivation from psi
+   psi_grad = torch.autograd.grad(psi.sum(), coords, create_graph=True)[0]
+   u_pred = psi_grad[:, 1:2]
+   v_pred = -psi_grad[:, 0:1]
+
+   # Data loss purely in Sobolev/derivative space
+   loss_data = torch.mean((u_pred - u_obs) ** 2) + torch.mean((v_pred - v_obs) ** 2)
    ```
-This avoids altering the model architecture itself, but adds explicit supervision on the derivatives of `model_psi`.
+This guarantees that mass conservation ($\nabla \cdot \mathbf{u} = 0$) is satisfied exactly while avoiding artificial high-frequency oscillations in the reconstructed stream function.
 
 ## References & Back-links
 - [[ViscoelasticNet]]
 - [[Loss_Functions]]
 - [[Viscoelastic_Training]]
+

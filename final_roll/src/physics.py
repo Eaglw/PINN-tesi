@@ -24,7 +24,7 @@ def inverse_sigmoid(y, eps=1e-7):
 class Physics(nn.Module):
     """PDE adimensionali + boundary conditions. Supporta modalità diretta o inversa."""
 
-    def __init__(self, U_ref, H_ref, H_coord=0.05, var_weights=None, inverse_mode=True, tau_scale=1.0, p_scale=50.0, use_roll_stress_bc=True, w_roll_stress=1.0):
+    def __init__(self, U_ref, H_ref, H_coord=0.05, var_weights=None, inverse_mode=True, tau_scale=1.0, p_scale=50.0, use_roll_stress_bc=True, w_roll_stress=1.0, eta_0=None):
         super().__init__()
         self.U_ref = U_ref
         self.H_ref = H_ref
@@ -36,85 +36,95 @@ class Physics(nn.Module):
         self.use_roll_stress_bc = use_roll_stress_bc
         self.w_roll_stress = w_roll_stress
 
-        # Registrazione dinamica dei parametri fisici
+        # Parametri di scala e guess (full-blind: nessuna informazione privilegiata nel training)
         mod_globals = globals()
         mu_s_true_val = getattr(builtins, "MU_S_TRUE", mod_globals.get("MU_S_TRUE", 0.1))
         mu_p_true_val = getattr(builtins, "MU_P_TRUE", mod_globals.get("MU_P_TRUE", 0.9))
-        lam_true_val = getattr(builtins, "LAM_TRUE", mod_globals.get("LAM_TRUE", 1.0))
-        eps_true_val = getattr(builtins, "EPS_TRUE", mod_globals.get("EPS_TRUE", 0.0))
-        alpha_true_val = getattr(builtins, "ALPHA_TRUE", mod_globals.get("ALPHA_TRUE", 0.0))
+        lam_true_val = getattr(builtins, "LAM_TRUE", mod_globals.get("LAM_TRUE", 0.05))
 
-        tot_v = mu_s_true_val + mu_p_true_val
-        def_beta = mu_s_true_val / tot_v if tot_v > 0 else 0.1
-        beta_true = getattr(builtins, "BETA_TRUE", mod_globals.get("BETA_TRUE", def_beta))
-        guess_beta = getattr(builtins, "GUESS_BETA", mod_globals.get("GUESS_BETA", 0.05))
+        guess_factor = getattr(builtins, "GUESS_FACTOR", 0.8)
+        guess_mu_s = getattr(builtins, "GUESS_MU_S", mu_s_true_val * guess_factor)
+        guess_mu_p = getattr(builtins, "GUESS_MU_P", mu_p_true_val * guess_factor)
+        guess_lam = getattr(builtins, "GUESS_LAM", lam_true_val * guess_factor)
 
-        guess_mu_s = getattr(builtins, "GUESS_MU_S", mod_globals.get("GUESS_MU_S", mu_s_true_val * 0.8))
-        guess_lam = getattr(builtins, "GUESS_LAM", mod_globals.get("GUESS_LAM", lam_true_val * 0.8))
-        guess_eps = getattr(builtins, "GUESS_EPS", mod_globals.get("GUESS_EPS", 0.05))
-        guess_alpha = getattr(builtins, "GUESS_ALPHA", mod_globals.get("GUESS_ALPHA", 0.05))
+        # Scala di normalizzazione globale di riferimento costante (arbitraria)
+        if eta_0 is None:
+            eta_0 = getattr(builtins, "ETA_0", getattr(builtins, "ETA_0_INIT", mod_globals.get("ETA_0", 1.0)))
+        self.register_buffer("eta_0", torch.tensor(float(eta_0), device=DEVICE, dtype=torch.float32))
 
-        params_setup = {
-            "beta": (guess_beta, beta_true),
-            "mu_s": (guess_mu_s, mu_s_true_val),
-            "lam": (guess_lam, lam_true_val),
-            "eps": (guess_eps, eps_true_val),
-            "alpha": (guess_alpha, alpha_true_val),
-        }
+        # Guess base per la log-parametrizzazione (lambda = guess_lam * exp(r_lam))
+        self.register_buffer("guess_lam", torch.tensor(guess_lam, device=DEVICE, dtype=torch.float32))
+        self.register_buffer("guess_mu_p", torch.tensor(guess_mu_p, device=DEVICE, dtype=torch.float32))
+        self.register_buffer("guess_mu_s", torch.tensor(guess_mu_s, device=DEVICE, dtype=torch.float32))
 
-        trainable_names = ["lam", "beta", "eps", "alpha"]
-        for name, (guess_val, true_val) in params_setup.items():
-            val = guess_val if (inverse_mode and name in trainable_names) else true_val
-            warmup_epoch = getattr(builtins, "WARMUP_UNLOCK_EPOCH", 0)
-            is_trainable = inverse_mode and (name in trainable_names) and (warmup_epoch == 0)
+        # Parametri raw in log-space (inizializzati a 0.0 -> param = guess)
+        self.register_parameter("_raw_lam", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32)))
+        self.register_parameter("_raw_mu_p", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32)))
+        self.register_parameter("_raw_mu_s", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32), requires_grad=False))
 
-            if name == "beta":
-                raw_val = inverse_sigmoid(val / 0.99)
-            else:
-                raw_val = inverse_softplus(val)
-
-            raw_tensor = raw_val.to(device=DEVICE)
-            raw_name = f"_raw_{name}"
-
-            if is_trainable:
-                self.register_parameter(raw_name, nn.Parameter(raw_tensor))
-            else:
-                self.register_parameter(raw_name, nn.Parameter(raw_tensor, requires_grad=False))
-
-        # Referenza fissa per adimensionalizzazione
-        self.real_mu_tot = MU_S_TRUE + MU_P_TRUE
-
-    @property
-    def beta(self):
-        return torch.sigmoid(self._raw_beta) * 0.99
-
-    @property
-    def beta_poly(self):
-        return 1.0 - self.beta
-
-    @property
-    def mu_s(self):
-        return torch.nn.functional.softplus(self._raw_mu_s) + 1e-8
-
-    @property
-    def mu_tot(self):
-        return self.mu_s / self.beta
-
-    @property
-    def mu_p(self):
-        return self.mu_tot * self.beta_poly
+        # Se non siamo in inverse_mode, i parametri sono fissi ai veri valori
+        if not inverse_mode:
+            self._raw_lam.requires_grad_(False)
+            self._raw_mu_p.requires_grad_(False)
+            self._raw_mu_s.requires_grad_(False)
 
     @property
     def lam(self):
-        return torch.nn.functional.softplus(self._raw_lam) + 1e-8
+        """Tempo di rilassamento in log-space: lambda = guess_lam * exp(r_lam)."""
+        return self.guess_lam * torch.exp(self._raw_lam).squeeze()
+
+    @property
+    def mu_p(self):
+        """Viscosita' polimerica dimensionale: eta_p = guess_mu_p * exp(r_mup)."""
+        return self.guess_mu_p * torch.exp(self._raw_mu_p).squeeze()
+
+    @property
+    def mu_p_nd(self):
+        """Viscosita' polimerica adimensionale: mu_p* = mu_p / eta_0."""
+        return self.mu_p / self.eta_0
+
+    @property
+    def mu_s(self):
+        """Viscosita' solvente dimensionale: eta_s = guess_mu_s * exp(r_mus)."""
+        return self.guess_mu_s * torch.exp(self._raw_mu_s).squeeze()
+
+    @property
+    def mu_s_nd(self):
+        """Viscosita' solvente adimensionale: mu_s* = mu_s / eta_0."""
+        return self.mu_s / self.eta_0
+
+    @property
+    def mu_tot(self):
+        """Viscosita' totale derivata: eta_tot = eta_s + eta_p."""
+        return self.mu_s + self.mu_p
+
+    @property
+    def beta(self):
+        """Rapporto viscoso derivato: beta = eta_s / (eta_s + eta_p)."""
+        return self.mu_s / (self.mu_tot + 1e-12)
+
+    @property
+    def beta_poly(self):
+        """Frazione polimerica derivata: beta_poly = eta_p / (eta_s + eta_p)."""
+        return self.mu_p / (self.mu_tot + 1e-12)
+
+    @property
+    def Re_scale(self):
+        """Numero di Reynolds basato sulla scala costante di normalizzazione eta_0."""
+        return RHO * self.U_ref * self.H_ref / self.eta_0
+
+    @property
+    def Re_phys(self):
+        """Numero di Reynolds fisico stimato basato sulla viscosita' totale eta_tot = eta_s + eta_p."""
+        return RHO * self.U_ref * self.H_ref / (self.mu_tot + 1e-12)
 
     @property
     def eps(self):
-        return torch.nn.functional.softplus(self._raw_eps)
+        return torch.tensor(0.0, device=self._raw_lam.device, dtype=self._raw_lam.dtype)
 
     @property
     def alpha(self):
-        return torch.nn.functional.softplus(self._raw_alpha)
+        return torch.tensor(0.0, device=self._raw_lam.device, dtype=self._raw_lam.dtype)
 
     def set_trainable(self, name, trainable=True):
         """Imposta requires_grad sul parametro raw sottostante."""
@@ -184,13 +194,12 @@ class Physics(nn.Module):
         return u, v, p, tau
 
     def _nondim(self):
-        """Parametri adimensionali correnti."""
-        mu_tot = self.mu_tot
-        Re = RHO * self.U_ref * self.H_ref / mu_tot
+        """Parametri adimensionali correnti scalati rispetto alla scala eta_0."""
+        mu_p_nd = self.mu_p / self.eta_0
+        mu_s_nd = self.mu_s / self.eta_0
+        Re_scale = RHO * self.U_ref * self.H_ref / self.eta_0
         Wi = self.lam * self.U_ref / self.H_ref
-        beta = self.beta
-        beta_poly = self.beta_poly
-        return Re, Wi, beta, beta_poly, self.eps, self.alpha
+        return Re_scale, Wi, mu_s_nd, mu_p_nd, self.eps, self.alpha
 
     def compute_residuals(self, x, u, v, p, tau, w_momentum=1.0, w_constitutive=1.0, frozen_velocity=False, precomputed_div_tau=None):
         """Calcola i residui PDE adimensionali saltando i calcoli se i pesi sono nulli.
@@ -201,7 +210,7 @@ class Physics(nn.Module):
                 perché model_psi è congelato. Il gradiente di pressione usa sempre
                 create_graph=True per consentire il backprop verso model_p.
         """
-        Re, Wi, beta, beta_poly, eps, alpha = self._nondim()
+        Re_scale, Wi, mu_s_nd, mu_p_nd, eps, alpha = self._nondim()
 
         # Estrazione tensori di stress passati come argomento
         tau_xx, tau_xy, tau_yy = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
@@ -236,10 +245,6 @@ class Physics(nn.Module):
 
         # --- Momentum ---
         if w_momentum > 0.0:
-            # frozen_velocity controlla create_graph per le derivate di VELOCITÀ.
-            # In Fase 2, ψ è congelato → create_graph=False per u_xx, u_yy ecc.
-            # Il gradiente di PRESSIONE usa sempre create_graph=True perché
-            # model_p è trainabile e i gradienti devono fluire attraverso dp/dx.
             cg_vel = not frozen_velocity
 
             grad_p = self._grad(p, x)
@@ -260,29 +265,23 @@ class Physics(nn.Module):
                 div_tau_y = tau_xy_x + tau_yy_y
 
             f_u = (
-                Re * (u * u_x + v * u_y)
+                Re_scale * (u * u_x + v * u_y)
                 + p_x
-                - beta * (u_xx + u_yy)
+                - mu_s_nd * (u_xx + u_yy)
                 - div_tau_x
             )
             f_v = (
-                Re * (u * v_x + v * v_y)
+                Re_scale * (u * v_x + v * v_y)
                 + p_y
-                - beta * (v_xx + v_yy)
+                - mu_s_nd * (v_xx + v_yy)
                 - div_tau_y
             )
-
-            # NOTA: i residui momentum NON vengono divisi per p_scale.
-            # A differenza dell'equazione costitutiva (dove tutti i termini scalano
-            # con tau_scale), la momentum mescola dp/dx (∝ p_scale) con termini
-            # viscosi e di stress (∝ 1). Dividere per p_scale sopprime questi
-            # ultimi e uccide il segnale di gradiente verso model_p.
         else:
             f_u = f_v = torch.zeros_like(u)
 
         # --- Costitutive ---
         if w_constitutive > 0.0:
-            f_PTT = 1.0 + (eps * Wi / beta_poly) * (tau_xx + tau_yy)
+            f_PTT = 1.0 + (eps * Wi / mu_p_nd) * (tau_xx + tau_yy)
             upper_xx = u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy
             upper_yy = u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy
             upper_xy = (
@@ -297,20 +296,20 @@ class Physics(nn.Module):
             f_txx = (
                 f_PTT * tau_xx
                 + Wi * upper_xx
-                + (alpha * Wi / beta_poly) * (tau_xx**2 + tau_xy**2)
-                - 2.0 * beta_poly * u_x
+                + (alpha * Wi / mu_p_nd) * (tau_xx**2 + tau_xy**2)
+                - 2.0 * mu_p_nd * u_x
             )
             f_tyy = (
                 f_PTT * tau_yy
                 + Wi * upper_yy
-                + (alpha * Wi / beta_poly) * (tau_xy**2 + tau_yy**2)
-                - 2.0 * beta_poly * v_y
+                + (alpha * Wi / mu_p_nd) * (tau_xy**2 + tau_yy**2)
+                - 2.0 * mu_p_nd * v_y
             )
             f_txy = (
                 f_PTT * tau_xy
                 + Wi * upper_xy
-                + (alpha * Wi / beta_poly) * tau_xy * (tau_xx + tau_yy)
-                - beta_poly * (u_y + v_x)
+                + (alpha * Wi / mu_p_nd) * tau_xy * (tau_xx + tau_yy)
+                - mu_p_nd * (u_y + v_x)
             )
 
             # Bilanciamento Loss PDE
@@ -329,7 +328,6 @@ class Physics(nn.Module):
         f_u, f_v, f_txx, f_tyy, f_txy = self.compute_residuals(
             x, u, v, p, tau, w_momentum, w_constitutive, frozen_velocity=frozen_velocity, precomputed_div_tau=precomputed_div_tau
         )
-        #divido per numero componenti
         loss_m = (f_u**2 + f_v**2).mean() / 2.0
         loss_c = (f_txx**2 + f_tyy**2 + f_txy**2).mean() / 3.0
 
@@ -349,6 +347,12 @@ class Physics(nn.Module):
         loss_u = weighted_mse(u, uv_target[:, 0:1], var_w["u"])
         loss_v = weighted_mse(v, uv_target[:, 1:2], var_w["v"])
         return 0.5 * (loss_u + loss_v)
+
+    def drift_loss(self, u, v, u_ckpt, v_ckpt):
+        """Soft drift loss normalizzata rispetto alla magnitudo cinematica di checkpoint."""
+        delta_sq = (u - u_ckpt)**2 + (v - v_ckpt)**2
+        norm_sq = (u_ckpt**2 + v_ckpt**2).mean() + 1e-6
+        return delta_sq.mean() / norm_sq
 
 
     def boundary_loss(self, model, bc_data, var_w, active_bcs=None):
@@ -407,10 +411,20 @@ class Physics(nn.Module):
         pass
 
     def log_params(self):
-        """Restituisce i parametri correnti estraendoli proceduralmente."""
+        """Restituisce i parametri correnti estraendoli proceduralmente (sia dimensionali che adimensionali)."""
         return {
-            name: getattr(self, name).item() if isinstance(getattr(self, name), torch.Tensor) else getattr(self, name)
-            for name in ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"]
+            "beta": self.beta.item(),
+            "mu_s": self.mu_s.item(),
+            "mu_p": self.mu_p.item(),
+            "mu_tot": self.mu_tot.item(),
+            "mu_s_nd": self.mu_s_nd.item(),
+            "mu_p_nd": self.mu_p_nd.item(),
+            "lam": self.lam.item(),
+            "eps": self.eps.item(),
+            "alpha": self.alpha.item(),
+            "eta_0": self.eta_0.item(),
+            "Re_scale": self.Re_scale.item(),
+            "Re_phys": self.Re_phys.item(),
         }
 
 

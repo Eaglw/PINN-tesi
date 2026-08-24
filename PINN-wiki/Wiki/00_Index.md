@@ -48,6 +48,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[EMA_Smoothing]]: Noise reduction in loss tracking
 - [[Pressure_Scaling_Issues]]: Analysis of pressure gradient singularities and why global pressure scaling destroys momentum training
 - [[Viscoelastic_Parameter_Identifiability]]: Parameter sensitivity and ill-conditioned inversion in non-dimensional Oldroyd-B models
+- [[Upper-convected time derivative]]: Analytical tensor expansion of the frame-invariant convective rate of stress
 
 
 
@@ -58,6 +59,8 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Cosine_Annealing_LR]]: Cosine annealing learning rate scheduling
 - [[Staged_Precision_Strategy]]: Hybrid FP32/FP64 training
 - [[Staged_Training_Procedure]]: Decoupled multi-phase training strategy
+- [[Soft_Anti_Drift]]: Kinematic drift prevention resolving the Helmholtz-Hodge pressure inference limit
+- [[Adaptive_Nondimensionalization]]: Block-wise adaptive scaling protocol decoupling numerical Reynolds from physical viscosities
 - [[DeepXDE]]: Multi-backend PIML library
 - [[SDF_for_Discontinuities]]: Handling sharp transitions in BCs
 - [[Sobolev_Regularization]]: Derivative supervision for stream function kinematics
@@ -74,10 +77,12 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Viscoelastic_Residual_Scaling]]: PDE residual normalization using velocity-only heuristics
 - [[Vorticity_Regularization]]: Vorticity transport equation as Phase 1 regularizer to ensure conservative momentum fields
 - [[Postprocessing_and_Evaluation]]: Standalone checkpoint restoration, metric evaluation, and diagnostic plot generation protocol
+- [[Lasso_Regularization]]: L1 regularization for parsimonious constitutive model discovery (PTT/Giesekus pruning)
 
 
 
 ## Physical Systems
+- [[Analisi geometria in tubo semplice]]: Identifiability limits and inverse problem breakdown in 1D channel flow
 - [[CSTR_Modeling]]: Non-isothermal reactor analysis
 - [[Heat2D_Analysis]]: 2D Heat Transfer (Laplace) optimization
 - [[Harmonic_Oscillator]]: Benchmark system for oscillatory dynamics

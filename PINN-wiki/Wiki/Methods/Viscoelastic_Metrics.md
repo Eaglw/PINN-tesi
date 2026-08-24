@@ -17,10 +17,23 @@ Introdotte nel log del [[01_Log#2026-05-10|2026-05-10]]:
   *Nota: I campi con soluzione esatta nulla (es. $\tau_{yy}$ nel Poiseuille) vengono esclusi per evitare divisioni per zero.*
 - **Max_global (Affidabilità Worst-case)**: Il valore massimo assoluto tra tutti i `Max_f`. Rappresenta il punto di massima deviazione fisica dell'intero sistema.
 
+### 3. Metriche L2 Mascherate per lo Stress ad Alti Gradienti (Masked L2 > 5%)
+Nelle geometrie complesse (es. Four-Roll Mill), vaste porzioni del dominio presentano campi di extra-stress vicini allo zero, mentre gradienti estremamente ripidi e singolarità locali si concentrano negli stretti meati tra i rulli controrotanti. L'errore $L2$ relativo calcolato sull'intero dominio rischia di essere distorto da denominatori quasi nulli.
+
+Per valutare fedelmente la qualità fisica della ricostruzione reologica nelle regioni di effettivo sforzo, viene calcolato l'**errore L2 mascherato** (`tau_masked`) isolando i nodi in cui l'ampiezza dello stress supera la soglia del 5% del valore massimo:
+$$
+\Omega_{\text{high}} = \left\{ \mathbf{x} \in \Omega \;\middle|\; |\tau_{\text{exact}}(\mathbf{x})| \ge 0.05 \cdot \max_{\mathbf{x}} |\tau_{\text{exact}}(\mathbf{x})| \right\}
+$$
+$$
+L2_{\tau,\text{masked}} = \frac{\|\tau_{\text{pred}} - \tau_{\text{exact}}\|_{2, \Omega_{\text{high}}}}{\|\tau_{\text{exact}}\|_{2, \Omega_{\text{high}}}}
+$$
+Questo indicatore viene calcolato separatamente per $\tau_{xx}, \tau_{xy}, \tau_{yy}$ e per la prima differenza delle tensioni normali $N_1 = \tau_{xx} - \tau_{yy}$, garantendo una diagnostica quantitativa priva di artefatti numerici dovuti a zone asintoticamente a riposo.
+
 ## Application
-Queste metriche vengono salvate automaticamente in `results.csv` e permettono di confrontare diverse architetture (es. [[Tapered_Architectures]]) in termini di bilanciamento tra accuratezza della velocità e delle componenti di stress.
+Queste metriche vengono calcolate da `compute_l2_errors` in `final_roll/src/physics.py` e registrate sia nei log di addestramento che nei report finali di post-processing (vedi [[Postprocessing_and_Evaluation]]). Permettono un confronto rigoroso tra architetture ([[Tapered_Architectures]], SiLU vs Tanh) e tra i diversi regimi di elasticità ($Wi$).
 
 ## References
 - [[Viscoelastic_Plotting_Updates]]: Documentation of visualization overhaul.
-- Implementazione in `func/logging_utils.py`.
-- Utilizzato per il benchmarking del sistema [[Viscoelastic_Fluids]].
+- [[Postprocessing_and_Evaluation]]: Standalone metric evaluation and diagnostic plots.
+- [[Viscoelastic_Training]]: Main experiment guide for viscoelastic fluid flows.
+- [[Viscoelastic_Fluids]]: Non-Newtonian stress discovery physics.

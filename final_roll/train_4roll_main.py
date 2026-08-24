@@ -86,58 +86,69 @@ RESUME_CHECKPOINT = None
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
 MU_P_TRUE = 0.9  # Viscosità polimerica [Pa·s]
-BETA_TRUE = MU_S_TRUE / (MU_S_TRUE + MU_P_TRUE)  # Rapporto di viscosità (0.10)
+MU_TOT_TRUE = MU_S_TRUE + MU_P_TRUE  # Viscosità totale [Pa·s] (1.0)
+BETA_TRUE = MU_S_TRUE / MU_TOT_TRUE  # Rapporto di viscosità (0.10)
 LAM_TRUE = 0.05  # Tempo di rilassamento [s]
-EPS_TRUE = 0.0  # Parametro PTT
-ALPHA_TRUE = 0.0  # Parametro Giesekus
+EPS_TRUE = 0.0  # Parametro PTT (bloccato a 0)
+ALPHA_TRUE = 0.0  # Parametro Giesekus (bloccato a 0)
 RHO = 1000.0  # Densità [kg/m³]
 
-# --- Costanti e Guess Iniziali ---
+# --- Costanti e Calcolo Dinamico dei Guess Iniziali (Log-Space Parametrization) ---
 MIN_MU_S = 1e-6
 MIN_MU_P = 1e-6
 MIN_LAM = 1e-6
 
-GUESS_MULTIPLIER = 0.8
-GUESS_MU_S = MU_S_TRUE * GUESS_MULTIPLIER
-GUESS_MU_P = MU_P_TRUE * GUESS_MULTIPLIER
-GUESS_BETA = 0.05
-GUESS_LAM = LAM_TRUE * GUESS_MULTIPLIER
-GUESS_EPS = 0.05
-GUESS_ALPHA = 0.05
+# Scala di normalizzazione globale di riferimento (arbitraria, default 2.0 Pa*s)
+ETA_0 = 2.0
+
+# Fattore di perturbazione per i parametri del problema inverso (es. 0.80 = 80% del valore reale)
+GUESS_FACTOR = 0.80
+
+GUESS_LAM = LAM_TRUE * GUESS_FACTOR                      # 0.05 * 0.80 = 0.0400 s
+GUESS_MU_S = MU_S_TRUE * GUESS_FACTOR                    # 0.10 * 0.80 = 0.0800 Pa·s
+GUESS_MU_P = MU_P_TRUE * GUESS_FACTOR                    # 0.90 * 0.80 = 0.7200 Pa·s
+GUESS_MU_TOT = GUESS_MU_S + GUESS_MU_P                  # 0.8000 Pa·s
+GUESS_BETA = GUESS_MU_S / GUESS_MU_TOT                  # 0.1000
+GUESS_EPS = 0.0
+GUESS_ALPHA = 0.0
 
 # --- Architettura Neural Network ---
 HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
-# --- Iperparametri di Training ---
-ADAM_EPOCHS_PHASE1 = 30000
-ADAM_EPOCHS_PHASE2 = 0
-USE_LBFGS_PHASE1 = True  # Attivato per procedere alla fase 1.5 L-BFGS
-USE_LBFGS_PHASE2 = False   # Disattivato per terminare dopo la fase 1.5
-LBFGS_MAX_ITERS_PHASE1 = 10000
-LBFGS_MAX_ITERS_PHASE2 = 0
+# --- Iperparametri di Training a 2 Fasi Disaccoppiate ---
+# Fase 1: Cinematica & Reologia (model_psi, model_tau -> lam, mu_p)
+ADAM_EPOCHS_PHASE1 = 20000
+USE_LBFGS_PHASE1 = True
+LBFGS_MAX_ITERS_PHASE1 = 5000
+
+# Fase 2: Idrodinamica & Pressione (model_p, model_psi low-LR -> mu_s)
+ADAM_EPOCHS_PHASE2 = 15000
+USE_LBFGS_PHASE2 = True
+LBFGS_MAX_ITERS_PHASE2 = 5000
+
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
-BETA_LR_FACTOR = 5.0  # Moltiplicatore LR dedicato solo per il parametro beta
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
-WARMUP_UNLOCK_EPOCH = 5000  # Sblocco parametri fisici dopo 5000 epoche di warmup cinematica
+WARMUP_UNLOCK_EPOCH = 0  # 0: parametri attivi fin da epoca 0; >0: sblocco senza reset Adam
 
 # --- Pesi Funzione di Loss ---
-W_BC = 5.0      # Aumentato da 2.0 a 5.0 per vincolare meglio l'ancoraggio del punto di pressione
+W_BC = 5.0      # Vincola l'ancoraggio del punto di pressione e boundary
 W_PHYSICS = 3.0
 W_DATA = 1.0    
 W_MOMENTUM = 1.0
 W_CONSTITUTIVE = 1.0
+W_DRIFT = 0.1   # Soft Anti-drift penalty per model_psi in Fase 2
 VARIANCE_EPS = 1e-4
 
 # ============================================================================
 # 3. INIZIALIZZAZIONE OUTPUT
 # ============================================================================
 layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
-config_name = f"{DATASET_PATH.stem}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+config_name = f"{DATASET_PATH.stem}_eta0_{ETA_0}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 if RESUME_CHECKPOINT is not None:
     OUTPUT_DIR = Path(RESUME_CHECKPOINT).parent
@@ -165,7 +176,7 @@ if __name__ == "__main__":
         print("=" * 60)
 
     # 1. Caricamento Dati
-    data = load_data()
+    data = load_data(eta_0=ETA_0)
 
     # 2. Inizializzazione Modello e Fisica
     model = CombinedModel(p_scale=data["p_scale"], tau_scale=data["tau_scale"]).to(
@@ -185,15 +196,18 @@ if __name__ == "__main__":
         inverse_mode=INVERSE_PROBLEM,
         tau_scale=data["tau_scale"],
         p_scale=data["p_scale"],
+        eta_0=ETA_0,
     ).to(DEVICE)
 
     # Recap Configurazione
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nModello: {total_params:,} parametri totali")
     if INVERSE_PROBLEM:
-        print("Modalità: PROBLEMA INVERSO MULTI-PARAMETRO (lam, beta, eps, alpha da identificare in Fase 1)")
-        print(f" Guess: lam={GUESS_LAM} (true: {LAM_TRUE}), beta={GUESS_BETA} (true: {BETA_TRUE:.4f}), eps={GUESS_EPS} (true: {EPS_TRUE}), alpha={GUESS_ALPHA} (true: {ALPHA_TRUE})")
-        print(f" Parametri fissi in Fase 1: mu_s={MU_S_TRUE} (mu_tot=1.0)")
+        print("Modalità: PROBLEMA INVERSO MULTI-PARAMETRO LOG-SPACE (lam, mu_p in Fase 1 -> mu_s in Fase 2)")
+        print(f" Scala di Riferimento Costante: eta_0={physics.eta_0.item():.2f} Pa·s (arbitraria)")
+        print(f" Guess Dimensionali:  lam={physics.lam.item():.4f} s (true: {LAM_TRUE}), mu_p={physics.mu_p.item():.4f} Pa·s (true: {MU_P_TRUE}), mu_s={physics.mu_s.item():.4f} Pa·s (true: {MU_S_TRUE})")
+        print(f" Guess Adimensionali: mu_p*={physics.mu_p_nd.item():.4f} (true: {MU_P_TRUE/ETA_0:.4f}), mu_s*={physics.mu_s_nd.item():.4f} (true: {MU_S_TRUE/ETA_0:.4f})")
+        print(f" Derivati: eta_tot={physics.mu_tot.item():.4f} Pa·s (true: {MU_TOT_TRUE}), beta={physics.beta.item():.4f} (true: {BETA_TRUE:.4f})")
     else:
         print("Modalità: PROBLEMA DIRETTO (Parametri fisici bloccati ai valori veri)")
         print(f" Valori veri: beta={BETA_TRUE}, mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, lam={LAM_TRUE}")
@@ -205,6 +219,7 @@ if __name__ == "__main__":
         from src.utils import init_run_in_obsidian
         config_details = {
             "dataset": DATASET_PATH.name,
+            "eta_0": ETA_0,
             "epochs": ADAM_EPOCHS_PHASE1 + ADAM_EPOCHS_PHASE2,
             "inverse_problem": INVERSE_PROBLEM,
             "staged_training": STAGED_TRAINING,
@@ -236,12 +251,17 @@ if __name__ == "__main__":
 
     # 4. Report Risultati Finali
     params = physics.log_params()
-    print(f"\n{'=' * 60}\nRISULTATI FINALI PARAMETRI FISICI\n{'=' * 60}")
-    for p_name, true_val in zip(
-        ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"],
-        [BETA_TRUE, MU_S_TRUE, MU_P_TRUE, LAM_TRUE, EPS_TRUE, ALPHA_TRUE],
-    ):
-        print(f"  {p_name:<5s}: {params[p_name]:.6f}  (true: {true_val})")
+    print(f"\n{'=' * 60}\nRISULTATI FINALI PARAMETRI FISICI (Dimensionali e Adimensionali)\n{'=' * 60}")
+    print(f"  eta_0 (scala rif.) : {params['eta_0']:.6f} Pa·s")
+    print(f"  mu_p* (adimens.)   : {params['mu_p_nd']:.6f}  (true: {MU_P_TRUE/ETA_0:.6f})")
+    print(f"  mu_p  (dimension.) : {params['mu_p']:.6f} Pa·s (true: {MU_P_TRUE:.6f})")
+    print(f"  mu_s* (adimens.)   : {params['mu_s_nd']:.6f}  (true: {MU_S_TRUE/ETA_0:.6f})")
+    print(f"  mu_s  (dimension.) : {params['mu_s']:.6f} Pa·s (true: {MU_S_TRUE:.6f})")
+    print(f"  mu_tot (dimension.): {params['mu_tot']:.6f} Pa·s (true: {MU_TOT_TRUE:.6f})")
+    print(f"  beta  (ratio)      : {params['beta']:.6f}  (true: {BETA_TRUE:.6f})")
+    print(f"  lam   (dimension.) : {params['lam']:.6f} s (true: {LAM_TRUE:.6f})")
+    print(f"  eps   (PTT)        : {params['eps']:.6f}  (true: {EPS_TRUE:.6f})")
+    print(f"  alpha (Giesekus)   : {params['alpha']:.6f}  (true: {ALPHA_TRUE:.6f})")
 
     final_losses = evaluate_final_losses(model, physics, data)
     print(f"\n{'=' * 60}\nREPORT FINALE DETTAGLIATO\n{'=' * 60}")

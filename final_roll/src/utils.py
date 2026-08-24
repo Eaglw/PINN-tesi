@@ -55,7 +55,7 @@ def weighted_mse(pred, target, var):
     return torch.mean(((pred - target) ** 2) / var)
 
 
-def load_data(filepath=None, use_fp64=False):
+def load_data(filepath=None, use_fp64=False, eta_0=None):
     """Carica il dataset COMSOL, adimensionalizza, estrae boundary groups e prepara i tensori."""
     mod_globals = globals()
     target_path = filepath or getattr(builtins, "DATASET_PATH", mod_globals.get("DATASET_PATH", None))
@@ -87,11 +87,10 @@ def load_data(filepath=None, use_fp64=False):
     H_coord = max(y_max - y_min, 1e-9)
     H = 0.005  # Raggio dei roll come lunghezza caratteristica [m]
     U_ref = max(float(np.max(np.sqrt(u_raw**2 + v_raw**2))), 1e-9)
-    mu_tot = MU_S_TRUE + MU_P_TRUE
-    p_ref = mu_tot * U_ref / H
-    tau_ref = (
-        mu_tot * U_ref / H
-    )  # scaling viscoso, quindi riferimento uguale per eq adimensionali.
+    if eta_0 is None:
+        eta_0 = getattr(builtins, "ETA_0", getattr(builtins, "ETA_0_INIT", mod_globals.get("ETA_0", 1.0)))
+    p_ref = eta_0 * U_ref / H
+    tau_ref = eta_0 * U_ref / H
 
     # --- 3. Adimensionalizzazione (Vettorizzata) ---
     x_nd, y_nd = (
@@ -135,8 +134,7 @@ def load_data(filepath=None, use_fp64=False):
     # --- 5. Calcolo Varianze Automatizzato ---
     variance_eps = getattr(builtins, "VARIANCE_EPS", mod_globals.get("VARIANCE_EPS", 1e-4))
     rho_val = getattr(builtins, "RHO", mod_globals.get("RHO", 1000.0))
-    mu_s_val = getattr(builtins, "MU_S_TRUE", mod_globals.get("MU_S_TRUE", 0.1))
-    lam_val = getattr(builtins, "LAM_TRUE", mod_globals.get("LAM_TRUE", 1.0))
+    lam_val = getattr(builtins, "LAM_TRUE", mod_globals.get("LAM_TRUE", 0.05))
 
     var_weights = {
         name: max(t.var().item(), variance_eps) for name, t in tensors.items()
@@ -144,9 +142,9 @@ def load_data(filepath=None, use_fp64=False):
 
     # --- 6. Stampa Statistiche ---
     print(f"  Punti totali: {N}")
-    print(f"  H={H:.6e}, H_coord={H_coord:.6e}, U_ref={U_ref:.6e}, p_ref={p_ref:.6e}")
+    print(f"  H={H:.6e}, H_coord={H_coord:.6e}, U_ref={U_ref:.6e}, p_ref={p_ref:.6e}, tau_ref={tau_ref:.6e}")
     print(
-        f"  Re={rho_val * U_ref * H / mu_tot:.4f}, Wi={lam_val * U_ref / H:.4f}, beta={mu_s_val / mu_tot:.4f}"
+        f"  eta_0={eta_0:.4f}, Re_0={rho_val * U_ref * H / eta_0:.4f}, Wi_true={lam_val * U_ref / H:.4f}"
     )
     print(f"  [Output Scaling] p_scale={p_scale:.4f}, tau_scale={tau_scale:.4f}")
 
@@ -170,6 +168,9 @@ def load_data(filepath=None, use_fp64=False):
         "U_ref": U_ref,
         "H": H,
         "H_coord": H_coord,
+        "eta_0": eta_0,
+        "p_ref": p_ref,
+        "tau_ref": tau_ref,
         "p_scale": p_scale,
         "tau_scale": tau_scale,
     }

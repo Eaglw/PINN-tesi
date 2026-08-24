@@ -411,3 +411,58 @@
 
 
 
+## [2026-08-18] update_wiki | Lasso Regularization for Parsimonious Viscoelastic Discovery
+
+### Contesto e Teoria
+- Documentata la formulazione della penalizzazione $L_1$ (Lasso) per la selezione e discovery autonoma dei modelli costitutivi (PTT / Giesekus / Oldroyd-B).
+- Spiegata la differenza fondamentale tra contrazione $L_2$ (Ridge) e sparsità esatta $L_1$ (forza costante di restore verso zero).
+
+### Pagine Create
+- **[[Lasso_Regularization]]** (Methods): Nuova pagina metodologica con formulazione matematica, confronto $L_1$ vs $L_2$ e workflow di integrazione nel framework PINN.
+
+### Pagine Modificate
+- **[[00_Index]]**: Aggiunta voce [[Lasso_Regularization]] nella sezione Technical Methods.
+
+
+## [2026-08-21] update_wiki | Full-Blind Inverse PINN Paradigm, Offline SVD Identifiability & Helmholtz-Hodge Resolution
+
+### Contesto e Teoria
+- **Autopsia Fallimento Run 010**: Spiegato il motivo per cui legare $Re = \frac{\rho U H}{\eta_{\text{tot}}}$ a una viscosità totale trainabile $\eta_{\text{tot}}$ creava una degenerazione numerica ($\eta_{\text{tot}} \downarrow \implies Re \uparrow \implies \beta \to 0, \eta_{\text{tot}} \to 0.027\ \text{Pa}\cdot\text{s}, L_2(p) \approx 258\%$).
+- **Nuovo Paradigma di Adimensionalizzazione Decoupled**: Separata la scala numerica $\eta_0$ ($Re_{\text{scale}} = \frac{\rho U H}{\eta_0}$) dalle viscosità fisiche primarie indipendenti $\eta_s > 0, \eta_p > 0$ in coordinate logaritmiche ($e^r$). I valori composti $\eta_{\text{tot}}, \beta, Re_{\text{phys}}$ sono calcolati esclusivamente a posteriori.
+- **Risoluzione Limite Helmholtz-Hodge**: Dimostrato che l'hard freeze di $\psi$ in Fase 2 amplifica il rumore sulle derivate 2ᵉ e 3ᵉ, creando una componente solenoidale non integrabile in $\nabla p$. Risolto mediante sblocco di $\psi$ a basso LR ($10^{-4}$) vincolato dalla loss **Soft Anti-Drift** $\mathcal{L}_{\text{drift}}$.
+- **Studi di Identificabilità Offline (COMSOL High-Fidelity)**:
+  - Condizionamento SVD su legge costitutiva: $\sigma_1 = 385.1, \sigma_2 = 286.5 \implies \kappa(J_{\text{con}}) = 1.34$. Stima least-squares recupera $\lambda$ allo $0.10\%$ ed $\eta_p$ allo $0.01\%$.
+  - Isolamento di $\eta_s$: Il Direct Momentum su dati COMSOL raggiunge correlazione $0.8929$ ed errore su $\eta_s$ dell'$1.03\%$, mentre la formulazione a rotore (Curl) collassa al $95\%$ di errore a causa dell'amplificazione del rumore nelle differenze finite ($1/\Delta x^2 \approx 1250$).
+  - Tabella di robustezza al rumore sintetico (0% - 2%): La reologia $(\lambda, \eta_p)$ rimane stabile anche con $1\%$ di rumore ($\approx 7\%$ err), mentre il collasso di $\eta_s$ a differenze finite dimostra il vantaggio fondamentale della PINN (rappresentazione liscia globale e derivate esatte tramite Autograd).
+- **Deprecazione Fase 3**: Rimossa la fase di unfreezing globale congiunto, confermando la pipeline rigorosa a 2 Fasi (ciascuna con ciclo Adam FP32 + L-BFGS FP64).
+
+### Pagine Create
+- **[[Soft_Anti_Drift]]** (Methods): Metodo di regolarizzazione cinematica $\mathcal{L}_{\text{drift}}$ per risolvere il limite di Helmholtz-Hodge in Fase 2.
+- **[[Adaptive_Nondimensionalization]]** (Methods): Protocollo di aggiornamento a blocchi EMA ($K=2000$ epoche, $\alpha=0.1$, clamping $[0.5, 2.0]$) per la scala numerica $\eta_0$ con gradiente detached.
+
+### Pagine Modificate
+- **[[Viscoelastic_Parameter_Identifiability]]** (Topics): Riscritta e aggiornata con analisi SVD, tabella di robustezza al rumore, confronto Direct Momentum vs Curl e parametrizzazione log-space.
+- **[[Staged_Training_Procedure]]** (Methods): Aggiornata all'architettura a 2 Fasi, deprecando formalmente la Fase 3 congiunta.
+- **[[Nondimensionalization]]** (Topics): Integrata la distinzione tra formulazione forward e inverse decoupled scaling.
+- **[[Pressure_Stress_Decoupling]]** (Topics): Integrata la risoluzione del limite Helmholtz-Hodge via Soft Anti-Drift.
+- **[[Viscoelastic_Training]]** (Systems): Aggiornata l'autopsia del Run 010, le metriche di monitoraggio diagnostico e la roadmap dei test sperimentali (Multi-start, Scale sweep, Noise-aware PINN, Ablation study).
+- **[[00_Index]]**: Registrate le nuove pagine metodologiche.
+
+## [2026-08-21] update_wiki | Comprehensive Wiki Audit, Index Alignment & Technical Enhancements
+
+### Azioni di Manutenzione e Bonifica Eseguite
+- **Scansione Completa del Vault**: Eseguito audit sistematico su tutti i 67 file markdown della Wiki (`Wiki/` e sottocartelle `Literature/`, `Methods/`, `Systems/`, `Topics/`).
+- **Verifica e Indicizzazione 100%**: Aggiunte le pagine mancanti in `Wiki/00_Index.md`:
+  - `[[Analisi geometria in tubo semplice]]` sotto la sezione `## Physical Systems`.
+  - `[[Upper-convected time derivative]]` sotto la sezione `## Thematic Topics`.
+  - Confermato che tutte le 65 pagine della Wiki sono ora perfettamente catalogate e linkate nell'indice.
+- **Risoluzione Incongruenze e Deprecazione Fase 3**:
+  - In `Wiki/Methods/ViscoelasticNet.md` e `Wiki/Methods/Cosine_Annealing_LR.md`, rimossi i residui storici che descrivevano una Fase 3 attiva, uniformando la documentazione al protocollo consolidato a **2 Fasi disaccoppiate** (Fase 1: Cinematica & Reologia; Fase 2: Idrodinamica & Pressione) con cicli Adam FP32 + L-BFGS FP64.
+  - In `Wiki/Methods/ViscoelasticNet_Full model.md`, chiarita la log-parametrizzazione non vincolata ($\lambda = \lambda_{\text{guess}} e^{r_\lambda}$, $\eta_p = \eta_{p,\text{guess}} e^{r_p}$, $\eta_s = \eta_{s,\text{guess}} e^{r_s}$) in sostituzione di `torch.abs` e clamping in-place.
+  - In `Wiki/Methods/Sobolev_Regularization.md`, allineata la convenzione dei target alla politica semi-inversa di progetto (supervisione interna pura sui soli campi di velocità $u_{\text{obs}}, v_{\text{obs}}$, senza mai passare dati interni di stress o $\psi$).
+- **Integrazione "Buchi" Tecnici e Ottimizzazioni**:
+  - In `Wiki/Methods/GPU_Optimization.md`: Documentata la precomputazione statica della divergenza dello extra-stress (`precompute_stress_divergence`) in Fase 2 per dimezzare i tempi computazionali di autograd.
+  - In `Wiki/Methods/VRAM_Optimization.md`: Integrata la documentazione sull'algoritmo di autotuning dinamico della dimensione dei blocchi (`get_optimal_chunk_size`).
+  - In `Wiki/Methods/Viscoelastic_Metrics.md`: Formalizzata la definizione dell'errore relativo $L2$ mascherato al 5% per la valutazione accurata dello stress in regioni ad alto gradiente / singolarità geometriche.
+- **Link Integrity Linting**: Eseguito script di verifica: **0 link rotti** e **100% integrità confermata** su tutto il grafo della Wiki.
+
