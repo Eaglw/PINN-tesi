@@ -292,7 +292,7 @@ def main():
 
     chk = torch.load(checkpoint_path, map_location=DEVICE)
     model.load_state_dict(chk["model_state_dict"])
-    physics.load_state_dict(chk["physics_state_dict"])
+    physics.load_state_dict(chk["physics_state_dict"], strict=False)
 
     history = SimpleHistory()
     if "history_state_dict" in chk:
