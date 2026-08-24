@@ -29,7 +29,7 @@ Questa scelta di design ingegneristico permette all'oggetto scheduler di non dov
 Nonostante il riferimento al paper SGDR, la classe `CosineAnnealingLR` **non effettua i restart**. Esegue un'unica discesa continua lungo l'intero intervallo di $T_{max}$ epoche. Se si desiderano riavvii periodici (in cui il learning rate "salta" nuovamente a $\eta_{\max}$ per sfuggire a minimi locali sub-ottimali), è necessario utilizzare `CosineAnnealingWarmRestarts`.
 
 ## Technical Implementation & Physical Details
-Nello schema di addestramento del progetto PINN viscoelastico (specialmente in modalità `semi_inverse`), il Cosine Annealing viene utilizzato durante le fasi di ottimizzazione con Adam (Phase 1 e Phase 2) per regolare il learning rate prima della transizione alla Phase 3 di fine-tuning con L-BFGS a doppia precisione (FP64).
+Nello schema di addestramento del progetto PINN viscoelastico (specialmente in modalità `semi_inverse` e staged training), il Cosine Annealing viene utilizzato durante le fasi di esplorazione con Adam (Fase 1 per $\psi, \boldsymbol{\tau}$ e Fase 2 per $p$) per regolare in modo continuo il learning rate prima delle rispettive transizioni alle fasi di raffinamento fisico con L-BFGS a doppia precisione (FP64).
 
 ### PyTorch Example
 ```python

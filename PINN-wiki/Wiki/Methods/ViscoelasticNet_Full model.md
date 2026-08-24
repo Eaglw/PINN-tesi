@@ -45,10 +45,17 @@ By training the parameters $\epsilon$ and $\alpha$, we can classify the flow beh
 
 The implementation spans across the main physics script, optimization pipeline, and plotting helpers.
 
-### 1. Physics Model (`ViscoelasticPhysics`)
-In `Viscoelastic_physics.py`, the parameters $\epsilon$ and $\alpha$ are registered as trainable parameters if `inverse_mode` is enabled, or as static buffers otherwise.
+### 1. Physics Model & Log-Space Parameterization
+In the production framework (`final_roll/src/physics.py`), physical parameters are strictly mapped via an **unconstrained log-space parameterization** rather than ad-hoc in-place clipping:
+$$
+\lambda = \lambda_{\text{guess}} \exp(r_\lambda), \quad \eta_p = \eta_{p,\text{guess}} \exp(r_{\eta_p}), \quad \eta_s = \eta_{s,\text{guess}} \exp(r_{\eta_s})
+$$
+where $r_\lambda, r_{\eta_p}, r_{\eta_s} \in \mathbb{R}$ are unconstrained PyTorch `nn.Parameter` tensors initialized at zero, and $\lambda_{\text{guess}}, \eta_{p,\text{guess}}, \eta_{s,\text{guess}}$ are registered buffers. This guarantees:
+1. Strict mathematical positivity ($\lambda > 0, \eta_p > 0, \eta_s > 0$) without hard barriers.
+2. Smooth gradients across orders of magnitude during both Adam and L-BFGS optimization.
+3. Elimination of non-differentiable `torch.abs()` gradient kinks at zero.
 
-To guarantee physical validity, the parameters are passed through a `torch.abs()` mapping in the residual calculations to ensure they remain non-negative.
+For multi-model discovery with $\epsilon$ and $\alpha$, non-negativity can similarly be enforced via exponential or softplus mappings.
 
 #### Tensor Components for $\boldsymbol{\tau} \cdot \boldsymbol{\tau}$
 In two dimensions:
@@ -66,15 +73,15 @@ Thus, the code directly assigns `v_yy = -u_yx`, preventing PyTorch from construc
 For the full dimensional analysis and mathematical derivation of the scaled Navier-Stokes and PTT-Giesekus residuals shown below, see [[Nondimensionalization]].
 
 ```python
-# Extract effective physical parameters
-mu_s_eff = torch.abs(self.mu_s)
-mu_p_eff = torch.abs(self.mu_p)
-lam_eff  = torch.abs(self.lam)
-eps_eff  = torch.abs(self.epsilon)
-alpha_eff = torch.abs(self.alpha)
+# Effective physical parameters via property methods (log-space)
+mu_s_eff = self.mu_s       # guess_mu_s * exp(r_mus)
+mu_p_eff = self.mu_p       # guess_mu_p * exp(r_mup)
+lam_eff  = self.lam        # guess_lam  * exp(r_lam)
+eps_eff  = self.epsilon
+alpha_eff = self.alpha
 
 # Pre-calculate common scalar factors
-lam_over_etap = lam_eff / mu_p_eff
+lam_over_etap = lam_eff / (mu_p_eff + 1e-12)
 tr_tau = tau_xx + tau_yy
 
 # Compute coefficients
@@ -101,26 +108,8 @@ f_tau_xy = ptt_coeff * tau_xy + lam_eff * (
 
 An exhaustive tracking system is required to evaluate the convergence of all five inverse parameters ($\eta_s$, $\eta_p$, $\lambda$, $\epsilon$, $\alpha$).
 
-### 1. Parameter Clamping & Registration
-During both Adam and L-BFGS optimization phases, the parameters must be registered for optimization and clamped at each iteration step to prevent numerical instability or negative physical values.
-
-In `Viscoelastic_PINN.py`:
-```python
-def setup_inverse_parameters(physics_problem):
-    params_to_clamp = []
-    if getattr(physics_problem, 'inverse_mode', False):
-        for p_name in ['mu_s', 'mu_p', 'lam', 'epsilon', 'alpha']:
-            p_val = getattr(physics_problem, p_name)
-            if isinstance(p_val, torch.Tensor) and p_val.requires_grad:
-                params_to_clamp.append(p_val)
-    return params_to_clamp
-```
-
-At each optimization epoch, we clamp the parameters in-place:
-```python
-# Within training loop:
-clamp_physical_parameters_(params_to_clamp)
-```
+### 1. Parameter Registration & Log-Space Inversion
+During optimization, only active unconstrained raw parameters (e.g. `_raw_lam`, `_raw_mu_p` in Phase 1; `_raw_mu_s` in Phase 2) are passed to the optimizer parameter groups, ensuring that backpropagation directly updates log-residuals without post-step clamping.
 
 ### 2. Convergence Logs & History Tracking
 The training history dictionary (`history_entry`) captures the scalar values at each log interval:

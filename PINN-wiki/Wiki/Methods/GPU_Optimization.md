@@ -47,6 +47,13 @@ Attualmente, `torch.autograd.grad(..., create_graph=True)` usa il classico *Reve
 - **La Soluzione**: Il **Forward-Mode AutoDiff** (es. `torch.autograd.forward_ad`) spinge i gradienti in avanti insieme alla computazione standard della rete. Bastano 2 passate (una per la tangente $x$, una per $y$) per ottenere simultaneamente tutte le derivate incrociate per ogni equazione.
 - **Implementazione**: Richiede una riscrittura profonda dei layer fisici per utilizzare il dual tensor system invece del tradizionale backward tracking, ma per PDE complesse è lo "stato dell'arte".
 
+### 8. Precomputazione della Divergenza dello Stress (`precompute_stress_divergence`) — [ATTIVA IN FASE 2]
+Durante la **Fase 2** (Hydrodynamics & Pressure), le reti cinematiche (`model_psi`) e reologiche (`model_tau`) sono congelate. 
+- **Problema**: Valutare $\nabla \cdot \boldsymbol{\tau} = (\partial_x \tau_{xx} + \partial_y \tau_{xy}, \partial_x \tau_{xy} + \partial_y \tau_{yy})$ tramite `torch.autograd.grad` ad ogni iterazione di Adam o L-BFGS costringerebbe PyTorch a rieseguire il forward pass su `model_tau` e ricostruire rami di grafo non necessari.
+- **Soluzione**: La funzione `precompute_stress_divergence` calcola la divergenza dello stress tensoriale una sola volta all'ingresso della Fase 2 (eseguita a blocchi per minimizzare la memoria di picco) e la memorizza come tensore statico `div_tau_int` scollegato dal grafo autograd.
+- **Impatto**: Dimezza i tempi di calcolo per epoca della Fase 2 ed elimina completamente l'overhead di calcolo delle derivate parziali dello stress durante l'ottimizzazione della pressione.
+
 ## Related
 - **Systems**: [[Viscoelastic_Fluids]]
 - **Methods**: [[Loss_History_Tracking]]
+- **Methods**: [[VRAM_Optimization]]

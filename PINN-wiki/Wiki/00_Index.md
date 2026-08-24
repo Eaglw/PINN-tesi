@@ -48,6 +48,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[EMA_Smoothing]]: Noise reduction in loss tracking
 - [[Pressure_Scaling_Issues]]: Analysis of pressure gradient singularities and why global pressure scaling destroys momentum training
 - [[Viscoelastic_Parameter_Identifiability]]: Parameter sensitivity and ill-conditioned inversion in non-dimensional Oldroyd-B models
+- [[Upper-convected time derivative]]: Analytical tensor expansion of the frame-invariant convective rate of stress
 
 
 
@@ -81,6 +82,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 
 
 ## Physical Systems
+- [[Analisi geometria in tubo semplice]]: Identifiability limits and inverse problem breakdown in 1D channel flow
 - [[CSTR_Modeling]]: Non-isothermal reactor analysis
 - [[Heat2D_Analysis]]: 2D Heat Transfer (Laplace) optimization
 - [[Harmonic_Oscillator]]: Benchmark system for oscillatory dynamics

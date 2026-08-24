@@ -41,6 +41,11 @@ In the stream function formulation ($\psi$), evaluating second-order spatial der
   ```
   This algebraic substitution prevents PyTorch from building a massive branch of the computational graph during backpropagation, resulting in a substantial reduction in peak VRAM consumption on the GPU and preventing memory exhaustion during backpropagation.
 
+### 7. Automatic Dynamic Chunk Sizing (`get_optimal_chunk_size`)
+In earlier implementations, chunk sizes were statically hardcoded (e.g., fixed at 500 points for 4GB GPUs). 
+- **Optimization**: The modern pipeline (`final_roll/src/utils.py`) dynamically probes free VRAM (`torch.cuda.mem_get_info()`) and estimates the autograd graph byte footprint per collocation point for each specific phase and model size.
+- **Impact**: On high-end GPUs (RTX 3080/4090), chunk size automatically expands to full-batch (e.g., 5000+ points) to maximize Tensor Core utilization, while on memory-constrained GPUs (GTX 1050 Ti) it dynamically contracts to safe sub-batches (e.g., 250-500 points) without manual configuration, preventing OOM across diverse hardware targets.
+
 ## References
 - [[Dynamic_Weighting]]: Learning Rate Annealing methodology.
 - [[Staged_Precision_Strategy]]: Transitioning from FP32 Adam to FP64 L-BFGS.

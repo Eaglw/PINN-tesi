@@ -447,3 +447,22 @@
 - **[[Pressure_Stress_Decoupling]]** (Topics): Integrata la risoluzione del limite Helmholtz-Hodge via Soft Anti-Drift.
 - **[[Viscoelastic_Training]]** (Systems): Aggiornata l'autopsia del Run 010, le metriche di monitoraggio diagnostico e la roadmap dei test sperimentali (Multi-start, Scale sweep, Noise-aware PINN, Ablation study).
 - **[[00_Index]]**: Registrate le nuove pagine metodologiche.
+
+## [2026-08-21] update_wiki | Comprehensive Wiki Audit, Index Alignment & Technical Enhancements
+
+### Azioni di Manutenzione e Bonifica Eseguite
+- **Scansione Completa del Vault**: Eseguito audit sistematico su tutti i 67 file markdown della Wiki (`Wiki/` e sottocartelle `Literature/`, `Methods/`, `Systems/`, `Topics/`).
+- **Verifica e Indicizzazione 100%**: Aggiunte le pagine mancanti in `Wiki/00_Index.md`:
+  - `[[Analisi geometria in tubo semplice]]` sotto la sezione `## Physical Systems`.
+  - `[[Upper-convected time derivative]]` sotto la sezione `## Thematic Topics`.
+  - Confermato che tutte le 65 pagine della Wiki sono ora perfettamente catalogate e linkate nell'indice.
+- **Risoluzione Incongruenze e Deprecazione Fase 3**:
+  - In `Wiki/Methods/ViscoelasticNet.md` e `Wiki/Methods/Cosine_Annealing_LR.md`, rimossi i residui storici che descrivevano una Fase 3 attiva, uniformando la documentazione al protocollo consolidato a **2 Fasi disaccoppiate** (Fase 1: Cinematica & Reologia; Fase 2: Idrodinamica & Pressione) con cicli Adam FP32 + L-BFGS FP64.
+  - In `Wiki/Methods/ViscoelasticNet_Full model.md`, chiarita la log-parametrizzazione non vincolata ($\lambda = \lambda_{\text{guess}} e^{r_\lambda}$, $\eta_p = \eta_{p,\text{guess}} e^{r_p}$, $\eta_s = \eta_{s,\text{guess}} e^{r_s}$) in sostituzione di `torch.abs` e clamping in-place.
+  - In `Wiki/Methods/Sobolev_Regularization.md`, allineata la convenzione dei target alla politica semi-inversa di progetto (supervisione interna pura sui soli campi di velocità $u_{\text{obs}}, v_{\text{obs}}$, senza mai passare dati interni di stress o $\psi$).
+- **Integrazione "Buchi" Tecnici e Ottimizzazioni**:
+  - In `Wiki/Methods/GPU_Optimization.md`: Documentata la precomputazione statica della divergenza dello extra-stress (`precompute_stress_divergence`) in Fase 2 per dimezzare i tempi computazionali di autograd.
+  - In `Wiki/Methods/VRAM_Optimization.md`: Integrata la documentazione sull'algoritmo di autotuning dinamico della dimensione dei blocchi (`get_optimal_chunk_size`).
+  - In `Wiki/Methods/Viscoelastic_Metrics.md`: Formalizzata la definizione dell'errore relativo $L2$ mascherato al 5% per la valutazione accurata dello stress in regioni ad alto gradiente / singolarità geometriche.
+- **Link Integrity Linting**: Eseguito script di verifica: **0 link rotti** e **100% integrità confermata** su tutto il grafo della Wiki.
+
