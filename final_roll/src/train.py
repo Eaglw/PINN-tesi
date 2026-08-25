@@ -912,6 +912,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                         torch.save(state, chk_path)
                         print(f"  [Checkpoint] Salvato in: {chk_path}")
 
+                        if (epoch + 1) == end_adam2:
+                            phase2_path = os.path.join(save_dir, "checkpoint_phase2_adam.pth")
+                            torch.save(state, phase2_path)
+                            print(f"  [Checkpoint Phase 2 Adam] Salvato in: {phase2_path}")
+
+
                 history.update(epoch, loss_dict)
 
                 if tb_writer is not None:
