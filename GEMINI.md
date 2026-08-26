@@ -74,9 +74,23 @@ To ensure optimization stability, training is split into distinct decoupled stag
 1. **Phase 1 (Cinematica e Reologia - Adam + L-BFGS)**: Train stream function $\psi$ (velocity fields) and stress tensor $\tau$, while pressure $p$ is frozen and momentum is off ($w_{mom}=0$). Learns $\lambda$ and topological stress distribution.
 2. **Phase 2 (Idrodinamica e Pressione - Adam + L-BFGS)**: Freeze $\psi$ and $\tau$, train pressure $p$ with active Momentum equation ($w_{mom}=1$). Identifies solvent viscosity parameter $\beta$ (and $\eta_{tot}$) anchoring physical scales without polluting stress fields.
 
+## Multi-Device Workflow & Setup Hardware
+
+1. **Dispositivo di Sviluppo (macOS)**:
+   - Utilizzato **esclusivamente per la scrittura del codice, il refactoring, la pianificazione e l'analisi dei risultati**.
+   - **Regola Tassativa**: **Non eseguire MAI esperimenti o script di training in locale su macOS**. Il codice preparato su macOS viene eseguito esclusivamente su macchine esterne/remote dotate di GPU CUDA.
+2. **PC Principale Personale (Windows / GPU CUDA)**:
+   - Macchina primaria di addestramento e produzione per i run principali.
+   - Script di riferimento: `train_4roll_main.py`.
+3. **PC Maurizio all'Università (Windows / GPU CUDA)**:
+   - Postazione remota/universitaria dedicata per esperimenti, benchmark e test paralleli.
+   - Script di riferimento: `train_4roll_main_mauri.py` (da mantenere e preservare sempre intatto).
+4. **Cloud / Google Colab / Kaggle (Opzionale)**:
+   - Ambiente ausiliario per test leggeri o verifiche rapide su GPU cloud.
+
 ## Note aggiunte
-Prima di implementare o modificare effettivamente qualsiasi codice (escluse le letture, analisi del repo o prove innocue), spiegami sempre cosa stai cercando di fare. 
-Se sei su windows non usare && per dare più comandi in uno, usa il modo corretto o runna singolarmente i comandi.
-Su Windows, esegui SEMPRE i comandi python e pip facendo riferimento all'interprete del virtual environment (es. `.\venv\Scripts\python` o `.\venv\Scripts\pip`), senza dare per scontato che l'eseguibile globale sia presente nel PATH.
-Inoltre, non passare mai i dati di stress provenienti da COMSOL alla PINN(tranne nelle BC), poiché non avrebbe senso usare una PINN avendo già tutti i dati a disposizione.
-Quando si lavora su macOS, l'ambiente locale viene usato solo per la modifica del codice e la preparazione dello script; non eseguire esperimenti o script di training in locale su macOS, in quanto le run verranno eseguite su una macchina remota/estena.
+- Prima di implementare o modificare effettivamente qualsiasi codice (escluse le letture, analisi del repo o prove innocue), spiegami sempre cosa stai cercando di fare. 
+- Se sei su windows non usare && per dare più comandi in uno, usa il modo corretto o runna singolarmente i comandi.
+- Su Windows, esegui SEMPRE i comandi python e pip facendo riferimento all'interprete del virtual environment (es. `.\venv\Scripts\python` o `.\venv\Scripts\pip`), senza dare per scontato che l'eseguibile globale sia presente nel PATH.
+- Inoltre, non passare mai i dati di stress provenienti da COMSOL alla PINN (tranne nelle BC sui rulli), poiché non avrebbe senso usare una PINN avendo già tutti i dati a disposizione.
+- Quando si lavora su macOS, l'ambiente locale viene usato solo per la modifica del codice e la preparazione dello script; non eseguire esperimenti o script di training in locale su macOS, in quanto le run verranno eseguite su una macchina remota/esterna (PC Personale, PC Mauri o Cloud).
