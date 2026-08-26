@@ -81,7 +81,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = None
+RESUME_CHECKPOINT = BASE_DIR / "output_4rollmill" / "4_roll_mill_eta0_2.0_L8x128_E35000_SiLU_stagedTrue_invTrue_Phase2_Wdata35_20260825_173351" / "checkpoint.pth"
 
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
@@ -138,19 +138,19 @@ WARMUP_UNLOCK_EPOCH = 0  # 0: parametri attivi fin da epoca 0; >0: sblocco senza
 # --- Pesi Funzione di Loss ---
 W_BC = 5.0      # Vincola l'ancoraggio del punto di pressione e boundary
 W_PHYSICS = 3.0
-W_DATA = 1.0    
+W_DATA = 35.0   # Bilanciamento quantitativo dei gradienti su model_psi in Fase 2
 W_MOMENTUM = 1.0
 W_CONSTITUTIVE = 1.0
-W_DRIFT = 0.1   # Soft Anti-drift penalty per model_psi in Fase 2
+W_DRIFT = 0.0   # Nessuna soft drift penalty ausiliaria
 VARIANCE_EPS = 1e-4
 
 # ============================================================================
 # 3. INIZIALIZZAZIONE OUTPUT
 # ============================================================================
 layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
-config_name = f"{DATASET_PATH.stem}_eta0_{ETA_0}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+config_name = f"{DATASET_PATH.stem}_eta0_{ETA_0}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_Phase2_Wdata{int(W_DATA)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-if RESUME_CHECKPOINT is not None:
+if RESUME_CHECKPOINT is not None and "output_4rollmill" in str(RESUME_CHECKPOINT):
     OUTPUT_DIR = Path(RESUME_CHECKPOINT).parent
 else:
     OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
