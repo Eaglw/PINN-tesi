@@ -279,7 +279,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             loaded_opt_state = chk.get('optimizer_state_dict', None)
             loaded_sch_state = chk.get('scheduler_state_dict', None)
 
-            start_epoch = chk.get('epoch', 0) + 1
+            if 'epoch' in chk:
+                start_epoch = chk['epoch'] + 1
+            elif hasattr(history, 'epochs') and len(history.epochs) > 0:
+                start_epoch = history.epochs[-1]
+            else:
+                start_epoch = end_lbfgs1
             print(f"[Checkpoint] Ripresa dall'epoca {start_epoch}")
         else:
             print(f"\n[ATTENZIONE] Il file di checkpoint specificato NON ESISTE: {resume_checkpoint}")
@@ -635,14 +640,16 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         if active_bcs_lbfgs1 is not None and "p" not in active_bcs_lbfgs1:
             print("  Pressure Point BC: DISATTIVATA in L-BFGS Fase 1")
 
+        local_start = start_epoch - end_adam1 if start_epoch > end_adam1 else 0
+        rem_iters = max(1, iters_ph1 - local_start)
+
         all_params_ph1 = [p for p in model.parameters() if p.requires_grad] + [p for p in physics.parameters() if p.requires_grad]
 
         optimizer_lbfgs1 = torch.optim.LBFGS(
-            all_params_ph1, lr=1.0, max_iter=iters_ph1,
+            all_params_ph1, lr=1.0, max_iter=rem_iters,
             tolerance_grad=1e-16, tolerance_change=1e-16, history_size=300, line_search_fn="strong_wolfe",
         )
 
-        local_start = start_epoch - end_adam1 if start_epoch > end_adam1 else 0
         l_it1 = [local_start]
         pbar_lbfgs1 = tqdm(total=iters_ph1, initial=local_start, desc="L-BFGS Phase 1", mininterval=2.0)
 
@@ -656,6 +663,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         )
 
         def closure1():
+            if l_it1[0] >= iters_ph1:
+                return torch.tensor(0.0, device=DEVICE)
             optimizer_lbfgs1.zero_grad()
             tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
                 compute_and_backward_losses(
@@ -888,6 +897,26 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                         l2_errs = compute_l2_errors(model, physics, data)
                         print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
                         print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
+                    
+                    # Stima rapida e pulita delle componenti di gradiente su psi (Data vs Momentum)
+                    with torch.enable_grad():
+                        s_pts = xy_all[:3000].clone().requires_grad_(True)
+                        s_lbl = uv_all[:3000] if uv_all is not None else None
+                        u_s, v_s, p_s, tau_s = physics.get_velocity(model, s_pts, create_graph=True)
+                        if s_lbl is not None:
+                            l_d_s = physics.data_loss(u_s, v_s, s_lbl, var_w)
+                            g_d_list = torch.autograd.grad(W_DATA * l_d_s, model.model_psi.parameters(), retain_graph=True, allow_unused=True)
+                            g_d_norm = sum(g.norm(2).item()**2 for g in g_d_list if g is not None)**0.5
+                        else:
+                            g_d_norm = 0.0
+                        
+                        s_div = (precomputed_div_tau[0][:3000], precomputed_div_tau[1][:3000]) if precomputed_div_tau is not None else None
+                        lm_s, _ = physics.compute_pde_losses(s_pts, u_s, v_s, p_s, tau_s, w_momentum=1.0, w_constitutive=0.0, frozen_velocity=False, precomputed_div_tau=s_div)
+                        g_m_list = torch.autograd.grad(W_PHYSICS * lm_s, model.model_psi.parameters(), allow_unused=True)
+                        g_m_norm = sum(g.norm(2).item()**2 for g in g_m_list if g is not None)**0.5
+                        ratio_g = (g_m_norm / (g_d_norm + 1e-12)) if g_d_norm > 0 else 0.0
+                        print(f"  G_data(psi): {g_d_norm:.4e} | G_mom(psi): {g_m_norm:.4e} | Ratio (G_mom/G_data): {ratio_g:.4f}")
+
                     model.train()
 
                     loss_dict.update({
@@ -936,6 +965,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     if log_l2:
                         for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
                             tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], epoch)
+                        tb_writer.add_scalar('GradNorm/Psi_Data', g_d_norm, epoch)
+                        tb_writer.add_scalar('GradNorm/Psi_Momentum', g_m_norm, epoch)
+                        tb_writer.add_scalar('GradRatio/Mom_over_Data', ratio_g, epoch)
 
                     grad_norms = {'Psi': 0.0, 'Pressure': 0.0, 'Stress': 0.0}
                     for name, param in model.named_parameters():
@@ -996,10 +1028,13 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             physics.set_trainable("mu_p", False)
             physics.set_trainable("lam", False)
 
+        local_start = start_epoch - end_adam2 if start_epoch > end_adam2 else 0
+        rem_iters = max(1, iters_ph2 - local_start)
+
         all_params_ph2 = [p for p in model.parameters() if p.requires_grad] + [p for p in physics.parameters() if p.requires_grad]
 
         optimizer_lbfgs2 = torch.optim.LBFGS(
-            all_params_ph2, lr=1.0, max_iter=iters_ph2,
+            all_params_ph2, lr=1.0, max_iter=rem_iters,
             tolerance_grad=1e-16, tolerance_change=1e-16, history_size=300, line_search_fn="strong_wolfe",
         )
 
@@ -1024,11 +1059,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             )
         )
 
-        local_start = start_epoch - end_adam2 if start_epoch > end_adam2 else 0
         l_it2 = [local_start]
         pbar_lbfgs2 = tqdm(total=iters_ph2, initial=local_start, desc="L-BFGS Phase 2", mininterval=2.0)
 
         def closure2():
+            if l_it2[0] >= iters_ph2:
+                return torch.tensor(0.0, device=DEVICE)
             optimizer_lbfgs2.zero_grad()
             tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
                 compute_and_backward_losses(
@@ -1048,6 +1084,24 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 with torch.no_grad():
                     l2_errs = compute_l2_errors(model, physics, data)
 
+                # Stima rapida e pulita delle componenti di gradiente su psi (Data vs Momentum) in L-BFGS
+                with torch.enable_grad():
+                    s_pts = xy_all[:3000].clone().requires_grad_(True)
+                    s_lbl = uv_all[:3000] if uv_all is not None else None
+                    u_s, v_s, p_s, tau_s = physics.get_velocity(model, s_pts, create_graph=True)
+                    if s_lbl is not None:
+                        l_d_s = physics.data_loss(u_s, v_s, s_lbl, var_w)
+                        g_d_list = torch.autograd.grad(W_DATA * l_d_s, model.model_psi.parameters(), retain_graph=True, allow_unused=True)
+                        g_d_norm = sum(g.norm(2).item()**2 for g in g_d_list if g is not None)**0.5
+                    else:
+                        g_d_norm = 0.0
+                    
+                    s_div = (precomputed_div_tau_lbfgs[0][:3000], precomputed_div_tau_lbfgs[1][:3000]) if precomputed_div_tau_lbfgs is not None else None
+                    lm_s, _ = physics.compute_pde_losses(s_pts, u_s, v_s, p_s, tau_s, w_momentum=1.0, w_constitutive=0.0, frozen_velocity=False, precomputed_div_tau=s_div)
+                    g_m_list = torch.autograd.grad(W_PHYSICS * lm_s, model.model_psi.parameters(), allow_unused=True)
+                    g_m_norm = sum(g.norm(2).item()**2 for g in g_m_list if g is not None)**0.5
+                    ratio_g = (g_m_norm / (g_d_norm + 1e-12)) if g_d_norm > 0 else 0.0
+
                 history.update(
                     global_step,
                     {"total": tot_loss, "data": d_loss_accum, "bc": b_loss_val, "pde": p_loss_accum, "loss_momentum": m_loss, "loss_constitutive": c_loss, "param_beta": params["beta"], "param_mu_tot": params["mu_tot"], "param_mu_s": params["mu_s"], "param_mu_s_nd": params["mu_s_nd"], "param_mu_p": params["mu_p"], "param_mu_p_nd": params["mu_p_nd"], "param_lam": params["lam"], "param_eps": params["eps"], "param_alpha": params["alpha"], "param_eta0": params["eta_0"], "param_Re_scale": params["Re_scale"], "param_Re_phys": params["Re_phys"], "l2_u": l2_errs["u"], "l2_v": l2_errs["v"], "l2_p": l2_errs["p"], "l2_tau_xx": l2_errs["tau_xx"], "l2_tau_xy": l2_errs["tau_xy"], "l2_tau_yy": l2_errs["tau_yy"], "l2_tau_xx_masked": l2_errs["tau_xx_masked"], "l2_tau_xy_masked": l2_errs["tau_xy_masked"], "l2_tau_yy_masked": l2_errs["tau_yy_masked"]}
@@ -1055,6 +1109,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 print(f"\n[L-BFGS Phase 2 - Iter {l_it2[0]+1}/{iters_ph2}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
                 print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
                 print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
+                print(f"  G_data(psi): {g_d_norm:.4e} | G_mom(psi): {g_m_norm:.4e} | Ratio (G_mom/G_data): {ratio_g:.4f}")
 
                 if save_dir is not None:
                     chk_path = os.path.join(save_dir, "checkpoint.pth")
@@ -1081,6 +1136,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
                     for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
                         tb_writer.add_scalar(f'L2_Error/{k}', l2_errs[k], global_step)
+                    tb_writer.add_scalar('GradNorm/Psi_Data', g_d_norm, global_step)
+                    tb_writer.add_scalar('GradNorm/Psi_Momentum', g_m_norm, global_step)
+                    tb_writer.add_scalar('GradRatio/Mom_over_Data', ratio_g, global_step)
 
                     tb_writer.flush()
 

@@ -133,39 +133,16 @@ class Physics(nn.Module):
             raw_param.requires_grad_(trainable)
 
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        """Gestisce in modo trasparente la retrocompatibilità con i vecchi checkpoint."""
-        param_names = ["beta", "mu_s", "mu_p", "lam", "eps", "alpha"]
-        for p_name in param_names:
-            old_key = prefix + p_name
-            raw_key = prefix + f"_raw_{p_name}"
-            if old_key in state_dict and raw_key not in state_dict:
-                old_val = state_dict.pop(old_key)
-                inv_fn = (lambda y: inverse_sigmoid(y / 0.99)) if p_name == "beta" else inverse_softplus
-                if torch.is_tensor(old_val):
-                    raw_val = inv_fn(old_val).to(old_val.device)
-                else:
-                    raw_val = inv_fn(old_val)
-                state_dict[raw_key] = raw_val
-
-        # Conversione automatica da _raw_mu_p a _raw_beta per vecchi checkpoint
+        """Gestisce in modo trasparente la compatibilità e il caricamento dei parametri fisici."""
+        # Se presente _raw_beta da vecchi checkpoint storici e manca _raw_mu_p, converti
         raw_beta_key = prefix + "_raw_beta"
         raw_mup_key = prefix + "_raw_mu_p"
-        raw_mus_key = prefix + "_raw_mu_s"
-
-        if raw_mup_key in state_dict and raw_beta_key not in state_dict:
-            raw_mup_val = state_dict.pop(raw_mup_key)
-            if raw_mus_key in state_dict:
-                raw_mus_val = state_dict[raw_mus_key]
-                mu_s_val = torch.nn.functional.softplus(raw_mus_val) + 1e-8
-                mu_p_val = torch.nn.functional.softplus(raw_mup_val) + 1e-8
-                beta_val = torch.clamp(mu_s_val / (mu_s_val + mu_p_val), min=1e-6, max=0.99)
-                raw_beta_val = inverse_sigmoid(beta_val / 0.99)
-            else:
-                beta_val = torch.tensor(0.10, device=DEVICE)
-                raw_beta_val = inverse_sigmoid(beta_val / 0.99)
-            state_dict[raw_beta_key] = raw_beta_val
-        elif raw_mup_key in state_dict and hasattr(self, "_raw_beta") and not hasattr(self, "_raw_mu_p"):
-            state_dict.pop(raw_mup_key, None)
+        if raw_beta_key in state_dict and raw_mup_key not in state_dict:
+            raw_beta = state_dict.pop(raw_beta_key)
+            beta_val = 0.99 * torch.sigmoid(raw_beta)
+            mu_s_val = self.guess_mu_s * torch.exp(state_dict.get(prefix + "_raw_mu_s", torch.zeros(1)))
+            mu_p_val = mu_s_val * (1.0 - beta_val) / (beta_val + 1e-12)
+            state_dict[raw_mup_key] = torch.log(mu_p_val / self.guess_mu_p)
 
         super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
 
