@@ -66,7 +66,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # --- Opzioni di Controllo ---
-EXPORT_TO_OBSIDIAN = True  # True: esporta i log e i plot nel vault Obsidian a fine run
+EXPORT_TO_OBSIDIAN = False  # True: esporta i log e i plot nel vault Obsidian a fine run
 STAGED_TRAINING = True  # True: staged (Fase 1: psi+tau, Fase 2: psi+p)
 INVERSE_PROBLEM = True  # True: semi-inverso, False: diretto
 DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
@@ -81,7 +81,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = BASE_DIR / "output_4rollmill" / "4_roll_mill_eta0_2.0_L8x128_E35000_SiLU_stagedTrue_invTrue_Phase2_Wdata35_20260825_173351" / "checkpoint.pth"
+RESUME_CHECKPOINT = BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1buona.pth"
 
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
@@ -118,14 +118,14 @@ ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training a 2 Fasi Disaccoppiate ---
 # Fase 1: Cinematica & Reologia (model_psi, model_tau -> lam, mu_p)
-ADAM_EPOCHS_PHASE1 = 20000
+ADAM_EPOCHS_PHASE1 = 40000
 USE_LBFGS_PHASE1 = True
-LBFGS_MAX_ITERS_PHASE1 = 5000
+LBFGS_MAX_ITERS_PHASE1 = 10000
 
-# Fase 2: Idrodinamica & Pressione (model_p, model_psi low-LR -> mu_s)
-ADAM_EPOCHS_PHASE2 = 15000
-USE_LBFGS_PHASE2 = True
-LBFGS_MAX_ITERS_PHASE2 = 5000
+# Fase 2: Idrodinamica & Pressione (disattivata in questa run per raffinare la Fase 1)
+ADAM_EPOCHS_PHASE2 = 0
+USE_LBFGS_PHASE2 = False
+LBFGS_MAX_ITERS_PHASE2 = 0
 
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -148,12 +148,9 @@ VARIANCE_EPS = 1e-4
 # 3. INIZIALIZZAZIONE OUTPUT
 # ============================================================================
 layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
-config_name = f"{DATASET_PATH.stem}_eta0_{ETA_0}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_Phase2_Wdata{int(W_DATA)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+config_name = f"{DATASET_PATH.stem}_eta0_{ETA_0}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_Phase1_Ext_A{ADAM_EPOCHS_PHASE1}_L{LBFGS_MAX_ITERS_PHASE1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-if RESUME_CHECKPOINT is not None and "output_4rollmill" in str(RESUME_CHECKPOINT):
-    OUTPUT_DIR = Path(RESUME_CHECKPOINT).parent
-else:
-    OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
+OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 global_log_path = OUTPUT_DIR / "train_log.txt"
@@ -203,19 +200,18 @@ if __name__ == "__main__":
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nModello: {total_params:,} parametri totali")
     if INVERSE_PROBLEM:
-        print("Modalità: PROBLEMA INVERSO MULTI-PARAMETRO LOG-SPACE (lam, mu_p in Fase 1 -> mu_s in Fase 2)")
-        print(f" Scala di Riferimento Costante: eta_0={physics.eta_0.item():.2f} Pa·s (arbitraria)")
-        print(f" Guess Dimensionali:  lam={physics.lam.item():.4f} s (true: {LAM_TRUE}), mu_p={physics.mu_p.item():.4f} Pa·s (true: {MU_P_TRUE}), mu_s={physics.mu_s.item():.4f} Pa·s (true: {MU_S_TRUE})")
-        print(f" Guess Adimensionali: mu_p*={physics.mu_p_nd.item():.4f} (true: {MU_P_TRUE/ETA_0:.4f}), mu_s*={physics.mu_s_nd.item():.4f} (true: {MU_S_TRUE/ETA_0:.4f})")
-        print(f" Derivati: eta_tot={physics.mu_tot.item():.4f} Pa·s (true: {MU_TOT_TRUE}), beta={physics.beta.item():.4f} (true: {BETA_TRUE:.4f})")
+        print("Modalità: PROBLEMA INVERSO (FASE 1 ONLY - Estensione Cinematica & Reologia)")
+        print(f"  - Obiettivo: Raffinamento intensivo dei campi (psi, tau) e parametri (lam, mu_p)")
+        print(f"  - Scala di Riferimento: eta_0={physics.eta_0.item():.2f} Pa·s")
+        print(f"  - Valori Attuali Caricati: lam={physics.lam.item():.4f} s (true: {LAM_TRUE}), mu_p={physics.mu_p.item():.4f} Pa·s (true: {MU_P_TRUE})")
+        print(f"  - Budget di Training: {ADAM_EPOCHS_PHASE1} Adam (FP32) + {LBFGS_MAX_ITERS_PHASE1} L-BFGS (FP64)")
     else:
-        print("Modalità: PROBLEMA DIRETTO (Parametri fisici bloccati ai valori veri)")
-        print(f" Valori veri: beta={BETA_TRUE}, mu_s={MU_S_TRUE}, mu_p={MU_P_TRUE}, lam={LAM_TRUE}")
+        print("Modalità: PROBLEMA DIRETTO")
 
     obsidian_dest_dir = None
     obsidian_run_name = None
     
-    if EXPORT_TO_OBSIDIAN and not RESUME_CHECKPOINT:
+    if EXPORT_TO_OBSIDIAN:
         from src.utils import init_run_in_obsidian
         config_details = {
             "dataset": DATASET_PATH.name,

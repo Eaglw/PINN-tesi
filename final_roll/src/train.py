@@ -274,18 +274,21 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
             model.load_state_dict(chk['model_state_dict'])
             physics.load_state_dict(chk['physics_state_dict'], strict=False)
-            history.load_state_dict(chk['history_state_dict'])
 
             loaded_opt_state = chk.get('optimizer_state_dict', None)
             loaded_sch_state = chk.get('scheduler_state_dict', None)
 
-            if 'epoch' in chk:
+            if 'epoch' in chk and loaded_opt_state is not None:
                 start_epoch = chk['epoch'] + 1
-            elif hasattr(history, 'epochs') and len(history.epochs) > 0:
-                start_epoch = history.epochs[-1]
+                if 'history_state_dict' in chk:
+                    history.load_state_dict(chk['history_state_dict'])
+                print(f"[Checkpoint] Ripresa in-flight dall'epoca {start_epoch}")
             else:
-                start_epoch = end_lbfgs1
-            print(f"[Checkpoint] Ripresa dall'epoca {start_epoch}")
+                # Ripresa pesi e parametri fisici per estensione fase o nuova sessione
+                start_epoch = 0
+                print(f"[Checkpoint] Pesi rete e parametri fisici ripristinati con successo per la nuova sessione.")
+                params_log = physics.log_params()
+                print(f"  - lam: {params_log['lam']:.6f} s (true: 0.050) | mu_p: {params_log['mu_p']:.6f} Pa·s (true: 0.900)")
         else:
             print(f"\n[ATTENZIONE] Il file di checkpoint specificato NON ESISTE: {resume_checkpoint}")
             print("Il training ripartirà da zero!")
@@ -394,6 +397,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         print(
             f"\n{'=' * 60}\nFASE 1 ADAM (Cinematica e Reologia): {ADAM_EPOCHS_PHASE1} epoche\n{'=' * 60}"
         )
+
+        convert_to_fp32(model, physics, data)
+        xy_all = data["coords"]
+        uv_all = data["uv_data"]
+        bc_data = data["boundary_groups"]
 
         # Configura requires_grad per Fase 1
         if STAGED_TRAINING:
