@@ -148,7 +148,25 @@ VARIANCE_EPS = 1e-4
 # 3. INIZIALIZZAZIONE OUTPUT
 # ============================================================================
 layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
-config_name = f"{DATASET_PATH.stem}_eta0_{ETA_0}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_Phase2_LBFGS_FrozenMus_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+# Generazione dinamica dei tag di nomenclatura in base ai parametri effettivi
+mode_tag = "INV" if INVERSE_PROBLEM else "DIR"
+strategy_tag = "STAGED" if STAGED_TRAINING else "MONO"
+
+tot_adam = ADAM_EPOCHS_PHASE1 + ADAM_EPOCHS_PHASE2
+tot_lbfgs = (LBFGS_MAX_ITERS_PHASE1 if USE_LBFGS_PHASE1 else 0) + (LBFGS_MAX_ITERS_PHASE2 if USE_LBFGS_PHASE2 else 0)
+
+def _format_iters(n):
+    if n == 0:
+        return "0"
+    if n % 1000 == 0:
+        return f"{n // 1000}k"
+    return f"{n / 1000:.1f}k"
+
+budget_tag = f"{_format_iters(tot_adam)}+{_format_iters(tot_lbfgs)}"
+run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
+
+config_name = f"[{mode_tag}][{strategy_tag}][{budget_tag}][{run_timestamp}]"
 
 OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
