@@ -81,7 +81,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1buona.pth"
+RESUME_CHECKPOINT = BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1_40k+10k.pth"
 
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
