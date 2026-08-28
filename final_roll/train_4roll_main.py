@@ -81,7 +81,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1buona.pth"
+RESUME_CHECKPOINT = BASE_DIR / "output_4rollmill" / "4_roll_mill_eta0_2.0_L8x128_E35000_SiLU_stagedTrue_invTrue_Phase2_Wdata35_20260825_173351" / "checkpoint_phase2_adam.pth"
 
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
@@ -118,14 +118,14 @@ ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training a 2 Fasi Disaccoppiate ---
 # Fase 1: Cinematica & Reologia (model_psi, model_tau -> lam, mu_p)
-ADAM_EPOCHS_PHASE1 = 40000
+ADAM_EPOCHS_PHASE1 = 20000
 USE_LBFGS_PHASE1 = True
-LBFGS_MAX_ITERS_PHASE1 = 10000
+LBFGS_MAX_ITERS_PHASE1 = 5000
 
-# Fase 2: Idrodinamica & Pressione (disattivata in questa run per raffinare la Fase 1)
-ADAM_EPOCHS_PHASE2 = 0
-USE_LBFGS_PHASE2 = False
-LBFGS_MAX_ITERS_PHASE2 = 0
+# Fase 2: Idrodinamica & Pressione (model_p, model_psi con mu_s frozen in L-BFGS)
+ADAM_EPOCHS_PHASE2 = 15000
+USE_LBFGS_PHASE2 = True
+LBFGS_MAX_ITERS_PHASE2 = 5000
 
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -148,7 +148,7 @@ VARIANCE_EPS = 1e-4
 # 3. INIZIALIZZAZIONE OUTPUT
 # ============================================================================
 layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
-config_name = f"{DATASET_PATH.stem}_eta0_{ETA_0}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_Phase1_Ext_A{ADAM_EPOCHS_PHASE1}_L{LBFGS_MAX_ITERS_PHASE1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+config_name = f"{DATASET_PATH.stem}_eta0_{ETA_0}_L{layers_str}_E{ADAM_EPOCHS_PHASE1+ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_Phase2_LBFGS_FrozenMus_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

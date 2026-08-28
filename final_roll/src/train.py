@@ -278,7 +278,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             loaded_opt_state = chk.get('optimizer_state_dict', None)
             loaded_sch_state = chk.get('scheduler_state_dict', None)
 
-            if 'epoch' in chk and loaded_opt_state is not None:
+            if 'epoch' in chk:
                 start_epoch = chk['epoch'] + 1
                 if 'history_state_dict' in chk:
                     history.load_state_dict(chk['history_state_dict'])
@@ -1032,7 +1032,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             p.requires_grad = True
 
         if physics.inverse_mode:
-            physics.set_trainable("mu_s", True)
+            physics.set_trainable("mu_s", False)
             physics.set_trainable("mu_p", False)
             physics.set_trainable("lam", False)
 
