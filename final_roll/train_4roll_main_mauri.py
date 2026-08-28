@@ -117,10 +117,10 @@ HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training a 2 Fasi Disaccoppiate ---
-# Fase 1: Cinematica & Reologia (Disattivata in questa run: ripresa diretta da checkpoint Fase 1)
-ADAM_EPOCHS_PHASE1 = 0
-USE_LBFGS_PHASE1 = False
-LBFGS_MAX_ITERS_PHASE1 = 0
+# Fase 1: Cinematica & Reologia (40k Adam + 10k L-BFGS già completate nel checkpoint)
+ADAM_EPOCHS_PHASE1 = 40000
+USE_LBFGS_PHASE1 = True
+LBFGS_MAX_ITERS_PHASE1 = 10000
 
 # Fase 2: Idrodinamica & Pressione (model_p, model_psi con mu_s frozen in L-BFGS)
 ADAM_EPOCHS_PHASE2 = 40000
@@ -153,9 +153,6 @@ layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
 mode_tag = "INV" if INVERSE_PROBLEM else "DIR"
 strategy_tag = "STAGED" if STAGED_TRAINING else "MONO"
 
-tot_adam = ADAM_EPOCHS_PHASE1 + ADAM_EPOCHS_PHASE2
-tot_lbfgs = (LBFGS_MAX_ITERS_PHASE1 if USE_LBFGS_PHASE1 else 0) + (LBFGS_MAX_ITERS_PHASE2 if USE_LBFGS_PHASE2 else 0)
-
 def _format_iters(n):
     if n == 0:
         return "0"
@@ -163,7 +160,8 @@ def _format_iters(n):
         return f"{n // 1000}k"
     return f"{n / 1000:.1f}k"
 
-budget_tag = f"{_format_iters(tot_adam)}+{_format_iters(tot_lbfgs)}"
+# Budget tag focalizzato sulla durata della sessione corrente (Fase 2: 40k+10k)
+budget_tag = f"{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}"
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
 
 config_name = f"[{mode_tag}][{strategy_tag}][{budget_tag}][{run_timestamp}][mauri]"
