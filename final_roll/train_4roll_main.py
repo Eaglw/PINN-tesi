@@ -136,13 +136,18 @@ PARAM_CLIP_NORM = 1.0
 WARMUP_UNLOCK_EPOCH = 0  # 0: parametri attivi fin da epoca 0 in Fase 1; >0: sblocco senza reset Adam
 WARMUP_PHASE2_EPOCHS = 5000  # Epoche iniziali Adam Fase 2 con mu_s frozen per pre-formare il campo di pressione
 
-# --- Pesi Funzione di Loss ---
-W_BC = 5.0      # Vincola l'ancoraggio del punto di pressione e boundary
-W_PHYSICS = 3.0
-W_DATA = 35.0   # Bilanciamento quantitativo dei gradienti su model_psi in Fase 2
-W_MOMENTUM = 1.0
-W_CONSTITUTIVE = 1.0
-W_DRIFT = 0.0   # Nessuna soft drift penalty ausiliaria
+# --- Pesi Funzione di Loss (Architettura Staged Disaccoppiata) ---
+# Fase 1: Cinematica & Reologia (model_psi, model_tau -> lam, mu_p)
+W_DATA_1 = 1.0          # Peso dati velocita' (u, v) in Fase 1
+W_BC_1 = 5.0            # Peso boundary conditions (no-slip + stress rulli) in Fase 1
+W_CONSTITUTIVE = 1.0    # Peso equazione costitutiva reologica (Oldroyd-B / PTT / Giesekus)
+
+# Fase 2: Idrodinamica & Pressione (model_p, model_psi -> mu_s)
+W_DATA_2 = 20.0         # Bilanciamento quantitativo gradienti su model_psi in Fase 2
+W_BC_2 = 5.0            # Peso ancoraggio punto di pressione e boundary in Fase 2
+W_MOMENTUM = 1.0        # Peso equazione di conservazione quantita' di moto (Navier-Stokes)
+
+W_DRIFT = 0.0           # Soft anti-drift penalty ausiliaria
 VARIANCE_EPS = 1e-4
 
 # ============================================================================

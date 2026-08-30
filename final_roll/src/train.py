@@ -309,9 +309,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
     # Motore di calcolo centralizzato con Accumulazione dei Gradienti in Chunk.
     def compute_and_backward_losses(
-        active_bcs,
+        w_data,
+        w_bc,
         w_mom,
         w_con,
+        active_bcs,
         points,
         labels,
         is_lbfgs=False,
@@ -345,7 +347,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             if yc is not None:
                 dl = physics.data_loss(u, v, yc, var_w)
                 d_loss_accum += dl.item() * w_chunk
-                chunk_total_loss = chunk_total_loss + W_DATA * dl * w_chunk
+                if w_data > 0.0:
+                    chunk_total_loss = chunk_total_loss + w_data * dl * w_chunk
 
             # --- 1b. SOFT ANTI-DRIFT LOSS ---
             if u_ckpt is not None and v_ckpt is not None and w_drift > 0.0:
@@ -370,19 +373,21 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             pl = (w_mom * lm) + (w_con * lc)
 
             p_loss_accum += pl.item() * w_chunk
-            chunk_total_loss = chunk_total_loss + W_PHYSICS * pl * w_chunk
+            chunk_total_loss = chunk_total_loss + pl * w_chunk
 
             # Unico backward per il chunk corrente: distrugge il grafo intermediario
-            chunk_total_loss.backward()
+            if isinstance(chunk_total_loss, torch.Tensor):
+                chunk_total_loss.backward()
 
         # --- 3. BOUNDARY LOSS ---
         # Le condizioni al contorno hanno solitamente pochi punti, non serve chunking
         b_loss = physics.boundary_loss(model, bc_data, var_w, active_bcs=active_bcs)
         b_loss_val = b_loss.item()
-        (W_BC * b_loss).backward()
+        if w_bc > 0.0 and isinstance(b_loss, torch.Tensor):
+            (w_bc * b_loss).backward()
 
         tot_loss = (
-            (W_DATA * d_loss_accum) + (W_BC * b_loss_val) + (W_PHYSICS * p_loss_accum)
+            (w_data * d_loss_accum) + (w_bc * b_loss_val) + p_loss_accum
         )
         return tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val
 
@@ -426,7 +431,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 is_tr = (pname in trainable_names) and (start_epoch >= warmup_epoch)
                 physics.set_trainable(pname, is_tr)
 
+        # Pesi dedicati Fase 1
+        w_data_ph1 = getattr(builtins, "W_DATA_1", getattr(builtins, "W_DATA", 1.0))
+        w_bc_ph1 = getattr(builtins, "W_BC_1", getattr(builtins, "W_BC", 5.0))
+
         # Log configurazione Fase 1
+        print(f"  Pesi Fase 1: W_DATA={w_data_ph1}, W_BC={w_bc_ph1}, W_CONSTITUTIVE={w_con}")
         print(f"  Active BCs: {active_bcs}")
         print(f"  Momentum: {'SPENTA (w=0)' if w_mom == 0.0 else f'ACCESA (w={w_mom})'} | Constitutive: {'SPENTA (w=0)' if w_con == 0.0 else f'ACCESA (w={w_con})'}")
         if active_bcs is not None and "p" not in active_bcs:
@@ -436,7 +446,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         CHUNK_SIZE_ADAM = get_optimal_chunk_size(
             phase=1, model=model,
             test_closure=lambda c: compute_and_backward_losses(
-                active_bcs=active_bcs, w_mom=w_mom, w_con=w_con,
+                w_data=w_data_ph1, w_bc=w_bc_ph1, w_mom=w_mom, w_con=w_con,
+                active_bcs=active_bcs,
                 points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
                 is_lbfgs=False, chunk_size_override=c, frozen_velocity=frozen_vel
             )
@@ -483,7 +494,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
             tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val = (
                 compute_and_backward_losses(
-                    active_bcs, w_mom, w_con, xy_all, uv_all,
+                    w_data=w_data_ph1, w_bc=w_bc_ph1, w_mom=w_mom, w_con=w_con,
+                    active_bcs=active_bcs, points=xy_all, labels=uv_all,
                     frozen_velocity=frozen_vel, precomputed_div_tau=None
                 )
             )
@@ -643,7 +655,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
                 physics.set_trainable(pname, pname in trainable_names)
 
+        # Pesi dedicati Fase 1 L-BFGS
+        w_data_lbfgs1 = getattr(builtins, "W_DATA_1", getattr(builtins, "W_DATA", 1.0))
+        w_bc_lbfgs1 = getattr(builtins, "W_BC_1", getattr(builtins, "W_BC", 5.0))
+
         # Log configurazione L-BFGS Fase 1
+        print(f"  Pesi L-BFGS Fase 1: W_DATA={w_data_lbfgs1}, W_BC={w_bc_lbfgs1}, W_CONSTITUTIVE={w_con_lbfgs1}")
         print(f"  Active BCs: {active_bcs_lbfgs1}")
         if active_bcs_lbfgs1 is not None and "p" not in active_bcs_lbfgs1:
             print("  Pressure Point BC: DISATTIVATA in L-BFGS Fase 1")
@@ -663,7 +680,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         CHUNK_SIZE_LBFGS = get_optimal_chunk_size(
             phase=3, model=model,
             test_closure=lambda c: compute_and_backward_losses(
-                active_bcs=active_bcs_lbfgs1, w_mom=w_mom_lbfgs1, w_con=w_con_lbfgs1,
+                w_data=w_data_lbfgs1, w_bc=w_bc_lbfgs1, w_mom=w_mom_lbfgs1, w_con=w_con_lbfgs1,
+                active_bcs=active_bcs_lbfgs1,
                 points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
                 is_lbfgs=True, chunk_size_override=c
             )
@@ -675,7 +693,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             optimizer_lbfgs1.zero_grad(set_to_none=True)
             tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
                 compute_and_backward_losses(
-                    active_bcs=active_bcs_lbfgs1, w_mom=w_mom_lbfgs1, w_con=w_con_lbfgs1,
+                    w_data=w_data_lbfgs1, w_bc=w_bc_lbfgs1, w_mom=w_mom_lbfgs1, w_con=w_con_lbfgs1,
+                    active_bcs=active_bcs_lbfgs1,
                     points=xy_all, labels=uv_all, is_lbfgs=True,
                 )
             )
@@ -848,13 +867,18 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         precomputed_div_tau = precompute_stress_divergence(model, physics, xy_all)
         print("[Optimization] Divergenza sforzi precalcolata.")
 
+        w_data_ph2 = getattr(builtins, "W_DATA_2", getattr(builtins, "W_DATA", 20.0))
+        w_bc_ph2 = getattr(builtins, "W_BC_2", getattr(builtins, "W_BC", 5.0))
+        print(f"  Pesi Fase 2: W_DATA={w_data_ph2}, W_BC={w_bc_ph2}, W_MOMENTUM={w_mom}")
+
         w_drift_val = getattr(builtins, "W_DRIFT", 0.1)
 
         # Calcola chunk size ottimale in FP32
         CHUNK_SIZE_ADAM = get_optimal_chunk_size(
             phase=2, model=model,
             test_closure=lambda c: compute_and_backward_losses(
-                active_bcs=active_bcs, w_mom=w_mom, w_con=w_con,
+                w_data=w_data_ph2, w_bc=w_bc_ph2, w_mom=w_mom, w_con=w_con,
+                active_bcs=active_bcs,
                 points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
                 is_lbfgs=False, chunk_size_override=c, frozen_velocity=frozen_vel,
                 precomputed_div_tau=(precomputed_div_tau[0][:c], precomputed_div_tau[1][:c]) if precomputed_div_tau is not None else None,
@@ -911,7 +935,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
             tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val = (
                 compute_and_backward_losses(
-                    active_bcs, w_mom, w_con, xy_all, uv_all,
+                    w_data=w_data_ph2, w_bc=w_bc_ph2, w_mom=w_mom, w_con=w_con,
+                    active_bcs=active_bcs, points=xy_all, labels=uv_all,
                     frozen_velocity=frozen_vel, precomputed_div_tau=precomputed_div_tau,
                     u_ckpt=u_ckpt_cache, v_ckpt=v_ckpt_cache, w_drift=w_drift_val
                 )
@@ -967,14 +992,14 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                         u_s, v_s, p_s, tau_s = physics.get_velocity(model, s_pts, create_graph=True)
                         if s_lbl is not None:
                             l_d_s = physics.data_loss(u_s, v_s, s_lbl, var_w)
-                            g_d_list = torch.autograd.grad(W_DATA * l_d_s, model.model_psi.parameters(), retain_graph=True, allow_unused=True)
+                            g_d_list = torch.autograd.grad(w_data_ph2 * l_d_s, model.model_psi.parameters(), retain_graph=True, allow_unused=True)
                             g_d_norm = sum(g.norm(2).item()**2 for g in g_d_list if g is not None)**0.5
                         else:
                             g_d_norm = 0.0
                         
                         s_div = (precomputed_div_tau[0][:3000], precomputed_div_tau[1][:3000]) if precomputed_div_tau is not None else None
                         lm_s, _ = physics.compute_pde_losses(s_pts, u_s, v_s, p_s, tau_s, w_momentum=1.0, w_constitutive=0.0, frozen_velocity=False, precomputed_div_tau=s_div)
-                        g_m_list = torch.autograd.grad(W_PHYSICS * lm_s, model.model_psi.parameters(), allow_unused=True)
+                        g_m_list = torch.autograd.grad(w_mom * lm_s, model.model_psi.parameters(), allow_unused=True)
                         g_m_norm = sum(g.norm(2).item()**2 for g in g_m_list if g is not None)**0.5
                         ratio_g = (g_m_norm / (g_d_norm + 1e-12)) if g_d_norm > 0 else 0.0
                         print(f"  G_data(psi): {g_d_norm:.4e} | G_mom(psi): {g_m_norm:.4e} | Ratio (G_mom/G_data): {ratio_g:.4f}")
@@ -1105,13 +1130,20 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         precomputed_div_tau_lbfgs = precompute_stress_divergence(model, physics, xy_all)
         print("[Optimization] Divergenza sforzi precalcolata.")
 
+        # Pesi dedicati Fase 2 L-BFGS
+        w_data_lbfgs2 = getattr(builtins, "W_DATA_2", getattr(builtins, "W_DATA", 20.0))
+        w_bc_lbfgs2 = getattr(builtins, "W_BC_2", getattr(builtins, "W_BC", 5.0))
+        w_mom_lbfgs2 = getattr(builtins, "W_MOMENTUM", 1.0)
+        print(f"  Pesi L-BFGS Fase 2: W_DATA={w_data_lbfgs2}, W_BC={w_bc_lbfgs2}, W_MOMENTUM={w_mom_lbfgs2}")
+
         w_drift_val = getattr(builtins, "W_DRIFT", 0.1)
 
         # Calcola chunk size ottimale per L-BFGS in FP64
         CHUNK_SIZE_LBFGS = get_optimal_chunk_size(
             phase=3, model=model,
             test_closure=lambda c: compute_and_backward_losses(
-                active_bcs=["p", "u", "v"], w_mom=W_MOMENTUM, w_con=0.0,
+                w_data=w_data_lbfgs2, w_bc=w_bc_lbfgs2, w_mom=w_mom_lbfgs2, w_con=0.0,
+                active_bcs=["p", "u", "v"],
                 points=xy_all[:c], labels=(uv_all[:c] if uv_all is not None else None),
                 is_lbfgs=True, chunk_size_override=c, frozen_velocity=False,
                 precomputed_div_tau=(precomputed_div_tau_lbfgs[0][:c], precomputed_div_tau_lbfgs[1][:c]) if precomputed_div_tau_lbfgs is not None else None,
@@ -1128,7 +1160,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             optimizer_lbfgs2.zero_grad(set_to_none=True)
             tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
                 compute_and_backward_losses(
-                    active_bcs=["p", "u", "v"], w_mom=W_MOMENTUM, w_con=0.0,
+                    w_data=w_data_lbfgs2, w_bc=w_bc_lbfgs2, w_mom=w_mom_lbfgs2, w_con=0.0,
+                    active_bcs=["p", "u", "v"],
                     points=xy_all, labels=uv_all, is_lbfgs=True, frozen_velocity=False,
                     precomputed_div_tau=precomputed_div_tau_lbfgs,
                     u_ckpt=u_ckpt_cache, v_ckpt=v_ckpt_cache, w_drift=w_drift_val
@@ -1171,14 +1204,14 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     u_s, v_s, p_s, tau_s = physics.get_velocity(model, s_pts, create_graph=True)
                     if s_lbl is not None:
                         l_d_s = physics.data_loss(u_s, v_s, s_lbl, var_w)
-                        g_d_list = torch.autograd.grad(W_DATA * l_d_s, model.model_psi.parameters(), retain_graph=True, allow_unused=True)
+                        g_d_list = torch.autograd.grad(w_data_lbfgs2 * l_d_s, model.model_psi.parameters(), retain_graph=True, allow_unused=True)
                         g_d_norm = sum(g.norm(2).item()**2 for g in g_d_list if g is not None)**0.5
                     else:
                         g_d_norm = 0.0
                     
                     s_div = (precomputed_div_tau_lbfgs[0][:3000], precomputed_div_tau_lbfgs[1][:3000]) if precomputed_div_tau_lbfgs is not None else None
                     lm_s, _ = physics.compute_pde_losses(s_pts, u_s, v_s, p_s, tau_s, w_momentum=1.0, w_constitutive=0.0, frozen_velocity=False, precomputed_div_tau=s_div)
-                    g_m_list = torch.autograd.grad(W_PHYSICS * lm_s, model.model_psi.parameters(), allow_unused=True)
+                    g_m_list = torch.autograd.grad(w_mom_lbfgs2 * lm_s, model.model_psi.parameters(), allow_unused=True)
                     g_m_norm = sum(g.norm(2).item()**2 for g in g_m_list if g is not None)**0.5
                     ratio_g = (g_m_norm / (g_d_norm + 1e-12)) if g_d_norm > 0 else 0.0
 

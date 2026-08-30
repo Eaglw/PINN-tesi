@@ -317,7 +317,9 @@ class Physics(nn.Module):
 
     def pde_loss(self, x, u, v, p, tau):
         """Loss PDE con pesi di default."""
-        return self.pde_loss_weighted(x, u, v, p, tau, W_MOMENTUM, W_CONSTITUTIVE)
+        w_mom = getattr(builtins, "W_MOMENTUM", 1.0)
+        w_con = getattr(builtins, "W_CONSTITUTIVE", 1.0)
+        return self.pde_loss_weighted(x, u, v, p, tau, w_mom, w_con)
 
     def data_loss(self, u, v, uv_target, var_w):
         """Loss dati: solo u, v."""
@@ -503,9 +505,14 @@ def evaluate_final_losses(model, physics, data, chunk_size=2000):
                 bc_vals["p"] += weighted_mse(p, gd["fields"]["p"], var_w["p"]).item()
 
     b_loss_val = sum(bc_vals.values())
-    pde_loss_val = W_MOMENTUM * metrics["loss_m"] + W_CONSTITUTIVE * metrics["loss_c"]
+    w_mom = getattr(builtins, "W_MOMENTUM", 1.0)
+    w_con = getattr(builtins, "W_CONSTITUTIVE", 1.0)
+    w_data = getattr(builtins, "W_DATA_2", getattr(builtins, "W_DATA", 20.0))
+    w_bc = getattr(builtins, "W_BC_2", getattr(builtins, "W_BC", 5.0))
+
+    pde_loss_val = w_mom * metrics["loss_m"] + w_con * metrics["loss_c"]
     total_loss_val = (
-        W_DATA * metrics["d_loss"] + W_BC * b_loss_val + W_PHYSICS * pde_loss_val
+        w_data * metrics["d_loss"] + w_bc * b_loss_val + pde_loss_val
     )
 
     return {
