@@ -84,12 +84,13 @@ To ensure optimization stability, training is split into distinct decoupled stag
    - Script di riferimento: `train_4roll_main.py`.
 3. **PC Maurizio all'Università (Windows / GPU CUDA)**:
    - Postazione remota/universitaria dedicata per esperimenti, benchmark e test paralleli.
-   - Script di riferimento: `train_4roll_main_mauri.py` (da mantenere e preservare sempre intatto).
+   - Script di riferimento: `train_4roll_main_mauri.py`.
 4. **Cloud / Google Colab / Kaggle (Opzionale)**:
    - Ambiente ausiliario per test leggeri o verifiche rapide su GPU cloud.
 
 ## Note aggiunte
 - Prima di implementare o modificare effettivamente qualsiasi codice (escluse le letture, analisi del repo o prove innocue), spiegami sempre cosa stai cercando di fare. 
+- **Allineamento Script (`train_4roll_main.py` e `train_4roll_main_mauri.py`)**: quando vengono apportate modifiche strutturali o architetturali (es. formulazioni fisiche, logica di loss, meccanismo dei pesi delle componenti, ecc.), entrambi gli script (`train_4roll_main.py` e `train_4roll_main_mauri.py`) vanno aggiornati e sincronizzati. Se invece si tratta di setup specifici per una run in particolare (es. numero di epoche, tentativi/seed, variazioni spot di parametri), la modifica deve essere applicata esclusivamente allo script espressamente richiesto.
 - Se sei su windows non usare && per dare più comandi in uno, usa il modo corretto o runna singolarmente i comandi.
 - Su Windows, esegui SEMPRE i comandi python e pip facendo riferimento all'interprete del virtual environment (es. `.\venv\Scripts\python` o `.\venv\Scripts\pip`), senza dare per scontato che l'eseguibile globale sia presente nel PATH.
 - Inoltre, non passare mai i dati di stress provenienti da COMSOL alla PINN (tranne nelle BC sui rulli), poiché non avrebbe senso usare una PINN avendo già tutti i dati a disposizione.
