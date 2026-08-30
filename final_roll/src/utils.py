@@ -118,8 +118,8 @@ def load_data(filepath=None, use_fp64=False, eta_0=None):
         for name, arr in fields_nd.items()
     }
 
-    # Output scales
-    p_scale = max(float(np.abs(fields_nd["p"]).max()), 1.0)
+    # Output scales: normalizzazione rigorosa su [-1, 1] per garantire l'invarianza di scala
+    p_scale = max(float(np.abs(fields_nd["p"]).max()), 1e-6)
     tau_scale = max(
         float(
             max(
@@ -128,7 +128,7 @@ def load_data(filepath=None, use_fp64=False, eta_0=None):
                 np.abs(fields_nd["tau_yy"]).max(),
             )
         ),
-        1.0,
+        1e-6,
     )
 
     # --- 5. Calcolo Varianze Automatizzato ---
