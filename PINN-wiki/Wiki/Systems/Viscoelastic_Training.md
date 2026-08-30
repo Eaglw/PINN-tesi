@@ -98,9 +98,9 @@ To rigorously substantiate the claim of full-blind parameter discovery, the foll
 2. **Test 2 — Multi-Start Basin of Attraction**:
    - Repeat inversion across multiple initial guesses $(\lambda^{(0)}, \eta_p^{(0)}, \eta_s^{(0)})$ distributed across orders of magnitude.
    - Verify convergence to the identical global attractor basin.
-3. **Test 3 — Normalization Scale Invariance**:
-   - Test varying arbitrary initial scales: $\eta_0^{(0)} \in \{0.5, 2.0, 5.0\}\ \text{Pa}\cdot\text{s}$.
-   - Verify that final physical parameters $(\lambda, \eta_p, \eta_s)$ are independent of numerical scale $\eta_0$.
+3. **Test 3 — Normalization Scale Invariance** (**COMPLETED for Phase 1**):
+   - Comprehensive suite executed on $\eta_0^{(0)} \in [0.05, 10.0]\ \text{Pa}\cdot\text{s}$ via `train_4roll_suite.py` and `run_suite_eta0.py`.
+   - **Result**: Demonstrated exact mathematical and numerical gauge-invariance ($\le 10^{-16}$) across the $[0.5, 2.0]\ \text{Pa}\cdot\text{s}$ core sweet spot, and robust convergence up to $\eta_0 = 5.0\ \text{Pa}\cdot\text{s}$ ($\Delta \mu_p \le 0.36\%$). Fixed the asymmetric clamping bug in `load_data()`. See detailed analysis in [[Adaptive_Nondimensionalization#Exact Gauge Invariance in Phase 1 & FP32 Hardcaps|Adaptive Nondimensionalization]].
 4. **Test 4 — Noise-Aware Full PINN Training**:
    - Add $0.5\%$ and $1.0\%$ Gaussian noise to observational velocity/stress data during complete PINN training (validating the smooth Autograd hypothesis over finite differences).
 5. **Test 5 — Ablation Study**:

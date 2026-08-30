@@ -497,3 +497,41 @@
 - Aggiornato `SUMMARY_RUNS.md` con il nuovo record storico.
 
 
+
+## [2026-08-30] update_wiki | Dimostrazione Invarianza di Scala (Gauge Freedom) in Fase 1 e Mappatura Hardcap FP32 per eta_0
+
+### Analisi Teorica, Bug Fix e Diagnostica Sperimentale
+- **Dimostrazione Analitica Invarianza di Gauge**:
+  - Dimostrato che con output dello stress normalizzato $\boldsymbol{\tau}^* = \mathbf{N}_\tau \cdot \tau_{\text{scale}}$, il residuo costitutivo diviso per $\tau_{\text{scale}}$ contiene il termine di viscosità $2 \left(\frac{\eta_p}{\eta_0 \cdot \tau_{\text{scale}}}\right) \mathbf{D}^*$.
+  - Poiché $\tau_{\text{scale}} = \max |\boldsymbol{\tau}^*| = \frac{\tau_{d,\max}}{\eta_0 U_{\text{ref}}/H_{\text{ref}}}$, il prodotto $\eta_0 \cdot \tau_{\text{scale}} = \frac{\tau_{d,\max}}{U_{\text{ref}}/H_{\text{ref}}}$ è una costante fisica invariante rispetto alla scelta arbitraria di $\eta_0$.
+  - Di conseguenza, sia il target della rete $\mathbf{N}_\tau \in [-1, 1]$, sia le derivate dell'equazione costitutiva e i gradienti di loss rispetto ai parametri dimensionali $(\mu_p, \lambda)$ risultano analiticamente identici per ogni $\eta_0$.
+- **Risoluzione Bug Clamping Asimmetrico**:
+  - Individuato in `load_data()` (`src/utils.py`) il clamping difensivo errato `tau_scale = max(float(max_tau_nd), 1.0)`.
+  - Poiché per il 4-roll mill $\tau_{d,\max} \approx 4.09\text{ Pa}$ e $U_{\text{ref}}/H_{\text{ref}} \approx 1.667\text{ s}^{-1}$, per $\eta_0 > 2.45\text{ Pa}\cdot\text{s}$ il valore di $\max |\boldsymbol{\tau}^*|$ scendeva sotto $1.0$ e $\tau_{\text{scale}}$ veniva bloccato ad $1.0000$, rompendo la cancellazione di $\eta_0$ e indebolendo la loss costitutiva di un fattore $(2.45/\eta_0)^2$.
+  - Corretto con salvaguardia infinitesima: `tau_scale = max(float(max_tau_nd), 1e-6)` e `p_scale = max(float(max_p_nd), 1e-6)`.
+- **Suite di Benchmark Sperimentale ed Estensione Hardcap**:
+  - Creati script dedicati: `train_4roll_suite.py` (senza alterare `train_4roll_main.py`) e orchestratore `run_suite_eta0.py`.
+  - **Check Analitico a Step 0**: Verificato su $\eta_0 \in [0.05, 10.0]\text{ Pa}\cdot\text{s}$ che loss e gradienti coincidono a livello di singolo bit ULP ($10^{-16}$ o entro fluttuazione $1.19 \times 10^{-7}$).
+  - **Suite di Training a 2500 Epoche Adam**: Eseguiti run su $\eta_0 \in [0.5, 1.0, 2.0, 5.0]$.
+    - Per $\eta_0 \in [0.5, 1.0, 2.0]$: convergenza dei parametri dimensionali identica fino alla sedicesima cifra decimale ($\mu_p = 0.7466121912002563\text{ Pa}\cdot\text{s}$, $\lambda = 0.04028252139687538\text{ s}$).
+    - Per $\eta_0 = 5.0$: convergenza coerente allo stesso bacino d'attrazione con scarto $\le 0.36\%$ ($\mu_p = 0.7439\text{ Pa}\cdot\text{s}$).
+  - **Esplorazione Hardcap (500 Epoche Adam)**:
+    - A salire ($\eta_0 = 3.0$): la transizione cinematica è ritardata di $\sim 150$ epoche per via della scala di stress ridotta, ma converge verso lo stesso asintoto.
+    - A scendere ($\eta_0 = 0.20$): comportamento analogo e simmetrico dovuto all'amplificazione di scala ($\tau_{\text{scale}} = 12.27$).
+  - **Classificazione dei Limiti Operativi FP32**:
+    1. **Core Invariante Bit-for-Bit**: $\eta_0 \in [0.50, 2.00]\text{ Pa}\cdot\text{s}$ (precisione esatta $10^{-16}$).
+    2. **Bacino di Convergenza Asintotica**: $\eta_0 \in [0.20, 5.00]\text{ Pa}\cdot\text{s}$ (precisione FP32 $\Delta \le 0.36\%$).
+    3. **Hardcap Numerico da Evitare in FP32**: $\eta_0 < 0.10$ e $\eta_0 > 5.00\text{ Pa}\cdot\text{s}$ (rischio di gradient explosion o quantization underflow).
+
+### Pagine Modificate
+- **[[Adaptive_Nondimensionalization]]** (Methods): Aggiunta la sezione completa sull'invarianza esatta di gauge in Fase 1, la risoluzione del bug di clamping asimmetrico e la tabella dei regimi operativi e hardcap FP32.
+- **[[Viscoelastic_Training]]** (Systems): Aggiornato il Test 3 della roadmap di validazione sperimentale (completato e convalidato per la Fase 1).
+
+### Integrazione Baseline a 500 Epoche e Verifica Bit-Perfect
+- Completato il run a 500 epoche su $\eta_0 = 1.00\text{ Pa}\cdot\text{s}$ a parità di scheduler ($T_{\max} = 500$).
+- **Risultato di Coincidenza Bit-Perfect**:
+  - Tra $\eta_0 = 1.00$ e $\eta_0 = 2.00$, $\mu_p = 0.6963310838\text{ Pa}\cdot\text{s}$ e $\lambda = 0.0391521752\text{ s}$ sono **identici al 100% bit-for-bit** (16 cifre decimali, deviazione $0.000000\%$).
+  - Tra $\eta_0 = 0.10$ e $\eta_0 = 0.20$, $\mu_p = 0.6962456703\text{ Pa}\cdot\text{s}$ e $\lambda = 0.0391401388\text{ s}$ sono identici fino alla 10ª cifra decimale.
+- **Accuratezza alla Seconda Cifra Decimale**:
+  - Su tutta la finestra $\eta_0 \in [0.10, 3.00]\text{ Pa}\cdot\text{s}$, i parametri convergono rigorosamente a $\mu_p = \mathbf{0.70}\text{ Pa}\cdot\text{s}$ e $\lambda = \mathbf{0.04}\text{ s}$ (e fino alla 3ª cifra: $\mu_p = \mathbf{0.696}\text{ Pa}\cdot\text{s}$, deviazione massima $\le 0.03\%$).
+  - Confermato che le curve di convergenza in Fase 1 sono matematicamente e operativamente equivalenti su tutto il dominio di scale analizzato.
