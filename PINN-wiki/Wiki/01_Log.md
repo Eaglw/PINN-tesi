@@ -466,3 +466,34 @@
   - In `Wiki/Methods/Viscoelastic_Metrics.md`: Formalizzata la definizione dell'errore relativo $L2$ mascherato al 5% per la valutazione accurata dello stress in regioni ad alto gradiente / singolarità geometriche.
 - **Link Integrity Linting**: Eseguito script di verifica: **0 link rotti** e **100% integrità confermata** su tutto il grafo della Wiki.
 
+## [2026-08-29] update_wiki | Formulazione a Rotore per eta_s, Analisi Gauge Feedback Loop Pressione-Solvente e Protocollo Warmup Fase 2
+
+### Analisi Teorica e Diagnostica Sperimentale
+- **Autopsia Drift Monotono di $\eta_s$**: Spiegato analiticamente il fenomeno per cui $\eta_s$ (solvente) attraversa transitoriamente il valore reale ($0.100\text{ Pa}\cdot\text{s}$) intorno a 3.500 epoche di Fase 2 Adam, per poi accumulare una deriva crescente ininterrotta ($0.138$ ad epoca 40k, esplosione $> 1.8$ in L-BFGS non vincolato).
+- **Dimostrazione della Gauge Degeneracy Pressione-Solvente**:
+  - Nel bilancio $\mu_s^* \nabla^2 \mathbf{u} + \nabla\cdot\boldsymbol{\tau} - \nabla p = \mathbf{0}$, la pressione ha solo 1 punto Dirichlet al bordo ($p(x_0,y_0)=0$) che fissa la costante $+C$ ma lascia libera la scala di ampiezza di $\nabla p$.
+  - All'inizio di Fase 2, `model_p` parte da zero. Man mano che impara, $|\nabla p|$ cresce e trascina con sé $\mu_s^*$ tramite la condizione stazionaria $\mu_s^* \approx \frac{\int (\nabla p - \nabla\cdot\boldsymbol{\tau})\cdot\nabla^2 \mathbf{u}}{\int \|\nabla^2 \mathbf{u}\|^2}$.
+  - Verificato empiricamente sui tensori: a fine Adam Fase 2, $\mu_s$ è sovrastimato del $+38\%$ e la deviazione standard (ampiezza) di $\nabla p$ è sovrastimata esattamente del $+40\%$, confermando l'inflazione simbiotica non fisica.
+- **Formulazione a Rotore / Vorticità per l'Inversione Decoupled di $\eta_s$**:
+  - Applicando il rotore ($\nabla \times$) all'equazione di quantità di moto, $\nabla \times \nabla p \equiv \mathbf{0}$, la pressione scompare del tutto.
+  - L'equazione di trasporto della vorticità $\mu_s^* \nabla^2 \omega_z = -\nabla \times (\nabla\cdot\boldsymbol{\tau}) + Re \dots$ contiene $\mu_s^*$ come **unica incognita**, generando un problema quadratico unidimensionale strettamente convesso con minimo globale analitico unico.
+
+### Pagine Create
+- **[[Vorticity_Inversion_Solvent]]** (Methods): Documentazione completa della formulazione a vorticità/rotore per isolare $\eta_s$, analisi del gauge feedback loop e specifica del protocollo a sotto-fasi (Warmup Fase 2A/2B/2C).
+
+### Pagine Modificate
+- **[[00_Index]]**: Registrata la pagina metodologica [[Vorticity_Inversion_Solvent]].
+
+## [2026-08-30] run | Record Storico Assoluto Fase 2: Warmup 5k + L-BFGS 500
+- **Run target**: `[INV][STAGED][Ph2_10k+0.5k_Warmup5k][2026-08-29_19-21]`
+- **Configurazione**: Checkpoint Mauri (40k+10k) + Fase 2 (10k Adam con 5k Warmup pressione + 500 L-BFGS FP64 con $\mu_s$ trainable).
+- **Traguardi raggiunti**:
+  - **Pressione $L_2(p)$**: Crollata al **$25.40\%$** ($0.253999$), minimo assoluto di sempre per la pressione (precedente best era $60.9\%$).
+  - **Viscosità Solvente $\mu_s$**: Identificata a **$0.1148\text{ Pa}\cdot\text{s}$** (true: $0.1000\text{ Pa}\cdot\text{s}$, $+14.8\%$). L'esplosione incontrollata ($> 1.83$) è stata completamente sradicata!
+  - **Viscosità Totale $\mu_{\text{tot}}$**: **$1.0197\text{ Pa}\cdot\text{s}$** (true: $1.0000\text{ Pa}\cdot\text{s}$, errore **$+1.96\%$**).
+  - **Reologia**: $\mu_p = 0.9049\text{ Pa}\cdot\text{s}$ ($+0.54\%$), $\lambda = 0.05020\text{ s}$ ($+0.40\%$).
+  - **Cinematica $L_2(u,v)$**: $L_2(u) = 0.257\%$, $L_2(v) = 0.252\%$ (precisione scientifica $< 0.26\%$).
+  - **Sforzi $L_2(\tau)$**: $L_2(\tau_{xx}) = 0.767\%$, $L_2(\tau_{xy}) = 0.677\%$, $L_2(\tau_{yy}) = 0.698\%$.
+- Aggiornato `SUMMARY_RUNS.md` con il nuovo record storico.
+
+
