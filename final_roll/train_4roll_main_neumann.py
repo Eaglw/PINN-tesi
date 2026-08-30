@@ -193,10 +193,10 @@ if __name__ == "__main__":
     layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
     mode_tag = "INV" if INVERSE_PROBLEM else "DIR"
     strategy_tag = "STAGED" if STAGED_TRAINING else "MONO"
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Output directory con tag esplicito NEUMANN
-    run_name = f"4_roll_mill_eta0_{ETA_0}_L{layers_str}_E{ADAM_EPOCHS_PHASE1 + ADAM_EPOCHS_PHASE2}_{ACTIVATION.__name__}_staged{STAGED_TRAINING}_inv{INVERSE_PROBLEM}_Phase2_Neumann_{timestamp}"
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    adam_k = ADAM_EPOCHS_PHASE2 // 1000
+    lbfgs_k = f"{LBFGS_MAX_ITERS_PHASE2 / 1000:.1f}k".replace(".0k", "k")
+    run_name = f"[INV][STAGED][Ph2_{adam_k}k+{lbfgs_k}_Neumann][{timestamp}]"
     OUTPUT_DIR = BASE_DIR / "output_4rollmill" / run_name
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     builtins.OUTPUT_DIR = OUTPUT_DIR
