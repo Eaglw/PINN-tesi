@@ -153,9 +153,9 @@ class NeumannPhysics(Physics):
     Estende Physics aggiungendo il vincolo di Neumann omogeneo dp/dn = 0 sulle pareti esterne (Walls).
     Nessun valore numerico di pressione viene imposto (zeroGradient puro alla ViscoelasticNet).
     """
-    def boundary_loss(self, model, bc_data, active_bcs=None):
+    def boundary_loss(self, model, bc_data, var_w=None, active_bcs=None, **kwargs):
         # 1. Calcolo normale della loss al contorno standard (u=0 su walls, u e tau su rolls, p=0 su PressurePoint)
-        total_loss = super().boundary_loss(model, bc_data, active_bcs)
+        total_loss = super().boundary_loss(model, bc_data, var_w, active_bcs=active_bcs, **kwargs)
 
         # 2. In Fase 2, la pressione e' attiva ("p" in active_bcs)
         if active_bcs is not None and "p" in active_bcs and "Walls" in bc_data:
