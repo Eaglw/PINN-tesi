@@ -122,10 +122,10 @@ ADAM_EPOCHS_PHASE1 = 40000
 USE_LBFGS_PHASE1 = True
 LBFGS_MAX_ITERS_PHASE1 = 10000
 
-# Fase 2: Idrodinamica & Pressione (model_p, model_psi con mu_s frozen in L-BFGS)
-ADAM_EPOCHS_PHASE2 = 40000
+# Fase 2: Idrodinamica & Pressione (model_p, model_psi con mu_s sbloccato in Adam e L-BFGS)
+ADAM_EPOCHS_PHASE2 = 30000
 USE_LBFGS_PHASE2 = True
-LBFGS_MAX_ITERS_PHASE2 = 10000
+LBFGS_MAX_ITERS_PHASE2 = 2000
 
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -134,6 +134,7 @@ GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
 WARMUP_UNLOCK_EPOCH = 0  # 0: parametri attivi fin da epoca 0; >0: sblocco senza reset Adam
+WARMUP_PHASE2_EPOCHS = 10000  # 10.000 epoche iniziali Adam Fase 2 con mu_s frozen per pre-formare p(x,y)
 
 # --- Pesi Funzione di Loss ---
 W_BC = 5.0      # Vincola l'ancoraggio del punto di pressione e boundary
@@ -160,8 +161,8 @@ def _format_iters(n):
         return f"{n // 1000}k"
     return f"{n / 1000:.1f}k"
 
-# Budget tag focalizzato sulla durata della sessione corrente (Fase 2: 40k+10k)
-budget_tag = f"{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}"
+# Budget tag focalizzato sulla durata della sessione corrente (Fase 2: 30k+2k con Warmup 10k)
+budget_tag = f"Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}_Warmup{_format_iters(WARMUP_PHASE2_EPOCHS)}"
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
 
 config_name = f"[{mode_tag}][{strategy_tag}][{budget_tag}][{run_timestamp}][mauri]"

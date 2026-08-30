@@ -81,7 +81,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
 
 # --- Checkpointing ---
-RESUME_CHECKPOINT = BASE_DIR / "output_4rollmill" / "4_roll_mill_eta0_2.0_L8x128_E35000_SiLU_stagedTrue_invTrue_Phase2_Wdata35_20260825_173351" / "checkpoint_phase2_adam.pth"
+RESUME_CHECKPOINT = BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1_40k+10k.pth"
 
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
@@ -118,14 +118,14 @@ ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training a 2 Fasi Disaccoppiate ---
 # Fase 1: Cinematica & Reologia (model_psi, model_tau -> lam, mu_p)
-ADAM_EPOCHS_PHASE1 = 20000
+ADAM_EPOCHS_PHASE1 = 40000
 USE_LBFGS_PHASE1 = True
-LBFGS_MAX_ITERS_PHASE1 = 5000
+LBFGS_MAX_ITERS_PHASE1 = 10000
 
-# Fase 2: Idrodinamica & Pressione (model_p, model_psi con mu_s frozen in L-BFGS)
-ADAM_EPOCHS_PHASE2 = 15000
+# Fase 2: Idrodinamica & Pressione (model_p, model_psi con mu_s sbloccato dopo warmup)
+ADAM_EPOCHS_PHASE2 = 10000
 USE_LBFGS_PHASE2 = True
-LBFGS_MAX_ITERS_PHASE2 = 5000
+LBFGS_MAX_ITERS_PHASE2 = 500
 
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -133,7 +133,8 @@ PARAM_LR_FACTOR = 0.1
 GRAD_CLIP_NORM = 1000.0
 PARAM_CLIP_NORM = 1.0
 
-WARMUP_UNLOCK_EPOCH = 0  # 0: parametri attivi fin da epoca 0; >0: sblocco senza reset Adam
+WARMUP_UNLOCK_EPOCH = 0  # 0: parametri attivi fin da epoca 0 in Fase 1; >0: sblocco senza reset Adam
+WARMUP_PHASE2_EPOCHS = 5000  # Epoche iniziali Adam Fase 2 con mu_s frozen per pre-formare il campo di pressione
 
 # --- Pesi Funzione di Loss ---
 W_BC = 5.0      # Vincola l'ancoraggio del punto di pressione e boundary
@@ -153,9 +154,6 @@ layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
 mode_tag = "INV" if INVERSE_PROBLEM else "DIR"
 strategy_tag = "STAGED" if STAGED_TRAINING else "MONO"
 
-tot_adam = ADAM_EPOCHS_PHASE1 + ADAM_EPOCHS_PHASE2
-tot_lbfgs = (LBFGS_MAX_ITERS_PHASE1 if USE_LBFGS_PHASE1 else 0) + (LBFGS_MAX_ITERS_PHASE2 if USE_LBFGS_PHASE2 else 0)
-
 def _format_iters(n):
     if n == 0:
         return "0"
@@ -163,7 +161,7 @@ def _format_iters(n):
         return f"{n // 1000}k"
     return f"{n / 1000:.1f}k"
 
-budget_tag = f"{_format_iters(tot_adam)}+{_format_iters(tot_lbfgs)}"
+budget_tag = f"Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}_Warmup{_format_iters(WARMUP_PHASE2_EPOCHS)}"
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
 
 config_name = f"[{mode_tag}][{strategy_tag}][{budget_tag}][{run_timestamp}]"
