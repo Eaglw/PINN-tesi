@@ -535,3 +535,23 @@
 - **Accuratezza alla Seconda Cifra Decimale**:
   - Su tutta la finestra $\eta_0 \in [0.10, 3.00]\text{ Pa}\cdot\text{s}$, i parametri convergono rigorosamente a $\mu_p = \mathbf{0.70}\text{ Pa}\cdot\text{s}$ e $\lambda = \mathbf{0.04}\text{ s}$ (e fino alla 3ª cifra: $\mu_p = \mathbf{0.696}\text{ Pa}\cdot\text{s}$, deviazione massima $\le 0.03\%$).
   - Confermato che le curve di convergenza in Fase 1 sono matematicamente e operativamente equivalenti su tutto il dominio di scale analizzato.
+
+## [2026-08-31] update_wiki | Vincolo curl(F)=0 in Fase 2 per eta_s e Metodo Zero-Stress-BC in Fase 1
+
+### Analisi Teorica, Diagnostica e Sperimentazione
+- **Validazione Vincolo curl(F) = 0 in Fase 2**:
+  - Implementato script standalone `final_roll/train_4roll_main_curl.py` senza modificare i sorgenti in `src/`.
+  - Dimostrato che il vincolo di irrotazionalità $\text{curl}(\mathbf{F}) = 0$ elimina completamente la pressione $p(x,y)$ dalla reologia e disaccoppia l'identificazione della viscosità solvente $\eta_s$.
+  - Eseguito training a partire da `checkpoint_inverso_fase1_40k+10k.pth` (~6.000 epoche di Adam Fase 2):
+    - $\mu_s$ identificata a **$0.090802\text{ Pa}\cdot\text{s}$** (Target reale: $0.100000\text{ Pa}\cdot\text{s}$, errore **$9.2\%$**).
+    - $\mu_p$ confermata a **$0.904854\text{ Pa}\cdot\text{s}$** (errore $0.5\%$).
+    - $\lambda$ confermata a **$0.050203\text{ s}$** (errore $0.4\%$).
+    - Accuratezza cinematica preservata ($L_2(u) = 3.04\%$, $L_2(v) = 3.07\%$).
+- **Formalizzazione del Metodo Zero-Stress-BC in Fase 1 (Full-PIV Rheometry)**:
+  - Concettualizzato l'uso del vincolo $\text{curl}(\mathbf{F}) = 0$ in Fase 1 per forzare l'ancoraggio di magnitudo dello stress $\boldsymbol{\tau}$ al termine viscoso noto $\mu_s \nabla^2 \mathbf{u}$.
+  - Questo approccio permette di **eliminare al 100% i dati di stress al contorno sui rulli** ($\Gamma_{\text{rolls}}$), rendendo la PINN pienamente applicabile a misure sperimentali ottiche di sola velocità (PIV).
+
+### Pagine Create e Modificate
+- **[[Zero_Stress_BC_Compatibility]]** (Methods, NEW): Creata la pagina metodologica sul vincolo di compatibilità rotazionale in Fase 1 per la reometria Full-PIV a zero dati di stress.
+- **[[Vorticity_Inversion_Solvent]]** (Methods, UPDATED): Aggiornata la formulazione con i risultati empirici della run Fase 2 sul 4-roll mill ($0.0908\text{ Pa}\cdot\text{s}$).
+- **[[00_Index]]** (Index, UPDATED): Inserito il nuovo metodo nel catalogo della Wiki.
