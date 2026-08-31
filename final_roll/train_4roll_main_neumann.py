@@ -150,8 +150,9 @@ for name, val in list(locals().items()):
 # ============================================================================
 class NeumannPhysics(Physics):
     """
-    Estende Physics aggiungendo il vincolo di Neumann omogeneo dp/dn = 0 sulle pareti esterne (Walls).
-    Nessun valore numerico di pressione viene imposto (zeroGradient puro alla ViscoelasticNet).
+    Estende Physics implementando la condizione di Neumann ESATTA della quantita' di moto:
+    dp/dn = n . ( (mu_s / eta_0) * nabla^2(u) + div(tau) )
+    sulle 4 pareti esterne (Walls). Nessun dato COMSOL di pressione viene utilizzato.
     """
     def boundary_loss(self, model, bc_data, var_w=None, active_bcs=None, **kwargs):
         # 1. Calcolo normale della loss al contorno standard (u=0 su walls, u e tau su rolls, p=0 su PressurePoint)
@@ -163,25 +164,57 @@ class NeumannPhysics(Physics):
             if use_neumann:
                 walls_xy = bc_data["Walls"]["xy"]
                 w_pts = walls_xy.clone().requires_grad_(True)
-                p_w = model.model_p(w_pts) * model.p_scale
-                g_p = self._grad(p_w, w_pts, create_graph=True)
+                u, v, p, tau = self.get_velocity(model, w_pts, create_graph=True)
 
+                # Derivate prime di velocita' per Laplaciano
+                grad_u = self._grad(u, w_pts, create_graph=True)
+                u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
+                grad_v = self._grad(v, w_pts, create_graph=True)
+                v_x, v_y = grad_v[:, 0:1], -u_x
+
+                # Derivate seconde di velocita' (Laplaciano)
+                u_xx = self._grad(u_x, w_pts, create_graph=True)[:, 0:1]
+                grad_u_y = self._grad(u_y, w_pts, create_graph=True)
+                u_yx, u_yy = grad_u_y[:, 0:1], grad_u_y[:, 1:2]
+                v_xx = self._grad(v_x, w_pts, create_graph=True)[:, 0:1]
+                v_yy = -u_yx
+
+                lap_u = u_xx + u_yy
+                lap_v = v_xx + v_yy
+
+                # Divergenza dello stress tau alle pareti
+                tau_xx, tau_xy, tau_yy = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
+                g_txx = self._grad(tau_xx, w_pts, create_graph=True)
+                g_txy = self._grad(tau_xy, w_pts, create_graph=True)
+                g_tyy = self._grad(tau_yy, w_pts, create_graph=True)
+                div_tau_x = g_txx[:, 0:1] + g_txy[:, 1:2]
+                div_tau_y = g_txy[:, 0:1] + g_tyy[:, 1:2]
+
+                # Target esatto della quantita' di moto: T = (mu_s / eta_0) * lap(u) + div(tau)
+                mu_s_nd = self.mu_s / self.eta_0
+                Tx = mu_s_nd * lap_u + div_tau_x
+                Ty = mu_s_nd * lap_v + div_tau_y
+
+                # Gradiente di pressione predetto
+                g_p = self._grad(p, w_pts, create_graph=True)
+                px, py = g_p[:, 0:1], g_p[:, 1:2]
+
+                # Maschere geometriche per pareti verticali e orizzontali
                 x_w = walls_xy[:, 0:1]
                 y_w = walls_xy[:, 1:2]
                 eps_tol = 1e-4
 
-                nx = torch.zeros_like(x_w)
-                ny = torch.zeros_like(y_w)
-                nx[x_w < eps_tol] = -1.0
-                nx[x_w > 1.0 - eps_tol] = 1.0
-                ny[y_w < eps_tol] = -1.0
-                ny[y_w > 1.0 - eps_tol] = 1.0
+                vert_mask = (x_w < eps_tol) | (x_w > 1.0 - eps_tol)
+                horiz_mask = (y_w < eps_tol) | (y_w > 1.0 - eps_tol)
 
-                dp_dn = nx * g_p[:, 0:1] + ny * g_p[:, 1:2]
+                # Residuo normale: (px - Tx)^2 su verticali, (py - Ty)^2 su orizzontali
+                res_vert = (px[vert_mask] - Tx[vert_mask]) ** 2
+                res_horiz = (py[horiz_mask] - Ty[horiz_mask]) ** 2
+
+                l_neumann_exact = torch.mean(torch.cat([res_vert, res_horiz], dim=0))
+
                 w_n = getattr(builtins, "W_NEUMANN", 50.0)
-                l_neumann = w_n * torch.mean(dp_dn ** 2)
-
-                total_loss = total_loss + l_neumann
+                total_loss = total_loss + w_n * l_neumann_exact
 
         return total_loss
 
@@ -196,7 +229,7 @@ if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     adam_k = ADAM_EPOCHS_PHASE2 // 1000
     lbfgs_k = f"{LBFGS_MAX_ITERS_PHASE2 / 1000:.1f}k".replace(".0k", "k")
-    run_name = f"[INV][STAGED][Ph2_{adam_k}k+{lbfgs_k}_Neumann][{timestamp}]"
+    run_name = f"[{timestamp}][INV][STAGED][Ph2_{adam_k}k+{lbfgs_k}_Neumann]"
     OUTPUT_DIR = BASE_DIR / "output_4rollmill" / run_name
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     builtins.OUTPUT_DIR = OUTPUT_DIR
