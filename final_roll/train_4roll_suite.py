@@ -174,7 +174,7 @@ eta_tag = f"eta0_{ETA_0:.2f}".replace('.', '_')
 extra_tag = f"_{args.tag}" if args.tag else ""
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
-config_name = f"[{mode_tag}][{strategy_tag}][{budget_tag}][{eta_tag}{extra_tag}][{run_timestamp}]"
+config_name = f"[{run_timestamp}][{mode_tag}][{strategy_tag}][{budget_tag}][{eta_tag}{extra_tag}]"
 
 OUTPUT_DIR = BASE_DIR / "output_4rollmill" / "suite_eta0" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

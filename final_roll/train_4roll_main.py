@@ -169,7 +169,7 @@ def _format_iters(n):
 budget_tag = f"Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}_Warmup{_format_iters(WARMUP_PHASE2_EPOCHS)}"
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
 
-config_name = f"[{mode_tag}][{strategy_tag}][{budget_tag}][{run_timestamp}]"
+config_name = f"[{run_timestamp}][{mode_tag}][{strategy_tag}][{budget_tag}]"
 
 OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

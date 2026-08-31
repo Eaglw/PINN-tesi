@@ -77,15 +77,11 @@ class SimpleHistory:
         tot_visc = mu_s_true + mu_p_true
         default_beta = mu_s_true / tot_visc if tot_visc > 0 else 0.1
         beta_true = getattr(builtins, "BETA_TRUE", mod_globals.get("BETA_TRUE", default_beta))
-        mu_p_nd_true = mu_p_true / eta_0_val
-        mu_s_nd_true = mu_s_true / eta_0_val
 
         param_keys = [('param_beta', beta_true, r'$\beta = \frac{\eta_s}{\eta_s + \eta_p}$'),
                       ('param_mu_tot', tot_visc, r'$\eta_{tot} = \eta_s + \eta_p$ [Pa·s]'),
                       ('param_mu_p', mu_p_true, r'$\mu_p$ [Pa·s]'),
-                      ('param_mu_p_nd', mu_p_nd_true, r'$\mu_p^* = \mu_p / \eta_0$'),
                       ('param_mu_s', mu_s_true, r'$\mu_s$ [Pa·s]'),
-                      ('param_mu_s_nd', mu_s_nd_true, r'$\mu_s^* = \mu_s / \eta_0$'),
                       ('param_lam', lam_true, r'$\lambda$ [s]')]
 
         active = [(k, t, l) for k, t, l in param_keys if k in self.losses]
