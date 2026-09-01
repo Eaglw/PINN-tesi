@@ -15,6 +15,10 @@ PINNs are particularly effective in fluid dynamics for:
 - **Magnetohydrodynamics (MHD)**: Flow of electrically conducting fluids.
 
 ## References
-- Future application goals discussed in [[Klaudio_Peqini_PINNs]].
-- Practical application in jet impingement cooling: [[Hazra_et_al_Convective_Heat_Transfer]].
-- Theoretical foundations: [[Viscoelastic_Modeling_Lecture]].
+- [[Bird_Stewart_Lightfoot_Transport_Phenomena]]: Foundational equations of change and momentum transport
+- [[Deen_Analysis_of_Transport_Phenomena]]: Advanced asymptotic scaling, stream function, and vorticity analysis
+- [[Bird_Armstrong_Hassager_Dynamics_of_Polymer_Liquids]]: Viscoelastic and non-Newtonian flow mechanics
+- [[Owens_Phillips_Computational_Rheology]]: Computational methods for complex flows
+- Practical application in jet impingement cooling: [[Hazra_et_al_Convective_Heat_Transfer]]
+- Theoretical foundations: [[Viscoelastic_Modeling_Lecture]]
+- Future application goals discussed in [[Klaudio_Peqini_PINNs]]

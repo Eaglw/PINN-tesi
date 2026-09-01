@@ -555,3 +555,43 @@
 - **[[Zero_Stress_BC_Compatibility]]** (Methods, NEW): Creata la pagina metodologica sul vincolo di compatibilità rotazionale in Fase 1 per la reometria Full-PIV a zero dati di stress.
 - **[[Vorticity_Inversion_Solvent]]** (Methods, UPDATED): Aggiornata la formulazione con i risultati empirici della run Fase 2 sul 4-roll mill ($0.0908\text{ Pa}\cdot\text{s}$).
 - **[[00_Index]]** (Index, UPDATED): Inserito il nuovo metodo nel catalogo della Wiki.
+
+## [2026-09-01] ingest | Ingestion 4 Trattati Fondamentali di Trasporto, Reologia e Loss Balancing
+
+### Sintesi e Rilevanza Scientifica dei Testi
+- **Transport Phenomena (Bird, Stewart, Lightfoot)**:
+  - Trattato di riferimento per le equazioni di conservazione della massa (continuità $\nabla \cdot \mathbf{u} = 0$) e quantità di moto (Cauchy momentum balance $\rho \frac{D\mathbf{u}}{Dt} = -\nabla p - \nabla \cdot \boldsymbol{\tau} + \rho \mathbf{g}$).
+  - Soluzioni analitiche benchmark per flussi laminari (Poiseuille, Couette) e scomposizione formale del tensore degli sforzi di Cauchy $\boldsymbol{\sigma} = -p\mathbf{I} - \boldsymbol{\tau}$.
+- **Analysis of Transport Phenomena (William M. Deen - MIT)**:
+  - Fondamento matematico della formulazione della **funzione di corrente** ($\psi \implies u = \partial_y \psi, v = -\partial_x \psi$) per la conservazione identica della massa in 2D.
+  - Derivazione rigorosa dell'**equazione di trasporto della vorticità** ($\omega_z = -\nabla^2 \psi$) e della condizione di compatibilità del rotore ($\nabla \times \mathbf{F} = \mathbf{0}$) per eliminare l'indeterminazione della pressione.
+  - Metodologia formale di analisi dimensionale e scaling asintotico.
+- **Dynamics of Polymer Liquids, Vol. 1: Fluid Mechanics (Bird, Armstrong, Hassager)**:
+  - Testo sacro per la meccanica dei fluidi polimerici, reologia e leggi costitutive viscoelastiche.
+  - Formulazione rigorosa della **derivata temporale convettiva superiore (Upper-Convected Derivative $\boldsymbol{\tau}_{(1)}$)** per l'invarianza di frame/osservatore.
+  - Definizioni dei modelli differenziali: Upper-Convected Maxwell (UCM), Oldroyd-B (split stress solvente/polimero $\boldsymbol{\tau} = \boldsymbol{\tau}_s + \boldsymbol{\tau}_p$), Giesekus (anisotropia molecolare $\alpha$) e Linear PTT (distruzione network $\epsilon$).
+  - Fondamento teorico per l'identificabilità dei parametri ($\lambda$ su normal stress $N_1$, $\eta_p$ su shear stress $\tau_{xy}$).
+- **Computational Rheology (Owens & Phillips - Imperial College)**:
+  - Trattato di riferimento sui metodi numerici per fluidi complessi e classificazione mista ellittico-iperbolica (quantità di moto ellittica + trasporto iperbolico degli sforzi lungo le linee di corrente).
+  - Analisi del **High Weissenberg Number Problem (HWNP)** e tecniche di stabilizzazione (EVSS/DEVSS, Log-conformation tensor $\mathbf{s} = \log \mathbf{A}$).
+  - Analisi idrodinamica e reologica specifica per la geometria del **Four-Roll Mill** (punto di ristagno centrale $(0,0)$, deformazione estensionale pura, singolarità e gradienti esponenziali di stress).
+- **Integrazione Papers Gradient Pathologies & Loss Balancing**:
+  - Ingerito Wang et al. (2021) su Gradient Pathologies e Learning Rate Annealing.
+  - Ingerito Bischof & Kraus (2021/2022) su ReLoBRaLo e Multi-Objective Loss Balancing.
+  - Ingerito Report interno su Curl del Momentum e Loss Floor rotazionale.
+
+### Pagine Create
+- **[[Bird_Stewart_Lightfoot_Transport_Phenomena]]** (Literature)
+- **[[Deen_Analysis_of_Transport_Phenomena]]** (Literature)
+- **[[Bird_Armstrong_Hassager_Dynamics_of_Polymer_Liquids]]** (Literature)
+- **[[Owens_Phillips_Computational_Rheology]]** (Literature)
+- **[[Wang_et_al_Gradient_Pathologies]]** (Literature)
+- **[[Bischof_Kraus_Multi_Objective_Loss_Balancing]]** (Literature)
+- **[[Report_Curl_del_Momentum]]** (Literature)
+
+### Pagine Modificate
+- **[[Dynamic_Weighting]]** (Methods): Aggiunti i riferimenti espliciti agli algoritmi di Learning Rate Annealing (Wang et al.) e ReLoBRaLo (Bischof & Kraus).
+- **[[Viscoelasticity]]** (Topics): Inseriti i riferimenti a BAH (Bird et al.) e Owens & Phillips.
+- **[[Fluid_Dynamics]]** (Topics): Inseriti i riferimenti a BSL (Bird et al.), Deen, BAH e Owens & Phillips.
+- **[[00_Index]]**: Registrate tutte le 7 nuove voci nel Literature Catalog.
+

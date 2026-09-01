@@ -12,6 +12,13 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 ---
 
 ## Literature Catalog
+- [[Bird_Stewart_Lightfoot_Transport_Phenomena]]: Foundational treatise on momentum and transport phenomena
+- [[Deen_Analysis_of_Transport_Phenomena]]: Advanced transport analysis, scaling, stream function, and vorticity transport
+- [[Bird_Armstrong_Hassager_Dynamics_of_Polymer_Liquids]]: Standard treatise on polymer fluid mechanics and constitutive laws (Oldroyd-B, Giesekus, PTT)
+- [[Owens_Phillips_Computational_Rheology]]: Computational methods for viscoelastic flows, HWNP, log-conformation, and 4-roll mill
+- [[Wang_et_al_Gradient_Pathologies]]: Gradient flow pathologies and learning rate annealing in PINNs
+- [[Bischof_Kraus_Multi_Objective_Loss_Balancing]]: Multi-objective loss balancing and ReLoBRaLo algorithm
+- [[Report_Curl_del_Momentum]]: Irrotational momentum compatibility, loss floor, and Helmholtz decomposition
 - [[Note_01_Framework]]: Implementation Framework Note
 - [[Note_02_CSTR]]: CSTR Research Journal
 - [[Note_03_Heat2D]]: Heat2D Path to Precision
