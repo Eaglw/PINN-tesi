@@ -8,7 +8,7 @@ $$\mu_s^* \nabla^2 \mathbf{u} + \nabla \cdot \boldsymbol{\tau} - \nabla p - Re_{
 However, simultaneous optimization of the scalar parameter $\mu_s^*$ and the high-dimensional continuous pressure field $p(x,y)$ suffers from a fundamental **gauge degeneracy (mutual feedback loop)**. This page documents:
 1. The mathematical origin of the monotonic upward drift of $\eta_s$.
 2. The **Vorticity Transport / Curl Formulation** as a decoupled method to identify $\eta_s$ independently of pressure.
-3. **Empirical Validation in Phase 2**: Direct identification of $\eta_s = 0.0908\text{ Pa}\cdot\text{s}$ (9.2% error).
+3. **Empirical Validation in Phase 2**: Direct asymptotic identification of $\eta_s = 0.097955\text{ Pa}\cdot\text{s}$ (2.04% error).
 4. The **Staged Pressure-Warmup Protocol** as a computationally efficient proxy.
 
 ---
@@ -41,12 +41,14 @@ The pressure field **completely drops out of the equation**, yielding the steady
 $$\mu_s^* \nabla^2 \omega_z = - \nabla \times (\nabla \cdot \boldsymbol{\tau}) + Re_{\text{scale}} \nabla \times ((\mathbf{u} \cdot \nabla)\mathbf{u})$$
 where $\omega_z = \frac{\partial v}{\partial x} - \frac{\partial u}{\partial y} = -\nabla^2 \psi$ is the scalar 2D vorticity.
 
-### Empirical Validation on Four-Roll Mill (2026-08-31)
+### Empirical Validation on Four-Roll Mill (Epoch 77,000)
 Using `train_4roll_main_curl.py` with a 5000-point sub-batch evaluation of $\mathcal{L}_{\text{curl}}$:
 - **Starting guess**: $\mu_s = 0.080\text{ Pa}\cdot\text{s}$
-- **Identified value**: $\mu_s = 0.0908\text{ Pa}\cdot\text{s}$ (Target COMSOL: $0.1000\text{ Pa}\cdot\text{s}$, relative error: $9.2\%$)
-- **Kinematic accuracy**: $L_2(u) = 3.04\%$, $L_2(v) = 3.07\%$
-- **Memory footprint**: ~3.4 GB VRAM in FP32 with chunking.
+- **Identified value**: $\mu_s = \mathbf{0.097955\text{ Pa}\cdot\text{s}}$ (Target COMSOL: $0.100000\text{ Pa}\cdot\text{s}$, relative error: $\mathbf{2.04\%}$)
+- **Polymer viscosity**: $\mu_p = 0.904854\text{ Pa}\cdot\text{s}$ (relative error: $0.54\%$)
+- **Relaxation time**: $\lambda = 0.050203\text{ s}$ (relative error: $0.41\%$)
+- **Kinematic accuracy**: $L_2(u) = 1.70\%$, $L_2(v) = 1.84\%$
+- **Pressure correlation**: Pearson correlation $r = \mathbf{+0.9591}$ ($96\%$ physical shape match).
 
 ---
 
@@ -66,9 +68,9 @@ Because evaluating 4th-order autograd derivatives during continuous training car
 ---
 
 ## References & Back-links
-- [[Zero_Stress_BC_Compatibility]]
-- [[Viscoelastic_Parameter_Identifiability]]
-- [[Vorticity_Regularization]]
-- [[Pressure_Stress_Decoupling]]
-- [[Staged_Training_Procedure]]
-- [[Viscoelastic_Training]]
+- [[Zero_Stress_BC_Compatibility]] (Zero-stress BCs and curl compatibility in Phase 1)
+- [[Viscoelastic_Parameter_Identifiability]] (Full-blind parameter identification in Oldroyd-B)
+- [[Vorticity_Regularization]] (Vorticity transport as forward regularization in Phase 1)
+- [[Pressure_Stress_Decoupling]] (Helmholtz-Hodge decomposition and pressure isolation)
+- [[Staged_Training_Procedure]] (Multi-stage training architecture)
+- [[Viscoelastic_Training]] (Four-roll mill experiment guide)
