@@ -19,6 +19,8 @@ PINNs are particularly effective in fluid dynamics for:
 - [[Deen_Analysis_of_Transport_Phenomena]]: Advanced asymptotic scaling, stream function, and vorticity analysis
 - [[Bird_Armstrong_Hassager_Dynamics_of_Polymer_Liquids]]: Viscoelastic and non-Newtonian flow mechanics
 - [[Owens_Phillips_Computational_Rheology]]: Computational methods for complex flows
+- [[Oldroyd_1950_Rheological_Equations_of_State]]: Material frame indifference and Oldroyd-B constitutive model
+- [[Thesis_Chapter_02_Fluid_Dynamics_Guide]]: Comprehensive study and writing guide for Thesis Chapter 2
 - Practical application in jet impingement cooling: [[Hazra_et_al_Convective_Heat_Transfer]]
 - Theoretical foundations: [[Viscoelastic_Modeling_Lecture]]
 - Future application goals discussed in [[Klaudio_Peqini_PINNs]]
