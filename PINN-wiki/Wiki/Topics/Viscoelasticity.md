@@ -20,6 +20,8 @@ In the context of PINNs, viscoelasticity is modeled by incorporating constitutiv
 The challenge in PINN implementations (e.g., [[ViscoelasticNet]]) is the coupling of momentum conservation with these constitutive equations, often requiring multi-network architectures to handle velocity, pressure, and stress components separately, leveraging [[Pressure_Stress_Decoupling]].
 
 ## References
+- [[Bird_Armstrong_Hassager_Dynamics_of_Polymer_Liquids]]
+- [[Owens_Phillips_Computational_Rheology]]
 - [[Viscoelasticity_Theory]]
 - [[Viscoelastic_Fluids]]
 - [[Upper_Convected_Maxwell]]
