@@ -234,6 +234,10 @@ class MuTotCurlPhysics(Physics):
         else:
             super().set_trainable(name, trainable)
 
+    def get_phase2_params(self):
+        """Restituisce il parametro della viscosita' totale per la Fase 2."""
+        return [self._raw_mu_tot]
+
     def log_params(self):
         p = super().log_params()
         p["mu_tot"] = self.mu_tot.item()
@@ -355,17 +359,6 @@ class MuTotCurlPhysics(Physics):
 
         curl_F = mu_tot_nd * a + b_prime
         return torch.mean(curl_F ** 2)
-
-    def boundary_loss(self, model, bc_data, var_w=None, active_bcs=None, **kwargs):
-        """Aggiunge il vincolo curl(F)=0 formulato su mu_tot alla loss al contorno in Fase 2."""
-        total_loss = super().boundary_loss(model, bc_data, var_w, active_bcs=active_bcs, **kwargs)
-        if active_bcs is not None and "p" in active_bcs:
-            use_curl = getattr(builtins, "USE_CURL_CONSTRAINT", True)
-            if use_curl and self._precomputed_b_prime is not None:
-                w_curl = getattr(builtins, "W_CURL", 1.0)
-                l_curl = self.compute_curl_loss(model)
-                total_loss = total_loss + w_curl * l_curl
-        return total_loss
 
 
 # ============================================================================

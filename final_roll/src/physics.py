@@ -132,6 +132,11 @@ class Physics(nn.Module):
         if raw_param is not None and isinstance(raw_param, nn.Parameter):
             raw_param.requires_grad_(trainable)
 
+    def get_phase2_params(self):
+        """Restituisce la lista di parametri fisici addestrabili per la Fase 2 (default: _raw_mu_s)."""
+        raw_p = getattr(self, "_raw_mu_s", None)
+        return [raw_p] if (raw_p is not None and isinstance(raw_p, nn.Parameter)) else []
+
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
         """Gestisce in modo trasparente la compatibilità e il caricamento dei parametri fisici."""
         # Se presente _raw_beta da vecchi checkpoint storici e manca _raw_mu_p, converti
@@ -515,7 +520,7 @@ def evaluate_final_losses(model, physics, data, chunk_size=2000):
         w_data * metrics["d_loss"] + w_bc * b_loss_val + pde_loss_val
     )
 
-    return {
+    res = {
         "Data Loss": metrics["d_loss"],
         "Boundary Loss": b_loss_val,
         "BC_u": bc_vals["u"],
@@ -532,6 +537,12 @@ def evaluate_final_losses(model, physics, data, chunk_size=2000):
         "Mean Abs f_txy": metrics["abs_ftxy"],
         "Mean Abs f_tyy": metrics["abs_ftyy"],
     }
+    if hasattr(physics, "compute_curl_loss") and getattr(builtins, "USE_CURL_CONSTRAINT", False):
+        try:
+            res["Curl Loss"] = physics.compute_curl_loss(model).item()
+        except Exception:
+            pass
+    return res
 
 
 def compute_l2_errors(model, physics, data, chunk_size=7000):

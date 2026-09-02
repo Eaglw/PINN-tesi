@@ -36,14 +36,15 @@ class SimpleHistory:
     def plot_losses(self, save_path):
         """Plot loss totale/data/bc/pde/momentum/constitutive."""
         fig, ax = plt.subplots(figsize=(10, 5))
-        keys_plot = ['total', 'data', 'bc', 'pde', 'loss_momentum', 'loss_constitutive']
+        keys_plot = ['total', 'data', 'bc', 'pde', 'loss_momentum', 'loss_constitutive', 'loss_curl']
         colors = {
             'total': 'black',
             'data': 'blue',
             'bc': 'green',
             'pde': 'red',
             'loss_momentum': 'purple',
-            'loss_constitutive': 'orange'
+            'loss_constitutive': 'orange',
+            'loss_curl': 'darkcyan'
         }
         for k in keys_plot:
             if k not in self.losses:
@@ -382,10 +383,24 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         if w_bc > 0.0 and isinstance(b_loss, torch.Tensor):
             (w_bc * b_loss).backward()
 
+        # --- 4. CURL CONSTRAINT LOSS (Fase 2 / Vincolo Irrotazionalità) ---
+        loss_curl_val = 0.0
+        use_curl = getattr(builtins, "USE_CURL_CONSTRAINT", False)
+        if use_curl and hasattr(physics, "compute_curl_loss") and active_bcs is not None and "p" in active_bcs:
+            w_curl = getattr(builtins, "W_CURL", 1.0)
+            curl_l = physics.compute_curl_loss(model)
+            if isinstance(curl_l, torch.Tensor):
+                loss_curl_val = curl_l.item()
+                if w_curl > 0.0:
+                    (w_curl * curl_l).backward()
+
         tot_loss = (
-            (w_data * d_loss_accum) + (w_bc * b_loss_val) + p_loss_accum
+            (w_data * d_loss_accum)
+            + (w_bc * b_loss_val)
+            + p_loss_accum
+            + (w_curl * loss_curl_val if use_curl else 0.0)
         )
-        return tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val
+        return tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val, loss_curl_val
 
     # Variabili cache cinematica per anti-drift in Fase 2
     u_ckpt_cache = None
@@ -488,7 +503,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             model.train()
             optimizer.zero_grad(set_to_none=True)
 
-            tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val = (
+            tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val, loss_curl_val = (
                 compute_and_backward_losses(
                     w_data=w_data_ph1, w_bc=w_bc_ph1, w_mom=w_mom, w_con=w_con,
                     active_bcs=active_bcs, points=xy_all, labels=uv_all,
@@ -527,9 +542,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     "param_eps": params["eps"],
                     "param_alpha": params["alpha"],
                     "param_eta0": params["eta_0"],
-                    "param_Re_scale": params["Re_scale"],
-                    "param_Re_phys": params["Re_phys"],
                 }
+                if loss_curl_val > 0.0:
+                    loss_dict["loss_curl"] = loss_curl_val
 
                 if log_l2:
                     print(f"\n[Epoch {epoch+1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
@@ -687,7 +702,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         def closure1():
             optimizer_lbfgs1.zero_grad(set_to_none=True)
-            tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
+            tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss, curl_l = (
                 compute_and_backward_losses(
                     w_data=w_data_lbfgs1, w_bc=w_bc_lbfgs1, w_mom=w_mom_lbfgs1, w_con=w_con_lbfgs1,
                     active_bcs=active_bcs_lbfgs1,
@@ -700,6 +715,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             last_losses_ph1['pde'] = p_loss_accum
             last_losses_ph1['m'] = m_loss
             last_losses_ph1['c'] = c_loss
+            last_losses_ph1['curl'] = curl_l
             return torch.tensor(tot_loss, device=DEVICE, dtype=torch.float64)
 
         for it1 in range(local_start, iters_ph1):
@@ -719,43 +735,42 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 p_loss_accum = last_losses_ph1.get('pde', 0.0)
                 m_loss = last_losses_ph1.get('m', 0.0)
                 c_loss = last_losses_ph1.get('c', 0.0)
+                curl_l = last_losses_ph1.get('curl', 0.0)
 
                 params = physics.log_params()
                 with torch.no_grad():
                     l2_errs = compute_l2_errors(model, physics, data)
 
-                history.update(
-                    global_step,
-                    {
-                        "total": tot_loss,
-                        "data": d_loss_accum,
-                        "bc": b_loss_val,
-                        "pde": p_loss_accum,
-                        "loss_momentum": m_loss,
-                        "loss_constitutive": c_loss,
-                        "param_beta": params["beta"],
-                        "param_mu_tot": params["mu_tot"],
-                        "param_mu_s": params["mu_s"],
-                        "param_mu_s_nd": params["mu_s_nd"],
-                        "param_mu_p": params["mu_p"],
-                        "param_mu_p_nd": params["mu_p_nd"],
-                        "param_lam": params["lam"],
-                        "param_eps": params["eps"],
-                        "param_alpha": params["alpha"],
-                        "param_eta0": params["eta_0"],
-                        "param_Re_scale": params["Re_scale"],
-                        "param_Re_phys": params["Re_phys"],
-                        "l2_u": l2_errs["u"],
-                        "l2_v": l2_errs["v"],
-                        "l2_p": l2_errs["p"],
-                        "l2_tau_xx": l2_errs["tau_xx"],
-                        "l2_tau_xy": l2_errs["tau_xy"],
-                        "l2_tau_yy": l2_errs["tau_yy"],
-                        "l2_tau_xx_masked": l2_errs["tau_xx_masked"],
-                        "l2_tau_xy_masked": l2_errs["tau_xy_masked"],
-                        "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
-                    }
-                )
+                h_dict = {
+                    "total": tot_loss,
+                    "data": d_loss_accum,
+                    "bc": b_loss_val,
+                    "pde": p_loss_accum,
+                    "loss_momentum": m_loss,
+                    "loss_constitutive": c_loss,
+                    "param_beta": params["beta"],
+                    "param_mu_tot": params["mu_tot"],
+                    "param_mu_s": params["mu_s"],
+                    "param_mu_s_nd": params["mu_s_nd"],
+                    "param_mu_p": params["mu_p"],
+                    "param_mu_p_nd": params["mu_p_nd"],
+                    "param_lam": params["lam"],
+                    "param_eps": params["eps"],
+                    "param_alpha": params["alpha"],
+                    "param_eta0": params["eta_0"],
+                    "l2_u": l2_errs["u"],
+                    "l2_v": l2_errs["v"],
+                    "l2_p": l2_errs["p"],
+                    "l2_tau_xx": l2_errs["tau_xx"],
+                    "l2_tau_xy": l2_errs["tau_xy"],
+                    "l2_tau_yy": l2_errs["tau_yy"],
+                    "l2_tau_xx_masked": l2_errs["tau_xx_masked"],
+                    "l2_tau_xy_masked": l2_errs["tau_xy_masked"],
+                    "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
+                }
+                if curl_l > 0.0:
+                    h_dict["loss_curl"] = curl_l
+                history.update(global_step, h_dict)
                 print(f"\n[L-BFGS Phase 1 - Iter {it1+1}/{iters_ph1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
                 print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
                 print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
@@ -884,7 +899,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             )
         )
 
-        # Costruisci l'ottimizzatore Fase 2 (LR differenziati: p=1e-3, psi=1e-4, mu_s=1e-4)
+        # Costruisci l'ottimizzatore Fase 2 (LR differenziati: p=1e-3, psi=1e-4, mu_s/mu_tot=1e-4)
         p_params = [p for p in model.model_p.parameters() if p.requires_grad]
         psi_params = [p for p in model.model_psi.parameters() if p.requires_grad]
         groups = [
@@ -893,7 +908,13 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         ]
         if physics.inverse_mode:
             phys_lr = 0.0 if is_warmup_ph2 else (BASE_LR * PARAM_LR_FACTOR)
-            groups.append({"params": [physics._raw_mu_s], "lr": phys_lr})
+            if hasattr(physics, "get_phase2_params"):
+                phys_params_ph2 = physics.get_phase2_params()
+            elif hasattr(physics, "_raw_mu_tot"):
+                phys_params_ph2 = [physics._raw_mu_tot]
+            else:
+                phys_params_ph2 = [physics._raw_mu_s]
+            groups.append({"params": phys_params_ph2, "lr": phys_lr})
 
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
 
@@ -921,7 +942,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
             # Sblocco viscosità solvente se warmup attivo in Fase 2 (SENZA ricreare l'ottimizzatore Adam)
             if physics.inverse_mode and warmup_ph2 > 0 and epoch_idx == warmup_ph2:
-                print(f"\n  [Warmup Stage 2] Pre-formazione pressione completata! Sblocco viscosità solvente mu_s (epoca globale {epoch+1}, step locale {epoch_idx})")
+                print(f"\n  [Warmup Stage 2] Pre-formazione pressione completata! Sblocco viscosità solvente/totale (epoca globale {epoch+1}, step locale {epoch_idx})")
                 physics.set_trainable("mu_s", True)
                 if len(optimizer.param_groups) > 2:
                     optimizer.param_groups[2]["lr"] = BASE_LR * PARAM_LR_FACTOR
@@ -929,7 +950,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             model.train()
             optimizer.zero_grad(set_to_none=True)
 
-            tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val = (
+            tot_loss, d_loss_accum, b_loss_val, p_loss_accum, loss_m_val, loss_c_val, loss_curl_val = (
                 compute_and_backward_losses(
                     w_data=w_data_ph2, w_bc=w_bc_ph2, w_mom=w_mom, w_con=w_con,
                     active_bcs=active_bcs, points=xy_all, labels=uv_all,
@@ -946,6 +967,16 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
             optimizer.step()
             scheduler.step()
+
+            if (epoch_idx + 1) % 10 == 0 or epoch_idx == local_start or (epoch_idx + 1) == ADAM_EPOCHS_PHASE2:
+                pf = {"Loss": f"{tot_loss:.2e}"}
+                if physics.inverse_mode:
+                    params_pf = physics.log_params()
+                    pf["mu_tot"] = f"{params_pf['mu_tot']:.4f}"
+                    pf["mu_s"] = f"{params_pf['mu_s']:.4f}"
+                if loss_curl_val > 0.0 or getattr(builtins, "USE_CURL_CONSTRAINT", False):
+                    pf["Curl"] = f"{loss_curl_val:.2e}"
+                pbar.set_postfix(pf)
 
             log_l2 = ((epoch_idx + 1) % max(1, ADAM_EPOCHS_PHASE2 // 40) == 0) or (epoch_idx == local_start) or ((epoch_idx + 1) == ADAM_EPOCHS_PHASE2)
             log_loss = ((epoch_idx + 1) % 10 == 0) or log_l2
@@ -969,12 +1000,15 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     "param_eps": params["eps"],
                     "param_alpha": params["alpha"],
                     "param_eta0": params["eta_0"],
-                    "param_Re_scale": params["Re_scale"],
-                    "param_Re_phys": params["Re_phys"],
                 }
+                if loss_curl_val > 0.0 or getattr(builtins, "USE_CURL_CONSTRAINT", False):
+                    loss_dict["loss_curl"] = loss_curl_val
 
                 if log_l2:
-                    print(f"\n[Epoch {epoch+1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e} | eta_0: {params['eta_0']:.4f} | Re_phys: {params['Re_phys']:.6f}")
+                    curl_str = f" | Curl: {loss_curl_val:.4e}" if (loss_curl_val > 0.0 or getattr(builtins, "USE_CURL_CONSTRAINT", False)) else ""
+                    print(f"\n[Epoch {epoch+1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}{curl_str}")
+                    if physics.inverse_mode:
+                        print(f"  Params -> mu_tot: {params['mu_tot']:.6f} Pa·s | mu_s: {params['mu_s']:.6f} Pa·s | beta: {params['beta']:.6f} | mu_p: {params['mu_p']:.6f} Pa·s")
                     model.eval()
                     with torch.no_grad():
                         l2_errs = compute_l2_errors(model, physics, data)
@@ -1039,9 +1073,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     tb_writer.add_scalar('Loss/PDE', p_loss_accum, epoch)
                     tb_writer.add_scalar('Loss/Momentum', loss_m_val, epoch)
                     tb_writer.add_scalar('Loss/Constitutive', loss_c_val, epoch)
+                    if loss_curl_val > 0.0 or getattr(builtins, "USE_CURL_CONSTRAINT", False):
+                        tb_writer.add_scalar('Loss/Curl', loss_curl_val, epoch)
 
                     if physics.inverse_mode:
-                        for name in ['beta', 'mu_s', 'mu_p', 'lam', 'eps', 'alpha', 'eta_0', 'Re_scale', 'Re_phys']:
+                        for name in ['beta', 'mu_tot', 'mu_s', 'mu_p', 'lam', 'eps', 'alpha', 'eta_0']:
                             if name in params:
                                 tb_writer.add_scalar(f'Params/{name}', params[name], epoch)
 
@@ -1154,7 +1190,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         def closure2():
             optimizer_lbfgs2.zero_grad(set_to_none=True)
-            tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss = (
+            tot_loss, d_loss_accum, b_loss_val, p_loss_accum, m_loss, c_loss, curl_loss = (
                 compute_and_backward_losses(
                     w_data=w_data_lbfgs2, w_bc=w_bc_lbfgs2, w_mom=w_mom_lbfgs2, w_con=0.0,
                     active_bcs=["p", "u", "v"],
@@ -1169,6 +1205,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             last_losses_ph2['pde'] = p_loss_accum
             last_losses_ph2['m'] = m_loss
             last_losses_ph2['c'] = c_loss
+            last_losses_ph2['curl'] = curl_loss
             return torch.tensor(tot_loss, device=DEVICE, dtype=torch.float64)
 
         for it2 in range(local_start, iters_ph2):
@@ -1179,7 +1216,15 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             log_l2_lbfgs = ((it2 + 1) % max(1, iters_ph2 // 40) == 0) or (it2 == local_start) or ((it2 + 1) == iters_ph2)
 
             pbar_lbfgs2.update(1)
-            pbar_lbfgs2.set_postfix({"Loss": f"{step_loss_val:.2e}"})
+            pf = {"Loss": f"{step_loss_val:.2e}"}
+            if physics.inverse_mode:
+                params_pf = physics.log_params()
+                pf["mu_tot"] = f"{params_pf['mu_tot']:.4f}"
+                pf["mu_s"] = f"{params_pf['mu_s']:.4f}"
+            curl_l = last_losses_ph2.get('curl', 0.0)
+            if curl_l > 0.0 or getattr(builtins, "USE_CURL_CONSTRAINT", False):
+                pf["Curl"] = f"{curl_l:.2e}"
+            pbar_lbfgs2.set_postfix(pf)
 
             if log_l2_lbfgs:
                 tot_loss = last_losses_ph2.get('total', step_loss_val)
@@ -1188,6 +1233,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 p_loss_accum = last_losses_ph2.get('pde', 0.0)
                 m_loss = last_losses_ph2.get('m', 0.0)
                 c_loss = last_losses_ph2.get('c', 0.0)
+                curl_loss = last_losses_ph2.get('curl', 0.0)
 
                 params = physics.log_params()
                 with torch.no_grad():
@@ -1211,39 +1257,41 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     g_m_norm = sum(g.norm(2).item()**2 for g in g_m_list if g is not None)**0.5
                     ratio_g = (g_m_norm / (g_d_norm + 1e-12)) if g_d_norm > 0 else 0.0
 
-                history.update(
-                    global_step,
-                    {
-                        "total": tot_loss,
-                        "data": d_loss_accum,
-                        "bc": b_loss_val,
-                        "pde": p_loss_accum,
-                        "loss_momentum": m_loss,
-                        "loss_constitutive": c_loss,
-                        "param_beta": params["beta"],
-                        "param_mu_tot": params["mu_tot"],
-                        "param_mu_s": params["mu_s"],
-                        "param_mu_s_nd": params["mu_s_nd"],
-                        "param_mu_p": params["mu_p"],
-                        "param_mu_p_nd": params["mu_p_nd"],
-                        "param_lam": params["lam"],
-                        "param_eps": params["eps"],
-                        "param_alpha": params["alpha"],
-                        "param_eta0": params["eta_0"],
-                        "param_Re_scale": params["Re_scale"],
-                        "param_Re_phys": params["Re_phys"],
-                        "l2_u": l2_errs["u"],
-                        "l2_v": l2_errs["v"],
-                        "l2_p": l2_errs["p"],
-                        "l2_tau_xx": l2_errs["tau_xx"],
-                        "l2_tau_xy": l2_errs["tau_xy"],
-                        "l2_tau_yy": l2_errs["tau_yy"],
-                        "l2_tau_xx_masked": l2_errs["tau_xx_masked"],
-                        "l2_tau_xy_masked": l2_errs["tau_xy_masked"],
-                        "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
-                    }
-                )
-                print(f"\n[L-BFGS Phase 2 - Iter {it2+1}/{iters_ph2}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}")
+                h_dict_ph2 = {
+                    "total": tot_loss,
+                    "data": d_loss_accum,
+                    "bc": b_loss_val,
+                    "pde": p_loss_accum,
+                    "loss_momentum": m_loss,
+                    "loss_constitutive": c_loss,
+                    "param_beta": params["beta"],
+                    "param_mu_tot": params["mu_tot"],
+                    "param_mu_s": params["mu_s"],
+                    "param_mu_s_nd": params["mu_s_nd"],
+                    "param_mu_p": params["mu_p"],
+                    "param_mu_p_nd": params["mu_p_nd"],
+                    "param_lam": params["lam"],
+                    "param_eps": params["eps"],
+                    "param_alpha": params["alpha"],
+                    "param_eta0": params["eta_0"],
+                    "l2_u": l2_errs["u"],
+                    "l2_v": l2_errs["v"],
+                    "l2_p": l2_errs["p"],
+                    "l2_tau_xx": l2_errs["tau_xx"],
+                    "l2_tau_xy": l2_errs["tau_xy"],
+                    "l2_tau_yy": l2_errs["tau_yy"],
+                    "l2_tau_xx_masked": l2_errs["tau_xx_masked"],
+                    "l2_tau_xy_masked": l2_errs["tau_xy_masked"],
+                    "l2_tau_yy_masked": l2_errs["tau_yy_masked"],
+                }
+                if curl_loss > 0.0 or getattr(builtins, "USE_CURL_CONSTRAINT", False):
+                    h_dict_ph2["loss_curl"] = curl_loss
+                history.update(global_step, h_dict_ph2)
+
+                curl_str = f" | Curl: {curl_loss:.4e}" if (curl_loss > 0.0 or getattr(builtins, "USE_CURL_CONSTRAINT", False)) else ""
+                print(f"\n[L-BFGS Phase 2 - Iter {it2+1}/{iters_ph2}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}{curl_str}")
+                if physics.inverse_mode:
+                    print(f"  Params -> mu_tot: {params['mu_tot']:.6f} Pa·s | mu_s: {params['mu_s']:.6f} Pa·s | beta: {params['beta']:.6f} | mu_p: {params['mu_p']:.6f} Pa·s")
                 print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
                 print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
                 print(f"  G_data(psi): {g_d_norm:.4e} | G_mom(psi): {g_m_norm:.4e} | Ratio (G_mom/G_data): {ratio_g:.4f}")
@@ -1264,11 +1312,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     tb_writer.add_scalar('Loss/PDE', p_loss_accum, global_step)
                     tb_writer.add_scalar('Loss/Momentum', m_loss, global_step)
                     tb_writer.add_scalar('Loss/Constitutive', c_loss, global_step)
+                    if curl_loss > 0.0 or getattr(builtins, "USE_CURL_CONSTRAINT", False):
+                        tb_writer.add_scalar('Loss/Curl', curl_loss, global_step)
 
                     if physics.inverse_mode:
-                        for name in ['beta', 'mu_s', 'mu_p', 'lam', 'eps', 'alpha']:
-                            raw_p = getattr(physics, f"_raw_{name}", None)
-                            if raw_p is not None and isinstance(raw_p, nn.Parameter) and raw_p.requires_grad:
+                        for name in ['beta', 'mu_tot', 'mu_s', 'mu_p', 'lam', 'eps', 'alpha', 'eta_0']:
+                            if name in params:
                                 tb_writer.add_scalar(f'Params/{name}', params[name], global_step)
 
                     for k in ['u', 'v', 'p', 'tau_xx', 'tau_xy', 'tau_yy']:
