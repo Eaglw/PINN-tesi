@@ -595,3 +595,20 @@
 - **[[Fluid_Dynamics]]** (Topics): Inseriti i riferimenti a BSL (Bird et al.), Deen, BAH e Owens & Phillips.
 - **[[00_Index]]**: Registrate tutte le 7 nuove voci nel Literature Catalog.
 
+---
+
+## [2026-09-01] update_wiki | Ingestion Oldroyd (1950) & Guida Completa alla Scrittura del Capitolo 2
+
+### Sintesi Operazioni
+- Ingerito il paper fondamentale di James G. Oldroyd (1950) sull'invarianza di riferimento materiale (Objectivity) e sull'equazione a 8 costanti ridotta a Oldroyd-B.
+- Creata la guida definitiva alla riscrittura del Capitolo 2 della tesi (*Viscoelastic Fluid Mechanics*), con la mappatura esaustiva capitolo-per-capitolo dei testi di riferimento (**William M. Deen**, **Bird, Armstrong & Hassager - DPL Vol. 1**, **Owens & Phillips**, **BSL**, e **Oldroyd 1950**).
+- Definite le formule matematiche e i blocchi BibTeX per l'inserimento diretto in LaTeX.
+
+### Pagine Create
+- **[[Oldroyd_1950_Rheological_Equations_of_State]]** (Literature): Scheda del paper originale di Oldroyd (1950) con UCTD e derivazione tensoriale codeformazionale.
+- **[[Thesis_Chapter_02_Fluid_Dynamics_Guide]]** (Systems): Guida completa alla scrittura del Capitolo 2 con schema delle sezioni, elenco letture e riferimenti BibTeX.
+
+### Pagine Modificate
+- **[[Fluid_Dynamics]]** (Topics): Inseriti i collegamenti a Oldroyd (1950) e alla guida di scrittura del Capitolo 2.
+- **[[00_Index]]**: Aggiunta la voce di Oldroyd (1950) nel Literature Catalog e la guida del Capitolo 2 in Physical Systems.
+

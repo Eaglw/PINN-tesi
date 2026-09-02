@@ -28,6 +28,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Sharma_et_al_Hyperparameter_Selection]]: PINN hyperparameter optimization study
 - [[Thakur_et_al_ViscoelasticNet]]: Stress discovery in viscoelastic flows
 - [[Oldroyd_B_Model]]: Constitutive modeling of viscoelasticity
+- [[Oldroyd_1950_Rheological_Equations_of_State]]: Seminal paper on material frame indifference, upper-convected rates, and Oldroyd-B
 - [[Viscoelasticity_Theory]]: Fundamental theoretical principles
 - [[Maurizio_Harmonic_Oscillator]]: 1D Damped Oscillator implementation
 - [[Frequency_Spectral_Bias]]: DNN learning preferences in frequency domain
@@ -97,3 +98,4 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Harmonic_Oscillator]]: Benchmark system for oscillatory dynamics
 - [[Viscoelastic_Fluids]]: Non-Newtonian stress discovery (Physics & Benchmark)
 - [[Viscoelastic_Training]]: Viscoelastic PINN Training & Architecture (Experiment Guide)
+- [[Thesis_Chapter_02_Fluid_Dynamics_Guide]]: Comprehensive study, literature mapping, and formulation guide for Thesis Chapter 2
