@@ -103,6 +103,8 @@ LOG_FREQUENCY = 50
 W_DATA_2 = 20.0             # Ancoraggio dati velocità u, v
 W_BC_2 = 5.0                # Ancoraggio boundary conditions (no-slip + PressurePoint)
 W_MOMENTUM = 1.0            # Peso equazione quantità di moto per pressione p
+USE_CURL_CONSTRAINT = True
+W_CURL = 1.0                # Peso globale componente rotazionale in loss totale
 W_POISSON = 1.0             # Peso vincolo cinematico: omega + nabla^2(psi) = 0
 W_VORTICITY = 1.0           # Peso equazione trasporto: mu_s* nabla^2(omega) + rot(div(tau)) - Re*(u.nabla)omega = 0
 W_DRIFT = 1.0               # Soft trust-region cinematica rispetto al checkpoint F1
