@@ -86,7 +86,13 @@ DEBUG_MODE = False
 USE_ROLL_STRESS_BC = True
 W_ROLL_STRESS = 1.0
 
-# --- Vincolo curl(F) = 0 su mu_tot ---
+# --- Modalità di Esecuzione Diagnostica Breve vs Run Completa ---
+# Se True: esegue solo un test breve di Adam (es. 2000 epoche) senza L-BFGS,
+# registrando dettagliatamente le metriche rotazionali per decidere se procedere con L-BFGS.
+SHORT_DIAGNOSTIC_RUN = True
+SHORT_ADAM_EPOCHS = 2000
+
+# --- Vincolo curl(F) = 0 su mu_tot e cinematica ---
 USE_CURL_CONSTRAINT = True
 W_CURL = 1.0             # Peso della loss curl(F) = 0
 CURL_SUBSET_SIZE = 5000   # Punti su cui valutare il curl (sottocampione per efficienza VRAM)
@@ -130,10 +136,15 @@ ADAM_EPOCHS_PHASE1 = 40000
 USE_LBFGS_PHASE1 = True
 LBFGS_MAX_ITERS_PHASE1 = 10000
 
-# Iperparametri Fase 2: 30k Adam + 2k L-BFGS
-ADAM_EPOCHS_PHASE2 = 30000
-USE_LBFGS_PHASE2 = True
-LBFGS_MAX_ITERS_PHASE2 = 2000
+# Iperparametri Fase 2
+if SHORT_DIAGNOSTIC_RUN:
+    ADAM_EPOCHS_PHASE2 = SHORT_ADAM_EPOCHS
+    USE_LBFGS_PHASE2 = False
+    LBFGS_MAX_ITERS_PHASE2 = 0
+else:
+    ADAM_EPOCHS_PHASE2 = 30000
+    USE_LBFGS_PHASE2 = True
+    LBFGS_MAX_ITERS_PHASE2 = 2000
 
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
@@ -152,7 +163,7 @@ W_CONSTITUTIVE = 1.0
 W_DATA_2 = 20.0
 W_BC_2 = 5.0
 W_MOMENTUM = 1.0
-W_DRIFT = 0.0
+W_DRIFT = 1.0              # Trust-region cinematica rispetto al checkpoint F1
 VARIANCE_EPS = 1e-4
 
 # Iniezione parametri globali in builtins e nei moduli src
@@ -164,7 +175,7 @@ for name, val in list(locals().items()):
 
 
 # ============================================================================
-# 3. SOTTOCLASSE SPECIALIZZATA: MUTOT & CURL PHYSICS
+# 3. SOTTOCLASSE SPECIALIZZATA: MUTOT & CURL PHYSICS (DINAMICA)
 # ============================================================================
 class MuTotCurlPhysics(Physics):
     """
@@ -172,9 +183,13 @@ class MuTotCurlPhysics(Physics):
     1. Parametrizzazione su Viscosita' Totale mu_tot (target: 1.000 Pa*s)
        con mu_p fissato al valore identificato dalla Fase 1:
          mu_s = clamp(mu_tot - mu_p_fixed, min=1e-6)
-    2. Vincolo di irrotazionalita' curl(F) = 0 in Fase 2:
-         curl(F) = mu_tot* * curl(lap(u)) + curl(div(tau - 2*mu_p*D) - Re*(u.nabla)u) = 0
-       dove il secondo termine b'(x,y) e' precalcolato all'inizio della Fase 2.
+    2. Vincolo di irrotazionalita' curl(F) = 0 dinamico coerente con psi mobile:
+         r_curl = (mu_tot* - mu_p*) * a(psi) + curl(div(tau)) - Re * curl((u . nabla)u) = 0
+       dove:
+         - curl(div(tau)) e' statico e precalcolato in cache (poiche' tau e' congelato in Fase 2)
+         - a(psi) = curl(lap(u)) e' dinamico
+         - curl_conv(psi) = curl((u . nabla)u) e' dinamico
+    3. Logging diagnostico avanzato per il monitoraggio analitico e la trust region cinematica.
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -187,9 +202,10 @@ class MuTotCurlPhysics(Physics):
         self.mu_p_fixed = None
 
         # Buffers per il vincolo curl
-        self._precomputed_b_prime = None
+        self._precomputed_curl_div_tau = None
         self._curl_points_idx = None
         self._xy_all = None
+        self.diag_csv_path = None
 
     @property
     def mu_tot(self):
@@ -249,10 +265,11 @@ class MuTotCurlPhysics(Physics):
         p["beta"] = self.beta.item()
         return p
 
-    def precompute_curl_b_prime(self, model, xy_all, subset_size=5000):
+    def precompute_curl_div_tau(self, model, xy_all, subset_size=5000):
         """
-        Precalcola il termine b'(x,y) = curl( div(tau - 2*mu_p*D) - Re*(u.nabla)u )
-        su un sottocampione random di punti.
+        Precalcola il termine statico curl(div(tau)) su un sottocampione random di punti.
+        Poiche' tau e' congelato durante la Fase 2, curl(div(tau)) dipende esclusivamente
+        dai parametri fissi di model_tau e dalle coordinate spaziali.
         """
         model.eval()
         n = xy_all.shape[0]
@@ -262,82 +279,52 @@ class MuTotCurlPhysics(Physics):
         self._xy_all = xy_all
 
         xc = xy_all[idx].clone().requires_grad_(True)
-        Re_scale = self.Re_scale
-        mu_p_nd_val = self.mu_p_nd.item()
 
         with torch.set_grad_enabled(True):
             u, v, p, tau = self.get_velocity(model, xc, create_graph=True)
             tau_xx, tau_xy, tau_yy = tau[:, 0:1], tau[:, 1:2], tau[:, 2:3]
 
-            grad_u = self._grad(u, xc, create_graph=True)
-            u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
-            grad_v = self._grad(v, xc, create_graph=True)
-            v_x, v_y = grad_v[:, 0:1], grad_v[:, 1:2]
-
-            # Laplaciano di velocita'
-            u_xx = self._grad(u_x, xc, create_graph=True)[:, 0:1]
-            u_yy = self._grad(u_y, xc, create_graph=True)[:, 1:2]
-            v_xx = self._grad(v_x, xc, create_graph=True)[:, 0:1]
-            v_yy = self._grad(v_y, xc, create_graph=True)[:, 1:2]
-
-            lap_u_x = u_xx + u_yy
-            lap_u_y = v_xx + v_yy
-
-            # Divergenza dello stress polimerico tau
             g_txx = self._grad(tau_xx, xc, create_graph=True)
             g_txy = self._grad(tau_xy, xc, create_graph=True)
             g_tyy = self._grad(tau_yy, xc, create_graph=True)
             div_tau_x = g_txx[:, 0:1] + g_txy[:, 1:2]
             div_tau_y = g_txy[:, 0:1] + g_tyy[:, 1:2]
 
-            # Divergenza dello stress non-Newtoniano: div(tau_E) = div(tau) - mu_p* * lap(u)
-            div_tau_E_x = div_tau_x - mu_p_nd_val * lap_u_x
-            div_tau_E_y = div_tau_y - mu_p_nd_val * lap_u_y
+            grad_div_ty = self._grad(div_tau_y, xc, create_graph=False)
+            grad_div_tx = self._grad(div_tau_x, xc, create_graph=False)
+            curl_div_tau = (grad_div_ty[:, 0:1] - grad_div_tx[:, 1:2]).detach()
 
-            # Termine convettivo
-            conv_x = u * u_x + v * u_y
-            conv_y = u * v_x + v * v_y
-
-            # B' = div(tau_E) - Re * conv
-            B_prime_x = div_tau_E_x - Re_scale * conv_x
-            B_prime_y = div_tau_E_y - Re_scale * conv_y
-
-            # curl(B') = dB'_y/dx - dB'_x/dy
-            grad_Bpy = self._grad(B_prime_y, xc, create_graph=False)
-            grad_Bpx = self._grad(B_prime_x, xc, create_graph=False)
-            b_prime = (grad_Bpy[:, 0:1] - grad_Bpx[:, 1:2]).detach()
-
-            # Calcolo diagnostico di a = curl(lap(u))
-            grad_lap_y = self._grad(lap_u_y, xc, create_graph=False)
-            grad_lap_x = self._grad(lap_u_x, xc, create_graph=False)
-            a = (grad_lap_y[:, 0:1] - grad_lap_x[:, 1:2]).detach()
-
-        self._precomputed_b_prime = b_prime
+        self._precomputed_curl_div_tau = curl_div_tau
         model.train()
 
-        # Diagnostica analitica della proiezione su mu_tot
-        mu_tot_nd_opt = - torch.dot(a.squeeze(), b_prime.squeeze()) / (torch.norm(a)**2 + 1e-16)
-        mu_tot_opt = mu_tot_nd_opt.item() * self.eta_0.item()
-        mu_s_opt = mu_tot_opt - self.mu_p.item()
-
-        print(f"  [Precalcolo mu_tot] b'(x,y) precalcolato su {subset_size} punti.")
-        print(f"  [Precalcolo mu_tot] |a| medio: {a.abs().mean().item():.4e} | |b'| medio: {b_prime.abs().mean().item():.4e}")
-        print(f"  [Precalcolo mu_tot] mu_tot* ottimale (proiezione): {mu_tot_opt:.4f} Pa*s (Target: {MU_TOT_TRUE:.4f})")
-        print(f"  [Precalcolo mu_tot] mu_s ricavata (mu_tot - mu_p): {mu_s_opt:.4f} Pa*s (Target: {MU_S_TRUE:.4f})")
-        return a, b_prime
+        # Diagnostica iniziale
+        diag = self.get_curl_diagnostics(model)
+        print(f"  [Precalcolo curl(div(tau))] Calcolato su {subset_size} punti.")
+        print(f"  [Precalcolo] ||curl(div(tau))||: {diag['curl_div_tau_norm']:.4e} | Media abs: {diag['curl_div_tau_mean']:.4e}")
+        print(f"  [Precalcolo] ||curl(lap(u))||  : {diag['curl_lap_norm']:.4e} | Media abs: {diag['curl_lap_mean']:.4e}")
+        print(f"  [Precalcolo] ||curl(conv)||    : {diag['curl_conv_norm']:.4e} | Media abs: {diag['curl_conv_mean']:.4e}")
+        print(f"  [Precalcolo] mu_tot* proiettato istantaneo: {diag['mu_tot_opt']:.4f} Pa*s (Target: {MU_TOT_TRUE:.4f})")
+        print(f"  [Precalcolo] mu_s ricavata da proiezione  : {diag['mu_s_opt']:.4f} Pa*s (Target: {MU_S_TRUE:.4f})")
+        return curl_div_tau
 
     def compute_curl_loss(self, model):
-        """Calcola la loss curl(F) = 0 su punti precalcolati compatibile sia con FP32 che FP64."""
-        if self._precomputed_b_prime is None or self._xy_all is None:
+        """
+        Calcola la loss rotazionale curl(F) = 0 coerente con psi mobile:
+          r_curl = (mu_tot* - mu_p*) * a(psi) + curl(div(tau)) - Re * curl((u . nabla)u)
+        """
+        if self._precomputed_curl_div_tau is None or self._xy_all is None:
             return torch.tensor(0.0, device=DEVICE)
 
         dtype = next(model.parameters()).dtype
         device = next(model.parameters()).device
 
         mu_tot_nd = self.mu_tot_nd.to(dtype=dtype, device=device)
+        mu_p_nd = self.mu_p_nd.to(dtype=dtype, device=device)
+        mu_s_nd = mu_tot_nd - mu_p_nd
 
+        curl_div_tau = self._precomputed_curl_div_tau.to(dtype=dtype, device=device)
         xc = self._xy_all[self._curl_points_idx].to(dtype=dtype, device=device).clone().requires_grad_(True)
-        b_prime = self._precomputed_b_prime.to(dtype=dtype, device=device)
+        Re_scale = self.Re_scale
 
         u, v, p, tau = self.get_velocity(model, xc, create_graph=True)
         grad_u = self._grad(u, xc, create_graph=True)
@@ -357,8 +344,119 @@ class MuTotCurlPhysics(Physics):
         grad_Ax = self._grad(Ax, xc, create_graph=True)
         a = grad_Ay[:, 0:1] - grad_Ax[:, 1:2]
 
-        curl_F = mu_tot_nd * a + b_prime
+        conv_x = u * u_x + v * u_y
+        conv_y = u * v_x + v * v_y
+
+        grad_c_y = self._grad(conv_y, xc, create_graph=True)
+        grad_c_x = self._grad(conv_x, xc, create_graph=True)
+        curl_conv = grad_c_y[:, 0:1] - grad_c_x[:, 1:2]
+
+        curl_F = mu_s_nd * a + curl_div_tau - Re_scale * curl_conv
         return torch.mean(curl_F ** 2)
+
+    def get_curl_diagnostics(self, model):
+        """Estrae le grandezze rotazionali per diagnostica analitica (senza grafi di backward)."""
+        if self._precomputed_curl_div_tau is None or self._xy_all is None:
+            return {}
+
+        dtype = next(model.parameters()).dtype
+        device = next(model.parameters()).device
+
+        mu_tot_nd = self.mu_tot_nd.to(dtype=dtype, device=device)
+        mu_p_nd = self.mu_p_nd.to(dtype=dtype, device=device)
+        curl_div_tau = self._precomputed_curl_div_tau.to(dtype=dtype, device=device)
+
+        xc = self._xy_all[self._curl_points_idx].to(dtype=dtype, device=device).clone().requires_grad_(True)
+        Re_scale = self.Re_scale
+
+        with torch.set_grad_enabled(True):
+            u, v, p, tau = self.get_velocity(model, xc, create_graph=True)
+            grad_u = self._grad(u, xc, create_graph=True)
+            u_x, u_y = grad_u[:, 0:1], grad_u[:, 1:2]
+            grad_v = self._grad(v, xc, create_graph=True)
+            v_x, v_y = grad_v[:, 0:1], grad_v[:, 1:2]
+
+            u_xx = self._grad(u_x, xc, create_graph=True)[:, 0:1]
+            u_yy = self._grad(u_y, xc, create_graph=True)[:, 1:2]
+            v_xx = self._grad(v_x, xc, create_graph=True)[:, 0:1]
+            v_yy = self._grad(v_y, xc, create_graph=True)[:, 1:2]
+
+            Ax = u_xx + u_yy
+            Ay = v_xx + v_yy
+
+            grad_Ay = self._grad(Ay, xc, create_graph=False)
+            grad_Ax = self._grad(Ax, xc, create_graph=False)
+            a = (grad_Ay[:, 0:1] - grad_Ax[:, 1:2]).detach()
+
+            conv_x = u * u_x + v * u_y
+            conv_y = u * v_x + v * v_y
+
+            grad_c_y = self._grad(conv_y, xc, create_graph=False)
+            grad_c_x = self._grad(conv_x, xc, create_graph=False)
+            curl_conv = (grad_c_y[:, 0:1] - grad_c_x[:, 1:2]).detach()
+
+        b_dyn = curl_div_tau - mu_p_nd * a - Re_scale * curl_conv
+        mu_tot_nd_opt = - torch.dot(a.squeeze(), b_dyn.squeeze()) / (torch.norm(a)**2 + 1e-16)
+        mu_tot_opt = mu_tot_nd_opt.item() * self.eta_0.item()
+        mu_s_opt = mu_tot_opt - self.mu_p.item()
+
+        mu_s_nd = mu_tot_nd - mu_p_nd
+        res_curl = mu_s_nd * a + curl_div_tau - Re_scale * curl_conv
+
+        return {
+            "curl_div_tau_mean": curl_div_tau.abs().mean().item(),
+            "curl_div_tau_norm": torch.norm(curl_div_tau).item(),
+            "curl_lap_mean": a.abs().mean().item(),
+            "curl_lap_norm": torch.norm(a).item(),
+            "curl_conv_mean": curl_conv.abs().mean().item(),
+            "curl_conv_norm": torch.norm(curl_conv).item(),
+            "mu_tot_opt": mu_tot_opt,
+            "mu_s_opt": mu_s_opt,
+            "res_curl_mean": res_curl.abs().mean().item(),
+            "res_curl_mse": torch.mean(res_curl**2).item(),
+        }
+
+    def log_curl_epoch_diagnostics(self, model, epoch, u_ckpt, v_ckpt, l2_errs, tot_loss, loss_m, loss_curl):
+        """Stampa ed esporta la diagnostica comparativa richiesta."""
+        diag = self.get_curl_diagnostics(model)
+        if not diag:
+            return
+
+        # Calcolo drift cinematico rispetto al checkpoint F1
+        drift_uv = 0.0
+        if u_ckpt is not None and v_ckpt is not None and self._xy_all is not None:
+            dtype = next(model.parameters()).dtype
+            device = next(model.parameters()).device
+            sub_pts = self._xy_all[:3000].to(dtype=dtype, device=device)
+            with torch.no_grad():
+                u_curr, v_curr, _, _ = self.get_velocity(model, sub_pts)
+                u_c0 = u_ckpt[:3000].to(dtype=dtype, device=device)
+                v_c0 = v_ckpt[:3000].to(dtype=dtype, device=device)
+                d_sq = ((u_curr - u_c0)**2 + (v_curr - v_c0)**2).mean().item()
+                norm_sq = (u_c0**2 + v_c0**2).mean().item() + 1e-12
+                drift_uv = (d_sq / norm_sq) ** 0.5
+
+        params = self.log_params()
+        mu_tot_curr = params["mu_tot"]
+        mu_s_curr = params["mu_s"]
+        mu_tot_proj = diag["mu_tot_opt"]
+        mu_s_proj = diag["mu_s_opt"]
+        c_lap = diag["curl_lap_norm"]
+        c_tau = diag["curl_div_tau_norm"]
+        c_conv = diag["curl_conv_norm"]
+        err_p = l2_errs.get("p", 0.0)
+
+        print(f"  [Curl Diag Ep {epoch}] mu_tot(net): {mu_tot_curr:.4f} | mu_tot(proj): {mu_tot_proj:.4f} | mu_s: {mu_s_curr:.4f}")
+        print(f"                      ||c_lap||: {c_lap:.2e} | ||c_tau||: {c_tau:.2e} | ||c_conv||: {c_conv:.2e}")
+        print(f"                      Drift(u,v): {drift_uv:.4e} | Err(p): {err_p:.4e} | Curl_Loss: {loss_curl:.4e} | Mom_Loss: {loss_m:.4e}")
+
+        # Salva su CSV diagnostico
+        if self.diag_csv_path is not None:
+            write_header = not os.path.exists(self.diag_csv_path)
+            with open(self.diag_csv_path, "a", encoding="utf-8") as f:
+                if write_header:
+                    f.write("epoch,mu_tot_net,mu_s_net,mu_tot_proj,mu_s_proj,curl_lap_norm,curl_tau_norm,curl_conv_norm,drift_uv,err_p,loss_curl,loss_momentum,loss_total\n")
+                f.write(f"{epoch},{mu_tot_curr:.6f},{mu_s_curr:.6f},{mu_tot_proj:.6f},{mu_s_proj:.6f},{c_lap:.6e},{c_tau:.6e},{c_conv:.6e},{drift_uv:.6e},{err_p:.6e},{loss_curl:.6e},{loss_m:.6e},{tot_loss:.6e}\n")
 
 
 # ============================================================================
@@ -413,16 +511,22 @@ if __name__ == "__main__":
         # Fissiamo mu_p e lambda come costanti della Fase 1
         params_log = physics.log_params()
         physics.mu_p_fixed = physics.mu_p.detach().clone()
+        physics.diag_csv_path = OUTPUT_DIR / "curl_diagnostics.csv"
         print(f"\n[Checkpoint Fase 1] Pesi e reologia caricati da: {RESUME_CHECKPOINT.name}")
         print(f"  lam (F1 fissa)   : {params_log['lam']:.6f} s (target: {LAM_TRUE:.6f})")
         print(f"  mu_p (F1 fissa)  : {params_log['mu_p']:.6f} Pa*s (target: {MU_P_TRUE:.6f})")
         print(f"  mu_tot (guess)   : {params_log['mu_tot']:.6f} Pa*s (target: {MU_TOT_TRUE:.6f})")
         print(f"  mu_s (derivata)  : {params_log['mu_s']:.6f} Pa*s (target: {MU_S_TRUE:.6f})")
 
-        # Precalcolo del termine b' sul sottoinsieme
-        print(f"\n[Precalcolo mu_tot] Calcolo del termine non-Newtoniano b'(x,y) su {CURL_SUBSET_SIZE} punti...")
-        a_diag, bp_diag = physics.precompute_curl_b_prime(model, data["coords"].to(DEVICE), subset_size=CURL_SUBSET_SIZE)
-        print("[Precalcolo mu_tot] Completato con successo.\n")
+        # Precalcolo del solo termine statico curl(div(tau)) sul sottoinsieme
+        print(f"\n[Precalcolo mu_tot] Calcolo di curl(div(tau)) statico su {CURL_SUBSET_SIZE} punti...")
+        curl_tau_diag = physics.precompute_curl_div_tau(model, data["coords"].to(DEVICE), subset_size=CURL_SUBSET_SIZE)
+        print("[Precalcolo mu_tot] Completato con successo.")
+        if SHORT_DIAGNOSTIC_RUN:
+            print(f"  [MODALITÀ TEST DIAGNOSTICO] Esecuzione breve di {SHORT_ADAM_EPOCHS} epoche Adam senza L-BFGS.")
+            print(f"  Metriche dettagliate salvate in tempo reale in: {physics.diag_csv_path}\n")
+        else:
+            print(f"  [MODALITÀ RUN COMPLETA] {ADAM_EPOCHS_PHASE2} Adam + {LBFGS_MAX_ITERS_PHASE2} L-BFGS.\n")
     else:
         raise FileNotFoundError(f"Checkpoint Fase 1 non trovato: {RESUME_CHECKPOINT}")
 

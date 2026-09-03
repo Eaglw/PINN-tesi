@@ -1015,6 +1015,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                         print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
                         print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
                     
+                    if hasattr(physics, "log_curl_epoch_diagnostics"):
+                        physics.log_curl_epoch_diagnostics(
+                            model, epoch + 1, u_ckpt_cache, v_ckpt_cache, l2_errs, tot_loss, loss_m_val, loss_curl_val
+                        )
+                    
                     # Stima rapida e pulita delle componenti di gradiente su psi (Data vs Momentum)
                     with torch.enable_grad():
                         s_pts = xy_all[:3000].clone().requires_grad_(True)

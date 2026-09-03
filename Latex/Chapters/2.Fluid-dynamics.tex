@@ -3,7 +3,7 @@
 
 \providecommand{\mathbb}[1]{\mathbf{#1}}
 
-In this chapter, the continuum mechanics formulation governing incompressible viscoelastic fluid flow is established from a computational fluid dynamics (CFD) perspective. We begin with the general 3D unsteady conservation laws of mass and momentum. Next, we systematically apply the physical assumptions defining our setup to derive the reduced governing equations. The Oldroyd-B differential constitutive equation is then introduced, detailing the upper-convected time derivative required to maintain material frame-indifference. A non-dimensionalization procedure follows, introducing the fundamental dimensionless numbers ($Re$, $Wi$, $\beta$) that govern the flow physics. Finally, we analyze the four-roll mill benchmark, detailing its geometry, planar extensional flow kinematics, boundary conditions, and the mathematical necessity of pressure pinning in enclosed incompressible domains.
+In this chapter, the continuum mechanics formulation governing incompressible viscoelastic fluid flow is established from a computational fluid dynamics (CFD) perspective. We begin with the general 3D unsteady conservation laws of mass and momentum. Next, we systematically apply the physical assumptions defining our setup to derive the reduced governing equations. The Oldroyd-B differential constitutive equation is then introduced, detailing the upper-convected time derivative required to maintain material frame-indifference. A non-dimensionalization procedure based on viscous stress scaling follows, introducing the fundamental dimensionless numbers ($Re_{\mathrm{scale}}$, $Wi$, $\mu_s^*$, $\mu_p^*$) that govern the flow physics. Finally, we analyze the four-roll mill benchmark, detailing its geometry, planar extensional flow kinematics, boundary conditions, and the mathematical necessity of pressure pinning in enclosed incompressible domains.
 
 % ============================================================
 % 2.1 GENERAL CONSERVATION LAWS
@@ -118,54 +118,55 @@ The computational framework developed in this thesis supports all three models a
 \section{Nondimensionalization and Governing Equations}
 \label{sec:nondimensionalization}
 
-Nondimensionalization scales variables to order unity, improving numerical conditioning and highlighting the non-dimensional parameters controlling the flow regime \cite{owens2002computational}.
+Nondimensionalization scales variables to order unity, improving numerical conditioning and highlighting the non-dimensional parameters controlling the flow regime \cite{owens2002computational}. In highly viscous and low-Reynolds viscoelastic flows (such as microfluidics and polymer processing in the four-roll mill), choosing a \textit{viscous stress scale} rather than an inertial scale prevents loss of precision and gradient stiffness in the neural network optimization.
 
 \subsection{Reference Scales and Dimensionless Parameters}
-Selecting a reference length $H_{\mathrm{ref}}$ (e.g., roller radius or half-domain width) and reference velocity $U_{\mathrm{ref}}$ (roller surface speed), we define the dimensionless variables:
+Selecting a reference length $H_{\mathrm{ref}}$ (e.g., roller radius), a reference velocity $U_{\mathrm{ref}}$ (roller surface speed), and a constant reference viscosity scale $\eta_0$ (e.g., characteristic total viscosity), we define the dimensionless coordinates, velocities, pressure, and extra-stress tensor:
 \begin{equation}
     \boldsymbol{x}^{*} = \frac{\boldsymbol{x}}{H_{\mathrm{ref}}}, \quad
     \boldsymbol{u}^{*} = \frac{\boldsymbol{u}}{U_{\mathrm{ref}}}, \quad
-    p^{*} = \frac{p}{\rho U_{\mathrm{ref}}^2}, \quad
-    \boldsymbol{\tau}^{*} = \frac{\boldsymbol{\tau}}{\rho U_{\mathrm{ref}}^2} .
+    p^{*} = \frac{p}{\frac{\eta_0 U_{\mathrm{ref}}}{H_{\mathrm{ref}}}}, \quad
+    \boldsymbol{\tau}^{*} = \frac{\boldsymbol{\tau}}{\frac{\eta_0 U_{\mathrm{ref}}}{H_{\mathrm{ref}}}} .
+    \label{eq:dimless_variables_viscous}
 \end{equation}
-Note that both pressure and stress are scaled by the inertial pressure $\rho U_{\mathrm{ref}}^2$, ensuring dimensional consistency across the momentum equation.
+Scaling both pressure and extra-stress by the viscous stress unit $\eta_0 U_{\mathrm{ref}} / H_{\mathrm{ref}}$ ensures that all stress and pressure terms remain $\mathcal{O}(1)$ in low-Reynolds regimes, eliminating singular perturbation behavior ($1/Re \to \infty$) as $Re \to 0$.
 
-Dropping asterisks for notational simplicity, the dimensionless system is governed by three dimensionless groups:
+Dropping asterisks for notational simplicity, the dimensionless system is governed by the following parameters:
 \begin{align}
-    Re &= \frac{\rho U_{\mathrm{ref}} H_{\mathrm{ref}}}{\mu_0} \quad &\text{(Reynolds number)}, \label{eq:reynolds} \\
+    Re_{\mathrm{scale}} &= \frac{\rho U_{\mathrm{ref}} H_{\mathrm{ref}}}{\eta_0} \quad &\text{(Scaling Reynolds number)}, \label{eq:reynolds_scale} \\
     Wi &= \frac{\lambda U_{\mathrm{ref}}}{H_{\mathrm{ref}}} \quad &\text{(Weissenberg number)}, \label{eq:weissenberg} \\
-    \beta &= \frac{\mu_s}{\mu_0} \quad &\text{(Solvent viscosity ratio)}, \label{eq:beta_def}
+    \mu_s^* &= \frac{\mu_s}{\eta_0} \quad &\text{(Dimensionless solvent viscosity)}, \label{eq:mu_s_star} \\
+    \mu_p^* &= \frac{\mu_p}{\eta_0} \quad &\text{(Dimensionless polymeric viscosity)} . \label{eq:mu_p_star}
 \end{align}
-where $1-\beta = \mu_p / \mu_0$ is the polymeric viscosity ratio. Physically, $Re$ measures the relative importance of inertial forces to viscous forces; $Wi$ compares the polymer relaxation time to the characteristic flow time $H_{\mathrm{ref}}/U_{\mathrm{ref}}$, quantifying the degree of elastic response; and $\beta$ indicates the fraction of total viscosity contributed by the Newtonian solvent (with $\beta \to 1$ recovering purely Newtonian behavior and $\beta \to 0$ indicating a purely polymeric fluid).
+From these parameters, the physical viscosity ratio $\beta = \mu_s / (\mu_s + \mu_p) = \mu_s^* / (\mu_s^* + \mu_p^*)$ and the physical Reynolds number $Re_{\mathrm{phys}} = \rho U_{\mathrm{ref}} H_{\mathrm{ref}} / (\mu_s + \mu_p) = Re_{\mathrm{scale}} / (\mu_s^* + \mu_p^*)$ can be uniquely determined.
 
 \subsection{Dimensionless Vector System}
-The non-dimensional governing equations in steady 2D flow are:
+The non-dimensional governing equations in steady 2D flow become:
 \begin{align}
     \nabla \cdot \boldsymbol{u} &= 0 , \label{eq:dimless_mass} \\
-    \boldsymbol{u} \cdot \nabla \boldsymbol{u} + \nabla p - \frac{\beta}{Re} \nabla^2 \boldsymbol{u} - \nabla \cdot \boldsymbol{\tau} &= \boldsymbol{0} , \label{eq:dimless_momentum} \\
-    Wi \left( \boldsymbol{u} \cdot \nabla \boldsymbol{\tau} - (\nabla \boldsymbol{u})^T \cdot \boldsymbol{\tau} - \boldsymbol{\tau} \cdot \nabla \boldsymbol{u} \right) + \boldsymbol{\tau} - \frac{2(1-\beta)}{Re} \boldsymbol{D} &= \boldsymbol{0} . \label{eq:dimless_oldroyd}
+    Re_{\mathrm{scale}} (\boldsymbol{u} \cdot \nabla \boldsymbol{u}) + \nabla p - \mu_s^* \nabla^2 \boldsymbol{u} - \nabla \cdot \boldsymbol{\tau} &= \boldsymbol{0} , \label{eq:dimless_momentum} \\
+    Wi \left( \boldsymbol{u} \cdot \nabla \boldsymbol{\tau} - (\nabla \boldsymbol{u})^T \cdot \boldsymbol{\tau} - \boldsymbol{\tau} \cdot \nabla \boldsymbol{u} \right) + \boldsymbol{\tau} - 2\mu_p^* \boldsymbol{D} &= \boldsymbol{0} . \label{eq:dimless_oldroyd}
 \end{align}
+In this formulation, the constitutive equation~\eqref{eq:dimless_oldroyd} depends strictly on the rheological parameters ($Wi, \mu_p^*$) and is decoupled from inertia ($Re_{\mathrm{scale}}$) and solvent viscosity ($\mu_s^*$), which is crucial for staged parameter identifiability in inverse PINN solvers.
 
 \subsection{Explicit 2D Cartesian PDE Residuals}
-Expanding Equations~\eqref{eq:dimless_momentum} and \eqref{eq:dimless_oldroyd} in 2D Cartesian coordinates $(x, y)$ with $\boldsymbol{u} = (u, v)^T$ and $\boldsymbol{\tau} = \begin{pmatrix} \tau_{xx} & \tau_{xy} \\ \tau_{xy} & \tau_{yy} \end{pmatrix}$ yields five scalar PDE residuals. Note that the symmetry of the extra-stress tensor ($\tau_{xy} = \tau_{yx}$) reduces the 2D stress tensor from four components to three independent ones ($\tau_{xx}$, $\tau_{xy}$, $\tau_{yy}$), resulting in two momentum residuals and three constitutive residuals:
+Expanding Equations~\eqref{eq:dimless_momentum} and \eqref{eq:dimless_oldroyd} in 2D Cartesian coordinates $(x, y)$ with $\boldsymbol{u} = (u, v)^T$ and $\boldsymbol{\tau} = \begin{pmatrix} \tau_{xx} & \tau_{xy} \\ \tau_{xy} & \tau_{yy} \end{pmatrix}$ yields five scalar PDE residuals. Symmetry of the stress tensor ($\tau_{xy} = \tau_{yx}$) reduces the system to two momentum residuals ($f_u, f_v$) and three constitutive residuals ($f_{\tau_{xx}}, f_{\tau_{yy}}, f_{\tau_{xy}}$):
 
 \begin{align}
-    f_u &= Re \left( u \frac{\partial u}{\partial x} + v \frac{\partial u}{\partial y} \right) + \frac{\partial p}{\partial x} - \beta \left( \frac{\partial^2 u}{\partial x^2} + \frac{\partial^2 u}{\partial y^2} \right) - \left( \frac{\partial \tau_{xx}}{\partial x} + \frac{\partial \tau_{xy}}{\partial y} \right) = 0 , \label{eq:res_fu} \\[1.5ex]
-    f_v &= Re \left( u \frac{\partial v}{\partial x} + v \frac{\partial v}{\partial y} \right) + \frac{\partial p}{\partial y} - \beta \left( \frac{\partial^2 v}{\partial x^2} + \frac{\partial^2 v}{\partial y^2} \right) - \left( \frac{\partial \tau_{xy}}{\partial x} + \frac{\partial \tau_{yy}}{\partial y} \right) = 0 , \label{eq:res_fv}
+    f_u &= Re_{\mathrm{scale}} \left( u \frac{\partial u}{\partial x} + v \frac{\partial u}{\partial y} \right) + \frac{\partial p}{\partial x} - \mu_s^* \left( \frac{\partial^2 u}{\partial x^2} + \frac{\partial^2 u}{\partial y^2} \right) - \left( \frac{\partial \tau_{xx}}{\partial x} + \frac{\partial \tau_{xy}}{\partial y} \right) = 0 , \label{eq:res_fu} \\[1.5ex]
+    f_v &= Re_{\mathrm{scale}} \left( u \frac{\partial v}{\partial x} + v \frac{\partial v}{\partial y} \right) + \frac{\partial p}{\partial y} - \mu_s^* \left( \frac{\partial^2 v}{\partial x^2} + \frac{\partial^2 v}{\partial y^2} \right) - \left( \frac{\partial \tau_{xy}}{\partial x} + \frac{\partial \tau_{yy}}{\partial y} \right) = 0 , \label{eq:res_fv}
 \end{align}
 
 \begin{equation}
     \begin{aligned}
-    f_{\tau_{xx}} = \tau_{xx} + Wi \left( u \frac{\partial \tau_{xx}}{\partial x} + v \frac{\partial \tau_{xx}}{\partial y} - 2 \frac{\partial u}{\partial x} \tau_{xx} - 2 \frac{\partial u}{\partial y} \tau_{xy} \right) \\
-    - \frac{2(1-\beta)}{Re} \frac{\partial u}{\partial x} = 0 ,
+    f_{\tau_{xx}} = \tau_{xx} + Wi \left( u \frac{\partial \tau_{xx}}{\partial x} + v \frac{\partial \tau_{xx}}{\partial y} - 2 \frac{\partial u}{\partial x} \tau_{xx} - 2 \frac{\partial u}{\partial y} \tau_{xy} \right) - 2\mu_p^* \frac{\partial u}{\partial x} = 0 ,
     \end{aligned}
     \label{eq:res_ftxx}
 \end{equation}
 
 \begin{equation}
     \begin{aligned}
-    f_{\tau_{yy}} = \tau_{yy} + Wi \left( u \frac{\partial \tau_{yy}}{\partial x} + v \frac{\partial \tau_{yy}}{\partial y} - 2 \frac{\partial v}{\partial x} \tau_{xy} - 2 \frac{\partial v}{\partial y} \tau_{yy} \right) \\
-    - \frac{2(1-\beta)}{Re} \frac{\partial v}{\partial y} = 0 ,
+    f_{\tau_{yy}} = \tau_{yy} + Wi \left( u \frac{\partial \tau_{yy}}{\partial x} + v \frac{\partial \tau_{yy}}{\partial y} - 2 \frac{\partial v}{\partial x} \tau_{xy} - 2 \frac{\partial v}{\partial y} \tau_{yy} \right) - 2\mu_p^* \frac{\partial v}{\partial y} = 0 ,
     \end{aligned}
     \label{eq:res_ftyy}
 \end{equation}
@@ -173,7 +174,7 @@ Expanding Equations~\eqref{eq:dimless_momentum} and \eqref{eq:dimless_oldroyd} i
 \begin{equation}
     \begin{aligned}
     f_{\tau_{xy}} = \tau_{xy} + Wi \left( u \frac{\partial \tau_{xy}}{\partial x} + v \frac{\partial \tau_{xy}}{\partial y} - \frac{\partial u}{\partial x} \tau_{xy} - \frac{\partial u}{\partial y} \tau_{yy} - \frac{\partial v}{\partial x} \tau_{xx} - \frac{\partial v}{\partial y} \tau_{xy} \right) \\
-    - \frac{1-\beta}{Re} \left( \frac{\partial u}{\partial y} + \frac{\partial v}{\partial x} \right) = 0 .
+    - \mu_p^* \left( \frac{\partial u}{\partial y} + \frac{\partial v}{\partial x} \right) = 0 .
     \end{aligned}
     \label{eq:res_ftxy}
 \end{equation}
