@@ -72,7 +72,7 @@ $env:PYTHONPATH="final_roll;."
 ### 4. Staged Training Strategy (ViscoelasticNet Framework)
 To ensure optimization stability, training is split into distinct decoupled stages (Fase 3 di ottimizzazione congiunta globale è deprecata/esclusa in quanto deleteria per la stabilità fisica dei campi):
 1. **Phase 1 (Cinematica e Reologia - Adam + L-BFGS)**: Train stream function $\psi$ (velocity fields) and stress tensor $\tau$, while pressure $p$ is frozen and momentum is off ($w_{mom}=0$). Learns $\lambda$ and topological stress distribution.
-2. **Phase 2 (Idrodinamica e Pressione - Adam + L-BFGS)**: Freeze $\psi$ and $\tau$, train pressure $p$ with active Momentum equation ($w_{mom}=1$). Identifies solvent viscosity parameter $\beta$ (and $\eta_{tot}$) anchoring physical scales without polluting stress fields.
+2. **Phase 2 (Idrodinamica e Pressione - Adam + L-BFGS)**: Freeze ONLY stress tensor $\tau$. **La stream function $\psi$ (`model_psi`) NON DEVE MAI essere congelata in Fase 2, ma deve rimanere mobile (trainable)** unitamente a `model_p` con la Momentum equation attiva ($w_{mom}=1$). Se $\psi$ venisse congelata, non potrebbe mai compensare per la parte irrotazionale del campo di velocità, impedendo di trovare il corretto gradiente di pressione $\nabla p$ (fatto già ampiamente dimostrato anche nell'analisi del problema diretto). In questa fase si identifica il parametro di viscosità (o $\mu_{tot}$) ancorando le scale fisiche.
 
 ## Multi-Device Workflow & Setup Hardware
 
@@ -95,3 +95,4 @@ To ensure optimization stability, training is split into distinct decoupled stag
 - Su Windows, esegui SEMPRE i comandi python e pip facendo riferimento all'interprete del virtual environment (es. `.\venv\Scripts\python` o `.\venv\Scripts\pip`), senza dare per scontato che l'eseguibile globale sia presente nel PATH.
 - Inoltre, non passare mai i dati di stress provenienti da COMSOL alla PINN (tranne nelle BC sui rulli), poiché non avrebbe senso usare una PINN avendo già tutti i dati a disposizione.
 - Quando si lavora su macOS, l'ambiente locale viene usato solo per la modifica del codice e la preparazione dello script; non eseguire esperimenti o script di training in locale su macOS, in quanto le run verranno eseguite su una macchina remota/esterna (PC Personale, PC Mauri o Cloud).
+- **Stream Function $\psi$ Mobile in Fase 2**: nella Fase 2 NON si deve MAI congelare $\psi$ (`model_psi`), perché altrimenti non può compensare per la parte irrotazionale del campo di velocità, impedendo di trovare il gradiente di pressione $\nabla p$. Solo il tensore degli sforzi $\boldsymbol{\tau}$ (`model_tau`) viene congelato. Questo principio è stato dimostrato rigorosamente sia nel problema diretto che in quello inverso.
