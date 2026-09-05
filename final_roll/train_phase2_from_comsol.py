@@ -3,6 +3,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# Assicura che la directory final_roll sia sempre nel PYTHONPATH a runtime
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -49,7 +54,7 @@ def custom_print(*args, **kwargs):
 builtins.print = custom_print
 
 # ============================================================================
-# 1. SETUP AMBIENTE E PYTORCH (Supporto Kaggle GPU / CUDA)
+# 1. SETUP AMBIENTE E PYTORCH
 # ============================================================================
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -65,33 +70,10 @@ torch.cuda.manual_seed_all(SEED)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ============================================================================
-# 2. COSTANTI E GESTIONE PERCORSI AGNOSTICA (Kaggle & Locale)
+# 2. COSTANTI E PERCORSI STANDARD
 # ============================================================================
-IS_KAGGLE = Path("/kaggle/working").exists()
-
-if IS_KAGGLE:
-    # Ambiente Kaggle: ricerca percorso dataset e repository clonato
-    potential_bases = [
-        Path("/kaggle/working/final_roll"),
-        Path("/kaggle/working/PINN-tesi/final_roll"),
-        Path("/kaggle/working"),
-    ]
-    BASE_DIR = next((p for p in potential_bases if p.exists()), Path("/kaggle/working"))
-
-    dataset_candidates = [
-        BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv",
-        BASE_DIR / "COMSOL" / "4roll" / "4_roll_mill.csv",
-        Path("/kaggle/input/4roll/4_roll_mill.csv"),
-        Path("/kaggle/input/pinn-tesi/COMSOL/4roll/4_roll_mill.csv"),
-        Path("/kaggle/working/COMSOL/4roll/4_roll_mill.csv"),
-    ]
-    DATASET_PATH = next((p for p in dataset_candidates if p.exists()), BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv")
-    DERIVATIVES_CACHE_PATH = DATASET_PATH.parent / "comsol_derivatives_mls.pt"
-else:
-    # Ambiente Locale Windows / Mac / Linux
-    BASE_DIR = Path(__file__).resolve().parent
-    DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
-    DERIVATIVES_CACHE_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "comsol_derivatives_mls.pt"
+DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
+DERIVATIVES_CACHE_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "comsol_derivatives_mls.pt"
 
 # Parametri Fisici REALI (Ground Truth COMSOL)
 MU_S_TRUE = 0.1       # Viscosità solvente [Pa·s]
@@ -121,11 +103,11 @@ HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
 VARIANCE_EPS = 1e-4
 
-# Budget Fase 2 su Kaggle: Idrodinamica & Viscosità Solvente (mu_s)
+# Budget Fase 2: Idrodinamica & Viscosità Solvente (mu_s)
 ADAM_EPOCHS_PHASE2 = 30000
 USE_LBFGS_PHASE2 = True
 LBFGS_MAX_ITERS_PHASE2 = 3000
-WARMUP_PHASE2_EPOCHS = 0      # WARMUP ELIMINATO: mu_s attivo e addestrabile fin da epoca 0
+WARMUP_PHASE2_EPOCHS = 0      # NESSUN WARMUP: mu_s attivo e addestrabile fin da epoca 0
 
 # Iperparametri Ottimizzatore
 BASE_LR = 1e-3
@@ -138,7 +120,7 @@ PARAM_CLIP_NORM = 1.0
 W_MOMENTUM = 1.0
 W_BC_PRES = 10.0             # Ancoraggio forte del punto di Dirichlet p(x0, y0) = p_comsol(x0, y0)
 
-# Chunk Size per gestione VRAM (ottimale per Kaggle T4 / P100 da 16GB)
+# Chunk Size per gestione VRAM
 CHUNK_SIZE_ADAM = 16384
 CHUNK_SIZE_LBFGS = 8192
 
@@ -316,7 +298,7 @@ def train_phase2(model_p, physics, data, derivatives, save_dir, tb_writer=None):
     )
 
     print("\n" + "=" * 70)
-    print(f"AVVIO ADDESTRAMENTO FASE 2 PURA SU KAGGLE (ADAM: {ADAM_EPOCHS_PHASE2} epoche, NO WARMUP)")
+    print(f"AVVIO ADDESTRAMENTO FASE 2 PURA (ADAM: {ADAM_EPOCHS_PHASE2} epoche, NO WARMUP)")
     print(f"  Loss: {W_MOMENTUM} * Momentum + {W_BC_PRES} * PressurePoint")
     print(f"  Rete attiva: model_p ({sum(p.numel() for p in p_params):,} pesi)")
     print(f"  Reti psi e tau: ELIMINATE (sostituite da derivate COMSOL)")
@@ -378,7 +360,7 @@ def train_phase2(model_p, physics, data, derivatives, save_dir, tb_writer=None):
         return tot_loss, loss_mom_accum, loss_pres_val
 
     # Loop Adam (mu_s sempre mobile fin dal primo step)
-    pbar = tqdm(range(ADAM_EPOCHS_PHASE2), desc="Adam Phase 2 Kaggle", mininterval=2.0)
+    pbar = tqdm(range(ADAM_EPOCHS_PHASE2), desc="Adam Phase 2", mininterval=2.0)
     for epoch in pbar:
         model_p.train()
         optimizer_adam.zero_grad(set_to_none=True)
@@ -498,7 +480,7 @@ def train_phase2(model_p, physics, data, derivatives, save_dir, tb_writer=None):
             last_step_vals["pres"] = l_pres
             return torch.tensor(tot_loss, device=DEVICE, dtype=torch.float64)
 
-        pbar_lbfgs = tqdm(range(LBFGS_MAX_ITERS_PHASE2), desc="L-BFGS Phase 2 Kaggle", mininterval=2.0)
+        pbar_lbfgs = tqdm(range(LBFGS_MAX_ITERS_PHASE2), desc="L-BFGS Phase 2", mininterval=2.0)
         for it in pbar_lbfgs:
             optimizer_lbfgs.step(closure_lbfgs)
 
@@ -647,7 +629,7 @@ def generate_phase2_diagnostics(model_p, physics, data, history, output_dir):
     final_mus = physics.mu_s.item()
     final_err = abs(final_mus - MU_S_TRUE) / MU_S_TRUE * 100.0
     print("\n" + "=" * 70)
-    print("RISULTATI FINALI ESPERIMENTO FASE 2 PURA (KAGGLE):")
+    print("RISULTATI FINALI ESPERIMENTO FASE 2 PURA:")
     print("=" * 70)
     print(f"  Viscosità Solvente Reale (Target):  {MU_S_TRUE:.6f} Pa·s")
     print(f"  Guess Iniziale Inverso:             {GUESS_MU_S:.6f} Pa·s")
@@ -662,7 +644,7 @@ def generate_phase2_diagnostics(model_p, physics, data, history, output_dir):
 # ============================================================================
 if __name__ == "__main__":
     print("=" * 70)
-    print("ESPERIMENTO PINN: FASE 2 PURA SU KAGGLE (ZERO RETI PSI/TAU, NO WARMUP)")
+    print("ESPERIMENTO PINN: FASE 2 PURA CON DERIVATE COMSOL MLS (ZERO RETI PSI/TAU)")
     print("=" * 70)
     print(f"Device: {DEVICE} | Dtype di default: {torch.get_default_dtype()}")
     print(f"Dataset Path: {DATASET_PATH}")
@@ -670,7 +652,7 @@ if __name__ == "__main__":
 
     # Setup Cartella di Output
     run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    run_name = f"[{run_timestamp}][INV][PHASE2_KAGGLE_NO_WARMUP][Ph2_{ADAM_EPOCHS_PHASE2//1000}k+{LBFGS_MAX_ITERS_PHASE2//1000}k]"
+    run_name = f"[{run_timestamp}][INV][PHASE2_MLS_DIRECT][Ph2_{ADAM_EPOCHS_PHASE2//1000}k+{LBFGS_MAX_ITERS_PHASE2//1000}k]"
     OUTPUT_DIR = BASE_DIR / "output_4rollmill" / run_name
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -703,10 +685,11 @@ if __name__ == "__main__":
         eta_0=ETA_0,
     ).to(DEVICE)
 
-    # 4. Avvio TensorBoard (solo se non in background puro su Kaggle)
-    tb_writer = None
-    if not IS_KAGGLE:
+    # 4. Avvio TensorBoard (con fallback in caso di ambiente headless o server remoto)
+    try:
         launch_tensorboard_server(OUTPUT_DIR.parent)
+    except Exception as e:
+        print(f"[TensorBoard] Server automatico non avviato ({e}). Procedo con l'addestramento.")
     tb_dir = OUTPUT_DIR / "tb_logs"
     tb_dir.mkdir(parents=True, exist_ok=True)
     tb_writer = SummaryWriter(log_dir=str(tb_dir))
@@ -726,4 +709,4 @@ if __name__ == "__main__":
     # 6. Report e Diagnostica Finale
     generate_phase2_diagnostics(model_p, physics, data, history, OUTPUT_DIR)
 
-    print(f"\n[FINE ESPERIMENTO KAGGLE] Risultati salvati in: {OUTPUT_DIR}")
+    print(f"\n[FINE ESPERIMENTO] Risultati salvati in: {OUTPUT_DIR}")
