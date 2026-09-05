@@ -307,11 +307,10 @@ def train_phase2(model_p, physics, data, derivatives, save_dir, tb_writer=None):
 
     # Funzione di step loss con accumulo chunked
     def compute_step_loss(model_p, points, conv_u, conv_v, lap_u, lap_v, div_tx, div_ty,
-                          p_scale, scale_grad, chunk_size):
+                          p_pt_xy_in, p_pt_true_in, p_scale, scale_grad, chunk_size):
         loss_mom_accum = 0.0
         n_pts = points.shape[0]
         Re_scale = physics.Re_scale
-        mu_s_nd = physics.mu_s / physics.eta_0
 
         for i in range(0, n_pts, chunk_size):
             xc = points[i : i + chunk_size]
@@ -336,6 +335,9 @@ def train_phase2(model_p, physics, data, derivatives, save_dir, tb_writer=None):
             dtx = div_tx[i : i + chunk_size]
             dty = div_ty[i : i + chunk_size]
 
+            # Ricalcolo di mu_s_nd ad ogni chunk per rigenerare il grafo computazionale ed evitare errori al backward
+            mu_s_nd = physics.mu_s / physics.eta_0
+
             f_u = Re_scale * cu + p_x - mu_s_nd * lu - dtx
             f_v = Re_scale * cv + p_y - mu_s_nd * lv - dty
 
@@ -346,10 +348,10 @@ def train_phase2(model_p, physics, data, derivatives, save_dir, tb_writer=None):
             if isinstance(chunk_loss, torch.Tensor):
                 chunk_loss.backward()
 
-        # Vincolo di Dirichlet sul punto di pressione
-        x_pt = p_pt_xy.clone().requires_grad_(True)
+        # Vincolo di Dirichlet sul punto di pressione (usa le coordinate fornite per preservare il dtype)
+        x_pt = p_pt_xy_in.clone().requires_grad_(True)
         p_pred_pt = model_p(x_pt) * p_scale
-        l_pres = weighted_mse(p_pred_pt, p_pt_true, var_w["p"])
+        l_pres = weighted_mse(p_pred_pt, p_pt_true_in, var_w["p"])
         loss_pres_val = l_pres.item()
 
         pres_chunk_loss = W_BC_PRES * l_pres
@@ -367,7 +369,7 @@ def train_phase2(model_p, physics, data, derivatives, save_dir, tb_writer=None):
 
         tot_loss, l_mom, l_pres = compute_step_loss(
             model_p, xy_all, conv_u_all, conv_v_all, lap_u_all, lap_v_all, div_tx_all, div_ty_all,
-            p_scale, scale_grad, CHUNK_SIZE_ADAM
+            p_pt_xy, p_pt_true, p_scale, scale_grad, CHUNK_SIZE_ADAM
         )
 
         torch.nn.utils.clip_grad_norm_(model_p.parameters(), GRAD_CLIP_NORM)
@@ -473,7 +475,7 @@ def train_phase2(model_p, physics, data, derivatives, save_dir, tb_writer=None):
             optimizer_lbfgs.zero_grad(set_to_none=True)
             tot_loss, l_mom, l_pres = compute_step_loss(
                 model_p, xy_64, conv_u_64, conv_v_64, lap_u_64, lap_v_64, div_tx_64, div_ty_64,
-                p_scale, scale_grad, CHUNK_SIZE_LBFGS
+                p_pt_xy_64, p_pt_true_64, p_scale, scale_grad, CHUNK_SIZE_LBFGS
             )
             last_step_vals["tot"] = tot_loss
             last_step_vals["mom"] = l_mom
