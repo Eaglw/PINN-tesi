@@ -103,8 +103,9 @@ HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
 VARIANCE_EPS = 1e-4
 
-# Budget Fase 2: Idrodinamica & Viscosità Solvente (mu_s) calibrato per ~6-7h di training
-ADAM_EPOCHS_PHASE2 = 80000
+# Budget Fase 2: Idrodinamica & Viscosità Solvente (mu_s) calibrato per ~6.5h di training
+# Throughput reale misurato: 20k epoche/h per Adam -> 100k epoche = 5.0h; L-BFGS 6k iters = ~1.5h
+ADAM_EPOCHS_PHASE2 = 100000
 USE_LBFGS_PHASE2 = True
 LBFGS_MAX_ITERS_PHASE2 = 6000
 WARMUP_PHASE2_EPOCHS = 0      # NESSUN WARMUP: mu_s attivo e addestrabile fin da epoca 0
