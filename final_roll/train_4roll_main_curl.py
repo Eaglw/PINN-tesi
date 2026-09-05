@@ -427,14 +427,16 @@ class MuTotCurlPhysics(Physics):
         if u_ckpt is not None and v_ckpt is not None and self._xy_all is not None:
             dtype = next(model.parameters()).dtype
             device = next(model.parameters()).device
-            sub_pts = self._xy_all[:3000].to(dtype=dtype, device=device)
-            with torch.no_grad():
-                u_curr, v_curr, _, _ = self.get_velocity(model, sub_pts)
-                u_c0 = u_ckpt[:3000].to(dtype=dtype, device=device)
-                v_c0 = v_ckpt[:3000].to(dtype=dtype, device=device)
-                d_sq = ((u_curr - u_c0)**2 + (v_curr - v_c0)**2).mean().item()
-                norm_sq = (u_c0**2 + v_c0**2).mean().item() + 1e-12
-                drift_uv = (d_sq / norm_sq) ** 0.5
+            sub_pts = self._xy_all[:3000].to(dtype=dtype, device=device).clone().requires_grad_(True)
+            with torch.enable_grad():
+                u_curr, v_curr, _, _ = self.get_velocity(model, sub_pts, create_graph=False)
+                u_curr = u_curr.detach()
+                v_curr = v_curr.detach()
+            u_c0 = u_ckpt[:3000].to(dtype=dtype, device=device)
+            v_c0 = v_ckpt[:3000].to(dtype=dtype, device=device)
+            d_sq = ((u_curr - u_c0)**2 + (v_curr - v_c0)**2).mean().item()
+            norm_sq = (u_c0**2 + v_c0**2).mean().item() + 1e-12
+            drift_uv = (d_sq / norm_sq) ** 0.5
 
         params = self.log_params()
         mu_tot_curr = params["mu_tot"]
