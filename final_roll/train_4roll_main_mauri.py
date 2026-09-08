@@ -86,7 +86,9 @@ builtins.print = custom_print
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 torch.set_default_dtype(torch.float32)
-torch.set_float32_matmul_precision("high")
+# [Proposta A] Disabilita TF32 per garantire la piena precisione FP32 standard IEEE (23-bit mantissa)
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 torch.backends.cudnn.benchmark = False
 
 SEED = 123
@@ -173,7 +175,8 @@ WARMUP_PHASE2_EPOCHS = 0
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
-GRAD_CLIP_NORM = 1000.0
+# [Proposta H & Run 23] Gradient clipping rigido a 5.0 per prevenire salti numerici
+GRAD_CLIP_NORM = 5.0
 PARAM_CLIP_NORM = 1.0
 VARIANCE_EPS = 1e-4
 
@@ -561,7 +564,7 @@ def train_phase2_alternating(model, physics, data, save_dir, tb_writer=None):
             [p for p in model.parameters() if p.requires_grad] + [physics._raw_mu_s],
             lr=1.0,
             max_iter=LBFGS_MAX_ITERS_PHASE2,
-            history_size=50,
+            history_size=300,  # [Run 23] History a 300 per catturare la curvatura del gradiente di pressione
             tolerance_grad=1e-12,
             tolerance_change=1e-14,
             line_search_fn="strong_wolfe"

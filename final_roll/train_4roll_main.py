@@ -49,7 +49,9 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 #os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 torch.set_default_dtype(torch.float32)
-torch.set_float32_matmul_precision("high")  # Abilita TF32 per matmul (Ampere+)
+# [Proposta A] Disabilita TF32 per garantire la piena precisione FP32 standard IEEE (23-bit mantissa)
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 torch.backends.cudnn.benchmark = False  # GPU con input size fissi: benchmark seleziona l'algoritmo più veloce
 # Fissiamo i seed per la riproducibilità
 SEED = 123
@@ -130,7 +132,8 @@ LBFGS_MAX_ITERS_PHASE2 = 500
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 PARAM_LR_FACTOR = 0.1
-GRAD_CLIP_NORM = 1000.0
+# [Proposta H & Run 23] Gradient clipping rigido a 5.0 per prevenire salti numerici
+GRAD_CLIP_NORM = 5.0
 PARAM_CLIP_NORM = 1.0
 
 WARMUP_UNLOCK_EPOCH = 0  # 0: parametri attivi fin da epoca 0 in Fase 1; >0: sblocco senza reset Adam
