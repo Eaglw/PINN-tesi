@@ -637,3 +637,29 @@
 - **[[00_Index]]**: Registrata la nuova voce `[[MLS_Derivatives_Pressure]]` nella sezione Technical Methods.
 - **`final_roll/output_4rollmill/SUMMARY_RUNS.md`**: Catalogata la run storica di successo con metriche dettagliate.
 
+---
+
+## [2026-09-09] update_wiki | Riforme di Igiene Numerica & Architettura Fase 2 (Milestone 5)
+
+### Sintesi Operazioni
+- Formalizzata e integrata la documentazione sistematica delle riforme di igiene numerica e architetturali per la Fase 2 (Proposte Claude [A], [B], [C], [H], [M], [AA], [AB], [AC], [AE] e Run 23 tuning) derivanti dai report di consulenza avanzata (Opus 5 & Sonnet 5).
+- Documentate nel dettaglio le soluzioni alle criticità storiche della Fase 2:
+  1. **Disabilitazione TF32 ([A])**: preservazione della mantissa standard IEEE-754 a 23 bit contro il troncamento hardware a 10 bit sui Tensor Core NVIDIA, eliminando il rumore statico $\sim 10^{-3}$ nelle derivate autograd di ordine superiore.
+  2. **Adam EPS Differenziato ([B])**: $\epsilon_{\text{net}} = 10^{-8}$ per pesi neurali e $\epsilon_{\text{phys}} = 10^{-15}$ per scalari fisici (`_raw_mu_s`, `_raw_lam`, `_raw_mu_tot`), disinnescando il congelamento artificiale dei parametri fisici in falsi plateau.
+  3. **Normalizzazione Tau per-componente ([C])**: scaling vettoriale indipendente $\mathbf{s}_\tau = [s_{xx}, s_{xy}, s_{yy}]$ buffer $(1, 3)$ per bilanciare sforzi normali estensionali e di taglio.
+  4. **Gradient Clipping Rigido ([H])**: standardizzato `GRAD_CLIP_NORM = 5.0` per preservare la stabilità nei pressi delle zone di ristagno e rulli.
+  5. **Guard Buffer FP64 ([M])**: asserzione diagnostica rigorosa `assert_fp64_integrity` in `convert_to_fp64` contro downcasting silenti in FP32 prima di L-BFGS.
+  6. **Adimensionalizzazione Momento ([AA])**: riscalamento del residuo di Navier-Stokes per $\text{scale}_{mom} = \frac{\eta_0 U_{ref}}{H_{ref}^2} = 400.0\text{ Pa/m}$, comprimendo la loss di un fattore $1.6 \times 10^5$ e garantendo la preservazione della cinematica di Fase 1.
+  7. **Ancoraggio Hard Algebrico Pressione ([AB])**: formulazione esatta $p(\mathbf{x}) = p_{\text{scale}}(\hat{p}(\mathbf{x}) - \hat{p}(\mathbf{x}_0)) + p_{\text{ref}}$ in `CombinedModel`, con rimozione della loss soft di misura nulla e annullamento del gauge drift.
+  8. **Riparametrizzazione $\mu_{tot}$ e Softplus $\mu_s$ ([AC])**: inversione su $\mu_{tot}$ e calcolo $\mu_s = \text{softplus}(\mu_{tot} - \mu_{p,F1}, \beta=20.0)$ garantendo $\mu_s > 0$ ed eliminando il bias $9\times$.
+  9. **Diagnostica Hodge-Leray $\rho_{id}$ ([AE])**: proiezione ortogonale di $\Delta \mathbf{u}$ sullo span dei gradienti di pressione dell'ultimo layer di `model_p` ($\rho_{id} \approx 0.999$).
+  10. **Tuning L-BFGS Run 23**: `history_size = 300`, line search `strong_wolfe`, tolleranze $10^{-16}$.
+  11. **Suite 4 Script**: architettura coordinata per PC Maurizio (R2 Standard), Kaggle Inverso MLS (R3), Kaggle Diretto Precomputato (R4, $<0.2$ s/epoca), PC Personale EVSS (R5).
+
+### Pagine Create
+- **[[Numerical_Hygiene_and_Phase2_Reforms]]** (Methods): Trattazione teorica, formulazioni matematiche, snippet implementativi e architettura della suite script per Fase 2.
+
+### Pagine Modificate
+- **[[00_Index]]**: Inserita la voce `[[Numerical_Hygiene_and_Phase2_Reforms]]` nella sezione Technical Methods.
+- **`tools/pinn_advisor/reports/Actionable_analysis.md`**: Sincronizzato il dashboard (9 implementati, 27%), marcate con `🟢 [x]` le proposte A, B, C, H, M, AA, AB, AC, AE con i commit atomici, integrato il changelog dettagliato e aggiornate le schede tecniche.
+

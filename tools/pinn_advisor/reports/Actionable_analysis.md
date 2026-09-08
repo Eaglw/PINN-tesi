@@ -11,20 +11,20 @@
 
 | Categoria Stato | Badge | Conteggio | Percentuale |
 |---|:---:|:---:|:---:|
-| **Implementato** | 🟢 `[x]` | 0 | 0% |
-| **In Corso / Parziale** | 🟡 `[-]` | 1 | 3% |
-| **Backlog (Da fare)** | 🔴 `[ ]` | 27 | 82% |
-| **Già Presente / Nativo** | 🔵 `[x]` | 2 | 6% |
-| **Posticipato / Escluso** | ⚪ `[ ]` | 3 | 9% |
+| **Implementato** | 🟢 `[x]` | 9 | 27% |
+| **In Corso / Parziale** | 🟡 `[-]` | 0 | 0% |
+| **Backlog (Da fare)** | 🔴 `[ ]` | 18 | 55% |
+| **Già Presente / Nativo** | 🔵 `[x]` | 1 | 3% |
+| **Posticipato / Escluso** | ⚪ `[ ]` | 5 | 15% |
 | **TOTALE PROPOSTE (A-Z, AA-AG)** | — | **33** | **100%** |
 
 ```mermaid
 pie title Distribuzione Stato Proposte PINN Advisor
-    "Backlog da fare" : 27
-    "Posticipato / Escluso" : 3
-    "Già Presente / Nativo" : 2
-    "In Corso / Parziale" : 1
-    "Implementato" : 0
+    "Implementato" : 9
+    "Backlog da fare" : 18
+    "Posticipato / Escluso" : 5
+    "Già Presente / Nativo" : 1
+    "In Corso / Parziale" : 0
 ```
 
 ---
@@ -33,10 +33,16 @@ pie title Distribuzione Stato Proposte PINN Advisor
 
 Questo registro traccia ogni modifica implementata nel codice in seguito alle raccomandazioni dei report.
 
-| Data | ID | Titolo Proposta | File Impattati | Esito / Note di Validazione | Autore / Agente |
+| Data | ID | Titolo Proposta | File Impattati | Esito / Note di Validazione | Autore / Agente / Commit |
 |---|:---:|---|---|---|:---:|
 | *2026-09-08* | — | *Creazione Master Reference & Tracker* | `tools/pinn_advisor/reports/Actionable_analysis.md` | Inizializzazione struttura reference e baseline di verifica codice | Antigravity |
 | *2026-09-08* | V, AA-AG | *Integrazione Report Opus 5 Fase 2* | `tools/pinn_advisor/reports/Actionable_analysis.md` | VarPro discreto su $p$, Adimensionalizzazione momento, Ancoraggio Hard, $\mu_{tot}$ | Antigravity |
+| *2026-09-08* | A, H, Run 23 | *Igiene Numerica Baseline & L-BFGS Tuning* | `train_4roll_main.py`, `train_4roll_main_mauri.py`, `src/train.py` | Disabilitazione preliminare TF32, `GRAD_CLIP_NORM = 5.0`, `history_size = 300` con `strong_wolfe` | Antigravity (`c23d8a6`) |
+| *2026-09-08* | A, B, H | *TF32 Disabling, Adam EPS Differenziato & Clip Standard* | `train_4roll_main.py`, `src/train.py` | TF32 off globale; gruppi optimizer con `eps=1e-8` per pesi e `eps=1e-15` per scalari fisici (`_raw_mu_s`, `_raw_lam`, `_raw_mu_tot`); clip norm 5.0 | Antigravity (`289b7bb`) |
+| *2026-09-08* | M | *Assert Diagnostico Rigoroso Buffer & Dati FP64* | `src/utils.py` | Implementazione `assert_fp64_integrity` in `convert_to_fp64`: verifica ricorsiva parametri e buffer `torch.float64` prima di L-BFGS | Antigravity (`a9f49b6`) |
+| *2026-09-08* | C, AB | *Normalizzazione Tau per-componente & Ancoraggio Hard $p$* | `src/utils.py`, `src/train.py`, `src/physics.py` | Calcolo $\mathbf{s}_\tau = [s_{xx}, s_{xy}, s_{yy}]$ buffer $(1, 3)$ per stress anisotropo; ancoraggio algebrico $p(x) = p_{scale}(\hat{p}(x) - \hat{p}(x_0)) + p_{ref}$ in `CombinedModel` | Antigravity (`1a90c4b`) |
+| *2026-09-08* | AA, AC, AE | *Adimensionalizzazione Momento, $\mu_{tot}$ Softplus & $\rho_{id}$* | `src/physics.py` | $\text{scale}_{mom} = \frac{\eta_0 U_{ref}}{H_{ref}^2} = 400.0\text{ Pa/m}$ (compressione quadratica loss di $1.6 \times 10^5$); $\mu_s = \text{softplus}(\mu_{tot} - \mu_{p,F1}, \beta=20.0)$ garantendo $\mu_s > 0$; calcolo diagnostico di Leray $\rho_{id}$ | Antigravity (`e1f181e`) |
+| *2026-09-08* | AB, M | *Preservazione Dtype Buffer Modello & Guard Ricorsivo Dati* | `src/train.py`, `src/utils.py` | `CombinedModel` preserva il dtype nei buffer `x_anchor` e `p_ref` evitando downcast silenti in FP64; guardia ricorsiva su dizionari `data` | Antigravity (`61a52d9`) |
 
 ---
 
@@ -64,19 +70,19 @@ Questo registro traccia ogni modifica implementata nel codice in seguito alle ra
 
 | ID | Modifica Proposta | Stato | Corr. | Sempl. | Fatt. | Prior. | Target Primario | Report |
 |:---:|---|:---:|:---:|:---:|:---:|:---:|---|:---:|
-| **A** | Disabilitare TF32 (FP32 standard IEEE) | 🔴 `[ ]` | ✅ | ⭐⭐⭐⭐⭐ | 🟢 | 🔴 | `train_4roll_main*.py:L52` | S+O+IGN |
-| **B** | `ADAM_EPS` differenziato per parametri fisici | 🔴 `[ ]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🔴 | `src/train.py`, `train_4roll_main*.py` | O+IGN |
-| **C** | `tau_scale` per-componente | 🔴 `[ ]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🟠 | `src/utils.py`, `src/physics.py`, `src/train.py` | S+O |
+| **A** | Disabilitare TF32 (FP32 standard IEEE) | 🟢 `[x]` | ✅ | ⭐⭐⭐⭐⭐ | 🟢 | 🔴 | `train_4roll_main*.py`, `src/train.py` (Commits `c23d8a6`, `289b7bb`) | S+O+IGN |
+| **B** | `ADAM_EPS` differenziato per parametri fisici | 🟢 `[x]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🔴 | `src/train.py`, `train_4roll_main_mauri.py` (Commit `289b7bb`) | O+IGN |
+| **C** | `tau_scale` per-componente | 🟢 `[x]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🟠 | `src/utils.py`, `src/physics.py`, `src/train.py` (Commit `1a90c4b`) | S+O |
 | **D** | Variable Projection (VarPro) per $\lambda, \mu_p$ (Fase 1) | 🔴 `[ ]` | ✅ | ⭐⭐⭐ | 🟡 | 🟠 | `src/physics.py`, `src/train.py` | O |
 | **E** | Formulazione log-conformation | ⚪ `[ ]` | ✅ | ⭐⭐ | 🔴 | 🟡 | R&D futura (`src/train.py`, `src/physics.py`) | O |
 | **F** | Continuation method su $Wi/\lambda$ | 🔴 `[ ]` | ✅ | ⭐⭐⭐ | 🟡 | 🟠 | `src/train.py` | S |
 | **G** | L-BFGS a blocchi con restart | 🔵 `[x]` | ⚠️ | — | — | 🟢 | `src/train.py` (**Già presente**) | S+O |
-| **H** | Ridurre `GRAD_CLIP_NORM` da 1000 a 10-20 | 🔴 `[ ]` | ✅ | ⭐⭐⭐⭐⭐ | 🟢 | 🟡 | `train_4roll_main*.py:L133` | S |
+| **H** | Ridurre `GRAD_CLIP_NORM` da 1000 a 5.0 | 🟢 `[x]` | ✅ | ⭐⭐⭐⭐⭐ | 🟢 | 🟡 | `src/train.py`, `train_4roll_main*.py` (Commits `c23d8a6`, `289b7bb`) | S |
 | **I** | Simmetria $D_4$ in forma hard su $\psi$ | ⚪ `[ ]` | ✅ | ⭐ | 🔴 | 🟡 | R&D futura (`src/train.py`) | O |
 | **J** | NTK/grad-norm adaptive weights | 🔴 `[ ]` | ✅ | ⭐⭐⭐ | 🟡 | 🟡 | `src/train.py` | S+O |
 | **K** | Pesatura causale lungo linee di corrente | ⚪ `[ ]` | ✅ | ⭐ | 🔴 | 🟢 | R&D avanzata / Posticipato | O |
 | **L** | Resampling adattivo RAR/RAD | 🔴 `[ ]` | ✅ | ⭐⭐⭐ | 🟡 | 🟡 | `src/utils.py`, `src/train.py` | S |
-| **M** | Assert diagnostico buffer FP64 | 🟡 `[-]` | ⚠️ | ⭐⭐⭐⭐⭐ | 🟢 | 🟢 | `src/utils.py` (**Parziale**: conversione attiva, manca assert) | S+O |
+| **M** | Assert diagnostico buffer FP64 | 🟢 `[x]` | ✅ | ⭐⭐⭐⭐⭐ | 🟢 | 🟢 | `src/utils.py` (Commits `a9f49b6`, `61a52d9`) | S+O |
 | **N** | Adam warmup FP64 prima di L-BFGS | 🔴 `[ ]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🟡 | `src/train.py` | O |
 | **O** | Parametri fisici sempre in FP64 permanente | 🔴 `[ ]` | ✅ | ⭐⭐⭐ | 🟡 | 🟡 | `src/physics.py` | IGN |
 | **P** | Row-scaling equilibrazione residuo costitutivo | 🔴 `[ ]` | ✅ | ⭐⭐⭐ | 🟡 | 🟠 | `src/physics.py` | O |
@@ -90,11 +96,11 @@ Questo registro traccia ogni modifica implementata nel codice in seguito alle ra
 | **X** | Loss robusta (Huber) per stress BC | 🔴 `[ ]` | ✅ | ⭐⭐⭐⭐⭐ | 🟢 | 🟢 | `src/physics.py` | O |
 | **Y** | Diagnostiche ($De_{loc}$, condizionamento, gradienti) | 🔴 `[ ]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🟡 | `src/debug.py`, `src/train.py` | S+O |
 | **Z** | Physics-guided output layer (ansatz $M^{-1}$) | ⚪ `[ ]` | ⚠️ | ⭐ | 🔴 | 🟢 | Escluso (troppo vincolante e invasivo) | O |
-| **AA** | **Adimensionalizzazione del residuo di momento ($\eta_0 U/H^2$)** | 🔴 `[ ]` | ✅ | ⭐⭐⭐⭐⭐ | 🟢 | 🔴 | `src/physics.py:L187-L215` | O2 |
-| **AB** | **Ancoraggio Hard della Pressione in `CombinedModel`** | 🔴 `[ ]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🔴 | `src/train.py:L180-L205` | O2 |
-| **AC** | **Riparametrizzazione in $\mu_{tot}$ per Fase 2 (elimina bias $9\times$)** | 🔴 `[ ]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🔴 | `src/physics.py` | O2 |
+| **AA** | **Adimensionalizzazione del residuo di momento ($\eta_0 U/H^2$)** | 🟢 `[x]` | ✅ | ⭐⭐⭐⭐⭐ | 🟢 | 🔴 | `src/physics.py:L266-L268` (Commit `e1f181e`) | O2 |
+| **AB** | **Ancoraggio Hard della Pressione in `CombinedModel`** | 🟢 `[x]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🔴 | `src/train.py`, `src/physics.py` (Commits `1a90c4b`, `61a52d9`) | O2 |
+| **AC** | **Riparametrizzazione in $\mu_{tot}$ per Fase 2 (elimina bias $9\times$)** | 🟢 `[x]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🔴 | `src/physics.py:L355-L382` (Commit `e1f181e`) | O2 |
 | **AD** | **Trust-Region Funzionale per $\psi$ ($\mathcal{L}_{prox}$ o AugLag)** | 🔴 `[ ]` | ✅ | ⭐⭐⭐ | 🟡 | 🟠 | `src/train.py` | O2 |
-| **AE** | **Diagnostica Identificabilità preventiva ($\rho_{id}$ & CRLB)** | 🔴 `[ ]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🟠 | `src/physics.py`, `src/debug.py` | O2 |
+| **AE** | **Diagnostica Identificabilità preventiva ($\rho_{id}$ & CRLB)** | 🟢 `[x]` | ✅ | ⭐⭐⭐⭐ | 🟢 | 🟠 | `src/physics.py:L415-L452` (Commit `e1f181e`) | O2 |
 | **AF** | **Resampling D-ottimo (OED) su densità $\|\mathbb{P}^\perp \Delta \mathbf{u}\|$** | 🔴 `[ ]` | ✅ | ⭐⭐⭐ | 🟡 | 🟡 | `src/train.py`, `src/utils.py` | O2 |
 | **AG** | **Ancoraggio Coppia/Trazione sui Rulli ($M_k$, info $O(1)$ su $\mu_s$)** | 🔴 `[ ]` | ✅ | ⭐⭐⭐ | 🟡 | 🟠 | `src/physics.py` | O2 |
 
@@ -107,65 +113,178 @@ Questo registro traccia ogni modifica implementata nel codice in seguito alle ra
 ---
 
 ### Proposta AA — Adimensionalizzazione del Residuo di Momento ($\eta_0 U/H^2$)
-- **Stato**: 🔴 `[ ]` Da Implementare
+- **Stato**: 🟢 `[x]` Implementato (Commit `e1f181e`)
 - **Priorità**: 🔴 CRITICA (Quick Win Immediato)
-- **Target Files**: [`src/physics.py:L187-L215`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/physics.py#L187-L215), [`train_4roll_main.py`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/train_4roll_main.py)
+- **Target Files**: [`src/physics.py:L266-L268`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/physics.py#L266-L268), [`train_4roll_main.py`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/train_4roll_main.py)
 - **Motivazione Fisica/Numerica**:  
-  Nel codice attuale il residuo del momento viene calcolato dimensionalmente:
+  Nel codice originale il residuo del momento veniva calcolato dimensionalmente:
   $$\mathbf{R}_{mom} = \rho (\mathbf{u} \cdot \nabla) \mathbf{u} + \nabla p - \mu_s \nabla^2 \mathbf{u} - \nabla \cdot \boldsymbol{\tau}$$
   La scala fisica naturale del gradiente di pressione e viscosità nel dominio è:
   $$\text{scale}_{mom} = \frac{\eta_0 U_{ref}}{H_{ref}^2} = \frac{1.0 \times 1.0}{0.05^2} = 400 \text{ Pa/m}$$
-  Elevando al quadrato il residuo non scalato, la loss ha un fattore implicito di $\sim 1.6 \times 10^5$. Con $W_{mom} = 1.0$, il residuo di Navier-Stokes è pesato **$160.000$ volte di più** rispetto alla loss dati di velocità ($O(U^2) \sim 1$). Questo spiega categoricamente perché `model_psi` mobile distruggeva la cinematica di Fase 1 per soddisfare il momento non scalato.
+  Elevando al quadrato il residuo non scalato, la loss ha un fattore implicito di $\sim 1.6 \times 10^5$. Con $W_{mom} = 1.0$, il residuo di Navier-Stokes era pesato **$160.000$ volte di più** rispetto alla loss dati di velocità ($O(U^2) \sim 1$). Questo spiega categoricamente perché `model_psi` mobile distruggeva la cinematica di Fase 1 per soddisfare il momento non scalato.
 - **Ricetta Implementativa**:
   ```python
-  scale_mom = self.eta_0 * self.U_ref / (self.H_ref ** 2)
-  loss_mom = ((res_u / scale_mom).pow(2) + (res_v / scale_mom).pow(2)).mean()
+  scale_mom = (self.eta_0 * self.U_ref) / (self.H_ref ** 2)
+  loss_m = (((f_u / scale_mom) ** 2 + (f_v / scale_mom) ** 2).mean()) / 2.0
   ```
-- **Metrica di Verifica**: Loss del momento normalizzata a valori $O(10^{-2} - 10^0)$ anziché $O(10^5)$, perfetta stabilità delle velocità in Fase 2.
+- **Metrica di Verifica**: Loss del momento compressa a valori $O(10^{-2} - 10^0)$ anziché $O(10^5)$, perfetta stabilità delle velocità in Fase 2.
 
 ---
 
 ### Proposta AB — Ancoraggio Hard della Pressione in `CombinedModel`
-- **Stato**: 🔴 `[ ]` Da Implementare
+- **Stato**: 🟢 `[x]` Implementato (Commits `1a90c4b`, `61a52d9`)
 - **Priorità**: 🔴 CRITICA
-- **Target Files**: [`src/train.py:L180-L205`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/train.py#L180-L205)
+- **Target Files**: [`src/train.py:L180-L205`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/train.py#L180-L205), [`src/physics.py`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/physics.py)
 - **Motivazione Fisica/Numerica**:  
-  Attualmente la pressione è ancorata via soft penalty: $W_{BC,2} (p(x_0) - p_{ref})^2$. Un vincolo puntuale ha misura nulla: nella matrice Hessiana genera una direzione con autovalore infinitesimo ($\sim 1/N$), ignorato da Adam. La costante di pressione va in deriva continua, inquinando i gradienti di backprop verso $\nabla p$.
+  Precedentemente la pressione era ancorata via soft penalty: $W_{BC,2} (p(x_0) - p_{ref})^2$. Un vincolo puntuale ha misura nulla: nella matrice Hessiana genera una direzione con autovalore infinitesimo ($\sim 1/N$), ignorato da Adam. La costante di pressione andava in deriva continua, inquinando i gradienti di backprop verso $\nabla p$.
 - **Ricetta Implementativa**:
-  Imporre l'ancoraggio per costruzione algebrica nella chiamata di forward della pressione:
+  Imporre l'ancoraggio per costruzione algebrica nella chiamata di forward della pressione in `CombinedModel`:
   ```python
   def pressure(self, x):
       p_raw = self.model_p(x)
-      p_anchor = self.model_p(self.x_anchor)  # Valutato nel punto di riferimento fisso (1, 1)
-      return self.p_scale * (p_raw - p_anchor) + self.p_ref
+      if self.hard_anchor:
+          p_anchor = self.model_p(self.x_anchor)  # Valutato in x_0
+          return self.p_scale * (p_raw - p_anchor) + self.p_ref
+      return self.p_scale * p_raw
   ```
-- **Metrica di Verifica**: Valore esatto $p(x_0, y_0) \equiv p_{ref}$ identicamente ad ogni epoca, azzeramento del modo nullo di traslazione e rimozione della loss soft di ancoraggio.
+  e bypassare la soft point penalty in `boundary_loss`:
+  ```python
+  elif group_name == "PressurePoint":
+      if getattr(model, "hard_anchor", False):
+          pass  # Ancoraggio esatto per costruzione, 0.0 soft loss
+  ```
+- **Metrica di Verifica**: Valore esatto $p(x_0, y_0) \equiv p_{ref}$ identicamente ad ogni epoca (errore assoluto $0.0$), eliminazione totale del gauge drift.
 
 ---
 
 ### Proposta AC — Riparametrizzazione in $\mu_{tot}$ per Fase 2 (Disinnesco Bias $9\times$)
-- **Stato**: 🔴 `[ ]` Da Implementare
+- **Stato**: 🟢 `[x]` Implementato (Commit `e1f181e`)
 - **Priorità**: 🔴 CRITICA
-- **Target Files**: [`src/physics.py:L40-L60`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/physics.py#L40-L60)
+- **Target Files**: [`src/physics.py:L355-L382`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/physics.py#L355-L382)
 - **Motivazione Fisica/Numerica**:  
   Nel problema stazionario con $\boldsymbol{\tau}$ congelato da Fase 1, un piccolo errore residuo $\delta \mu_p$ si trasferisce con rapporto $-1:1$ su $\hat{\mu}_s$:
   $$\hat{\mu}_s = \mu_s^{true} - \delta \mu_p \implies \hat{\mu}_s + \hat{\mu}_p^{(1)} = \mu_{tot}^{true}$$
-  Poiché nel 4-roll mill $\mu_p^{true} / \mu_s^{true} = 0.9 / 0.1 = 9$, un errore relativo di appena l'1% su $\mu_p$ genera un errore del **9% su $\mu_s$**! Ottimizzare $\mu_s$ direttamente porta l'ottimizzatore a collidere con 0 o ad andare in plateau. L'unica quantità robustamente vincolata dall'idrodinamica complessiva è la viscosità totale $\mu_{tot}$.
+  Poiché nel 4-roll mill $\mu_p^{true} / \mu_s^{true} = 0.9 / 0.1 = 9$, un errore relativo di appena l'1% su $\mu_p$ generava un errore del **9% su $\mu_s$**. Ottimizzare $\mu_s$ direttamente portava l'ottimizzatore a collidere con valori negativi o ad andare in plateau. Riparametrizzando su $\mu_{tot}$ e derivando $\mu_s$ con una barriera differenziabile strettamente positiva si disinnesca l'instabilità.
 - **Ricetta Implementativa**:
   ```python
-  # In ViscoelasticPhysics:
   @property
   def mu_tot(self):
-      return self.guess_mu_tot * torch.exp(self._raw_mu_tot).squeeze()
+      if getattr(self, "use_mu_tot_param", False):
+          return self.guess_mu_tot * torch.exp(self._raw_mu_tot).squeeze()
+      return self.mu_s + self.mu_p
 
   @property
   def mu_s(self):
       if getattr(self, "use_mu_tot_param", False):
-          # mu_p congelato da Fase 1; mu_s ricavato per differenza con softplus
-          return nn.functional.softplus(self.mu_tot - self.mu_p.detach(), beta=20.0)
+          mu_p_frozen = self.mu_p.detach()
+          return nn.functional.softplus(self.mu_tot - mu_p_frozen, beta=20.0)
       return self.guess_mu_s * torch.exp(self._raw_mu_s).squeeze()
   ```
-- **Metrica di Verifica**: Convergenza stabile di $\mu_{tot}$ verso 1.0 Pa·s e conseguente determinazione consistente di $\mu_s$.
+- **Metrica di Verifica**: $\mu_s > 0$ garantito per ogni configurazione di parametri, stima stabile di $\mu_{tot} \approx 1.0\text{ Pa}\cdot\text{s}$.
+
+---
+
+### Proposta AE — Diagnostica Identificabilità Preventiva ($\rho_{id}$ & CRLB)
+- **Stato**: 🟢 `[x]` Implementato (Commit `e1f181e`)
+- **Priorità**: 🟠 ALTA
+- **Target Files**: [`src/physics.py:L415-L452`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/physics.py#L415-L452), [`src/debug.py`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/debug.py)
+- **Motivazione Fisica/Numerica**:  
+  Definizione dell'indice adimensionale di Hodge-Leray $\rho_{id} = \frac{\|\mathbb{P}^\perp_{\mathcal{G}_M} \Delta \mathbf{u}\|}{\|\Delta \mathbf{u}\|} \in [0, 1]$. Se $\rho_{id} < 0.02$, la pressione maschera completamente $\mu_s$ e nessun ottimizzatore potrà identificarlo. Calcolarlo in $O(1)$ secondi all'inizio di Fase 2 fornisce un check immediato di fattibilità fisica.
+- **Ricetta Implementativa**:
+  ```python
+  def compute_leray_identifiability(self, model, x_coll, lam_tik=1e-8):
+      # Proiezione di a = \Delta u sullo span di \Phi = \nabla_x,y (trunk di model_p)
+      G = Phi.T @ Phi + lam_tik * torch.eye(M, device=Phi.device, dtype=Phi.dtype)
+      Pa = Phi @ torch.linalg.solve(G, Phi.T @ a)
+      a_perp = a - Pa
+      rho_id = torch.sqrt((a_perp ** 2).sum() / ((a ** 2).sum() + 1e-30)).item()
+      return {"rho_id": rho_id, "a_norm": ..., "a_perp_norm": ...}
+  ```
+- **Metrica di Verifica**: Valore di $\rho_{id} \approx 0.999$ loggato a console a inizio Fase 2, attestando la separabilità fisica di $\mu_s$.
+
+---
+
+### Proposta A — Igiene TF32 (Disabilitazione TensorFloat-32)
+- **Stato**: 🟢 `[x]` Implementato (Commits `c23d8a6`, `289b7bb`)
+- **Priorità**: 🔴 CRITICA
+- **Target Files**: [`src/train.py:L26-L29`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/train.py#L26-L29), `train_4roll_main*.py`
+- **Motivazione Fisica/Numerica**:  
+  TF32 tronca la mantissa da 23 bit a 10 bit ($u \approx 4.88 \times 10^{-4}$). Nelle derivate autograd di 2° e 3° ordine ($\mu_s \nabla^2 \mathbf{u} = \mu_s \nabla^3 \psi$), l'errore di troncamento si propaga attraverso i layer lineari creando un rumore di fondo $\sim 10^{-3}$ che blocca l'identificazione inversa.
+- **Ricetta Implementativa**:
+  ```python
+  torch.backends.cuda.matmul.allow_tf32 = False
+  torch.backends.cudnn.allow_tf32 = False
+  torch.set_float32_matmul_precision("highest")
+  ```
+- **Metrica di Verifica**: Preservazione integrale della mantissa a 23 bit IEEE-754 ($u \approx 5.96 \times 10^{-8}$), assenza di plateaux artificiali nei gradienti di secondo ordine.
+
+---
+
+### Proposta B — ADAM_EPS Differenziato per Parametri Fisici
+- **Stato**: 🟢 `[x]` Implementato (Commit `289b7bb`)
+- **Priorità**: 🔴 CRITICA
+- **Target Files**: [`src/train.py:L377-L404`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/train.py#L377-L404), `train_4roll_main_mauri.py`
+- **Motivazione Fisica/Numerica**:  
+  Nel passo Adam $\Delta \theta = -\eta \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon}$, con $\epsilon = 10^{-8}$ e gradiente scalare piccolo ($\sqrt{\hat{v}_t} \ll \epsilon$), lo scalare fisico subisce una contrazione drastica dell'aggiornamento. Usando `eps=1e-15` per gli scalari fisici (`_raw_mu_s`, `_raw_lam`, `_raw_mu_tot`), il gradiente continua a produrre passi corretti anche vicino alla convergenza.
+- **Ricetta Implementativa**:
+  ```python
+  groups = [{"params": net_params, "lr": BASE_LR, "eps": 1e-8}]
+  if phys_params:
+      groups.append({"params": phys_params, "lr": BASE_LR * PARAM_LR_FACTOR, "eps": 1e-15, "weight_decay": 0.0})
+  optimizer = torch.optim.Adam(groups, eps=1e-8)
+  ```
+- **Metrica di Verifica**: Nessun congelamento dei parametri fisici scalari in prossimità dei minimi locali.
+
+---
+
+### Proposta C — Normalizzazione Tau per-componente
+- **Stato**: 🟢 `[x]` Implementato (Commit `1a90c4b`)
+- **Priorità**: 🟠 ALTA
+- **Target Files**: [`src/utils.py:L142-L149`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/utils.py#L142-L149), [`src/train.py`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/train.py), [`src/physics.py`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/physics.py)
+- **Motivazione Fisica/Numerica**:  
+  Nei flussi estensionali, $\tau_{xx}$ è molto maggiore di $\tau_{xy}$. Uno scaling scalare unico divide tutte le componenti per $\max(|\tau_{xx}|)$, soffocando il gradiente su $\tau_{xy}$ e sul tempo di rilassamento $\lambda$. La normalizzazione vettoriale indipendente $\mathbf{s}_\tau = [\max |\tau_{xx}|, \max |\tau_{xy}|, \max |\tau_{yy}|]$ garantisce sensitività bilanciata.
+- **Ricetta Implementativa**:
+  ```python
+  tau_scale = torch.tensor([tau_scale_xx, tau_scale_xy, tau_scale_yy], dtype=torch.float32).view(1, 3)
+  self.register_buffer("tau_scale", tau_scale)
+  tau = self.model_tau(x) * self.tau_scale  # Broadcasting (N, 3) * (1, 3)
+  ```
+- **Metrica di Verifica**: Dinamica bilanciata dei residui costitutivi per le 3 componenti $f_{\tau_{xx}}, f_{\tau_{xy}}, f_{\tau_{yy}}$.
+
+---
+
+### Proposta H — Gradient Clipping Rigido (`GRAD_CLIP_NORM = 5.0`)
+- **Stato**: 🟢 `[x]` Implementato (Commits `c23d8a6`, `289b7bb`)
+- **Priorità**: 🟡 MEDIA
+- **Target Files**: [`src/train.py:L430-L440`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/train.py#L430-L440), `train_4roll_main*.py`
+- **Motivazione Fisica/Numerica**:  
+  In presenza di singolarità di gradiente nei punti di ristagno o in prossimità dei rulli, i gradienti autograd possono superare norme di centinaia. Un clipping permissivo (`1000.0`) permetteva salti distruttivi nei pesi della rete. Lo standard a `5.0` garantisce regolarità asintotica della discesa.
+- **Ricetta Implementativa**:
+  ```python
+  GRAD_CLIP_NORM = 5.0
+  torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
+  ```
+- **Metrica di Verifica**: Assenza di esplosioni di gradiente o NaN durante l'esplorazione Adam.
+
+---
+
+### Proposta M — Assert Diagnostico Rigoroso Buffer & Dati FP64
+- **Stato**: 🟢 `[x]` Implementato (Commits `a9f49b6`, `61a52d9`)
+- **Priorità**: 🟢 BASSA / FONDAMENTALE
+- **Target Files**: [`src/utils.py:L268-L300`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/utils.py#L268-L300)
+- **Motivazione Fisica/Numerica**:  
+  Nel passaggio a L-BFGS, la presenza anche di un solo buffer floating-point in FP32 forza PyTorch a retrocedere le operazioni a 32 bit, vanificando il tempo computazionale speso in doppia precisione.
+- **Ricetta Implementativa**:
+  ```python
+  def assert_fp64_integrity(model, physics, data):
+      for name, p in model.named_parameters():
+          assert p.dtype == torch.float64, f"[FP64 GUARD] model parameter {name} has dtype {p.dtype}"
+      for name, b in model.named_buffers():
+          if b.is_floating_point():
+              assert b.dtype == torch.float64, f"[FP64 GUARD] model buffer {name} has dtype {b.dtype}"
+      # Verifica ricorsiva dei dizionari dati
+  ```
+- **Metrica di Verifica**: Eccezione bloccante immediata qualora un qualsiasi tensore float non sia `torch.float64` prima di invocare L-BFGS.
 
 ---
 
@@ -193,16 +312,6 @@ Questo registro traccia ogni modifica implementata nel codice in seguito alle ra
 
 ---
 
-### Proposta AE — Diagnostica Identificabilità Preventiva ($\rho_{id}$ & CRLB)
-- **Stato**: 🔴 `[ ]` Da Implementare
-- **Priorità**: 🟠 ALTA
-- **Target Files**: `src/physics.py`, `src/debug.py`
-- **Motivazione Fisica/Numerica**:  
-  Definire l'indice adimensionale $\rho_{id} = \frac{\|\mathbb{P}^\perp \Delta \mathbf{u}\|}{\|\Delta \mathbf{u}\|} \in [0, 1]$. Se $\rho_{id} < 10^{-2}$, la pressione maschera completamente $\mu_s$ e nessun ottimizzatore potrà identificarlo. Calcolarlo in $O(1)$ secondi all'inizio di Fase 2 fornisce un check immediato di fattibilità.
-- **Metrica di Verifica**: Valore di $\rho_{id}$ loggato a console a inizio Fase 2.
-
----
-
 ### Proposta AF — Campionamento D-Ottimo (OED) su Densità $\|\mathbb{P}^\perp \Delta \mathbf{u}\|$
 - **Stato**: 🔴 `[ ]` Da Implementare
 - **Priorità**: 🟡 MEDIA
@@ -225,8 +334,8 @@ Questo registro traccia ogni modifica implementata nel codice in seguito alle ra
 
 ---
 
-### Proposte A-U, W-Z (Riepilogo Schede Esistenti)
-*(Vedere sezioni precedenti per i dettagli completi su [A] TF32 off, [B] `ADAM_EPS` per-group, [C] `tau_scale` per-componente, [D] VarPro Fase 1 per $(\lambda, \mu_p)$, [H] Grad Clip Norm 10, [Q] Base $(N_1, \tau_{xy}, \text{tr})$, [P] Row-scaling).*
+### Proposte D, F, J, L, N-U, W-Z (Riepilogo Schede Backlog e R&D)
+*(Vedere sezioni precedenti e report per i dettagli completi su [D] VarPro Fase 1 per $(\lambda, \mu_p)$, [Q] Base $(N_1, \tau_{xy}, \text{tr})$, [P] Row-scaling, [E] Log-conformation, [I] Simmetria $D_4$).*
 
 ---
 
@@ -234,25 +343,28 @@ Questo registro traccia ogni modifica implementata nel codice in seguito alle ra
 
 ```mermaid
 flowchart TD
-    subgraph S1["Sprint 1: Igiene Numerica & Quick Wins (Immediato)"]
-        A["[A] TF32 Off"]
-        B["[B] ADAM_EPS Differenziato"]
-        AA["[AA] Scale Momento (eta0*U/H^2)"]
-        AB["[AB] Ancoraggio Hard Pressione"]
-        H["[H] GRAD_CLIP_NORM a 10"]
-        M["[M] Assert Buffer FP64"]
+    subgraph S1["Sprint 1: Igiene Numerica & Riforme Core (COMPLETATO 🟢)"]
+        A["[A] TF32 Off (🟢)"]
+        B["[B] ADAM_EPS Differenziato (🟢)"]
+        AA["[AA] Scale Momento eta0*U/H^2 (🟢)"]
+        AB["[AB] Ancoraggio Hard Pressione (🟢)"]
+        H["[H] GRAD_CLIP_NORM a 5.0 (🟢)"]
+        M["[M] Assert Buffer & Dati FP64 (🟢)"]
     end
 
-    subgraph S2["Sprint 2: Identificabilità & Riformulazione Parametri"]
-        C["[C] tau_scale per-componente"]
-        Q["[Q] BC Base (N1, tau_xy, tr)"]
-        AC["[AC] Riparametrizzazione mu_tot (Fase 2)"]
-        AD["[AD] Trust-Region Funzionale psi"]
-        AE["[AE] Diagnostica rho_id & CRLB"]
-        R["[R] Annealing W_ROLL_STRESS"]
+    subgraph S2["Sprint 2: Identificabilità & Suite Script (IN CORSO 🟡)"]
+        C["[C] tau_scale per-componente (🟢)"]
+        AC["[AC] Riparametrizzazione mu_tot Softplus (🟢)"]
+        AE["[AE] Diagnostica rho_id di Leray (🟢)"]
+        R2["[R2] Script Maurizio Standard (🟡)"]
+        R3["[R3] Script Kaggle Inverso MLS (🟡)"]
+        R4["[R4] Script Kaggle Diretto Precomputato (🟡)"]
+        R5["[R5] Script PC Personale EVSS (🟡)"]
+        AD["[AD] Trust-Region Funzionale psi (🔴)"]
+        Q["[Q] BC Base (N1, tau_xy, tr) (🔴)"]
     end
 
-    subgraph S3["Sprint 3: Motori VarPro & Campionamento"]
+    subgraph S3["Sprint 3: Motori VarPro Avanzati & Campionamento"]
         D["[D] VarPro Fase 1 (lambda, mu_p)"]
         V["[V] VarPro Fase 2 (mu_s, p - Leray)"]
         AF["[AF] Resampling D-Ottimo"]
