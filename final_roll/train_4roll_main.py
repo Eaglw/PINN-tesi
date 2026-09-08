@@ -130,7 +130,9 @@ USE_LBFGS_PHASE2 = True
 LBFGS_MAX_ITERS_PHASE2 = 500
 
 BASE_LR = 1e-3
-ADAM_EPS = 1e-7
+ADAM_EPS = 1e-8
+# [Proposta B] Epsilon differenziato per non soffocare gradienti fisici piccoli
+ADAM_EPS_PHYS = 1e-15
 PARAM_LR_FACTOR = 0.1
 # [Proposta H & Run 23] Gradient clipping rigido a 5.0 per prevenire salti numerici
 GRAD_CLIP_NORM = 5.0

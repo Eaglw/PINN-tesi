@@ -7,6 +7,16 @@ import matplotlib.pyplot as plt
 from src.utils import convert_to_fp64, convert_to_fp32, get_optimal_chunk_size
 from src.physics import compute_l2_errors
 
+# [Proposta A] Disabilitazione globale TF32 per preservare mantissa IEEE-754 FP32 (23 bit)
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
+
+# [Proposta B & H] Default di igiene numerica per clipping ed epsilon Adam
+GRAD_CLIP_NORM = getattr(builtins, "GRAD_CLIP_NORM", 5.0)
+PARAM_CLIP_NORM = getattr(builtins, "PARAM_CLIP_NORM", 1.0)
+ADAM_EPS = getattr(builtins, "ADAM_EPS", 1e-8)
+ADAM_EPS_PHYS = getattr(builtins, "ADAM_EPS_PHYS", 1e-15)
+
 class SimpleHistory:
     """Tracker minimale per loss e parametri."""
     def __init__(self):
@@ -257,6 +267,10 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
     Implementazione ottimizzata per il contenimento della VRAM.
     """
     global CHUNK_SIZE_ADAM, CHUNK_SIZE_LBFGS
+    # [Proposta A] Disabilitazione esplicita TF32 all'inizio del training
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+
     history = SimpleHistory()
 
     start_epoch = 0
@@ -465,12 +479,13 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         # Costruisci l'ottimizzatore (con param group dedicato permanente per i parametri fisici)
         steps_rem = end_adam1 - start_epoch
+        adam_eps_phys = getattr(builtins, "ADAM_EPS_PHYS", 1e-15)
         net_params = [p for p in model.parameters() if p.requires_grad]
-        groups = [{"params": net_params, "lr": BASE_LR}]
+        groups = [{"params": net_params, "lr": BASE_LR, "eps": ADAM_EPS}]
         if physics.inverse_mode:
             phys_params_ph1 = [physics._raw_lam, physics._raw_mu_p]
             phys_lr = BASE_LR * PARAM_LR_FACTOR if start_epoch >= warmup_epoch else 0.0
-            groups.append({"params": phys_params_ph1, "lr": phys_lr})
+            groups.append({"params": phys_params_ph1, "lr": phys_lr, "eps": adam_eps_phys})
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=1e-6)
 
@@ -901,19 +916,20 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         # Costruisci l'ottimizzatore Fase 2 (LR differenziati: p=1e-3, psi=1e-4, mu_s/mu_tot=1e-4)
         p_params = [p for p in model.model_p.parameters() if p.requires_grad]
         psi_params = [p for p in model.model_psi.parameters() if p.requires_grad]
+        adam_eps_phys = getattr(builtins, "ADAM_EPS_PHYS", 1e-15)
         groups = [
-            {"params": p_params, "lr": BASE_LR},
-            {"params": psi_params, "lr": BASE_LR * 0.1},
+            {"params": p_params, "lr": BASE_LR, "eps": ADAM_EPS},
+            {"params": psi_params, "lr": BASE_LR * 0.1, "eps": ADAM_EPS},
         ]
         if physics.inverse_mode:
-            phys_lr = 0.0 if is_warmup_ph2 else (BASE_LR * PARAM_LR_FACTOR)
+            phys_lr = BASE_LR * PARAM_LR_FACTOR if not is_warmup_ph2 else 0.0
             if hasattr(physics, "get_phase2_params"):
                 phys_params_ph2 = physics.get_phase2_params()
             elif hasattr(physics, "_raw_mu_tot"):
                 phys_params_ph2 = [physics._raw_mu_tot]
             else:
                 phys_params_ph2 = [physics._raw_mu_s]
-            groups.append({"params": phys_params_ph2, "lr": phys_lr})
+            groups.append({"params": phys_params_ph2, "lr": phys_lr, "eps": adam_eps_phys})
 
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
 
