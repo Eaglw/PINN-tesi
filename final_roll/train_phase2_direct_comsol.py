@@ -1,59 +1,47 @@
+"""
+train_phase2_direct_comsol.py
+=============================================================================
+Addestramento Standalone della Pressione da dati COMSOL (Problema Diretto)
+senza addestrare preventivamente reti per cinematica e stress (Zero Fase 1).
+
+Paradigma storico convalidato (train_4roll_kaggle.py - commit b4f5547):
+1. MLS di 2° grado con coordinate locali rigorosamente scalate tra [-1, 1].
+2. Scaling adimensionale basato su mu_tot = 1.0 (Re = 0.0417, beta = 0.10).
+3. Gradient clipping rigido a 5.0 (essenziale contro outlier derivativi).
+4. W_DATA = 0.0 (nessuna supervisione sui nodi interni di pressione).
+5. Singolo punto Dirichlet di ancoraggio (PressurePoint).
+6. Ottimizzazione Adam (FP32) seguita da L-BFGS (FP64, history=300).
+=============================================================================
+"""
+
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
-# Assicura che la directory final_roll sia sempre nel PYTHONPATH
-BASE_DIR = Path(__file__).resolve().parent
-if str(BASE_DIR) not in sys.path:
-    sys.path.insert(0, str(BASE_DIR))
-
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.tri as mtri
 import numpy as np
 import torch
 import torch.nn as nn
-from scipy.spatial import cKDTree
-from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
+import scipy.spatial as spatial
 
-# Import moduli di supporto
-from src.physics import Physics
-from src.train import FCN, init_weights_xavier
-from src.utils import load_data, weighted_mse, launch_tensorboard_server
-
-import src.debug
-import src.physics
-import src.train
-import src.utils
-
-import builtins
-
-# --- Logging automatico di tutti i print (Globale) ---
-_original_print = builtins.print
-global_log_path = None
-
-def custom_print(*args, **kwargs):
-    _original_print(*args, **kwargs)
-    if global_log_path is not None:
-        sep = kwargs.get("sep", " ")
-        end = kwargs.get("end", "\n")
-        text = sep.join(map(str, args)) + end
-        with open(global_log_path, "a", encoding="utf-8") as f:
-            f.write(text)
-
-builtins.print = custom_print
+# Assicura che la directory final_roll sia nel sys.path
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+if str(BASE_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR.parent))
 
 # ============================================================================
-# 1. SETUP AMBIENTE E PYTORCH
+# 1. SETUP AMBIENTE E HARDWARE
 # ============================================================================
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 torch.set_default_dtype(torch.float32)
 torch.set_float32_matmul_precision("high")
-torch.backends.cudnn.benchmark = False
 
 SEED = 123
 np.random.seed(SEED)
@@ -63,493 +51,533 @@ torch.cuda.manual_seed_all(SEED)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ============================================================================
-# 2. COSTANTI E PARAMETRI FISICI (PROBLEMA DIRETTO)
+# 2. CONFIGURAZIONI GLOBALI E PARAMETRI FISICI
 # ============================================================================
-DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
-DERIVATIVES_CACHE_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "comsol_derivatives_mls.pt"
+# Rilevamento automatico percorso dataset COMSOL (Kaggle o Locale)
+import glob
+matches_kaggle = glob.glob("/kaggle/input/**/4_roll_mill.csv", recursive=True)
+if matches_kaggle:
+    DATASET_PATH = Path(matches_kaggle[0])
+elif (BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv").exists():
+    DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
+else:
+    matches_local = glob.glob("**/4_roll_mill.csv", recursive=True)
+    DATASET_PATH = Path(matches_local[0]).resolve() if matches_local else (BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv")
 
-# Parametri Fisici REALI (Ground Truth COMSOL)
-MU_S_TRUE = 0.1       # Viscosità solvente FISSA [Pa·s]
-MU_P_TRUE = 0.9       # Viscosità polimerica FISSA [Pa·s]
-MU_TOT_TRUE = 1.0     # Viscosità totale [Pa·s]
-ETA_0 = 2.0           # Scala di riferimento globale [Pa·s]
+# Parametri fisici di riferimento (Ground Truth)
+MU_S_TRUE = 0.1       # Viscosità solvente [Pa·s]
+MU_P_TRUE = 0.9       # Viscosità polimerica [Pa·s]
+LAM_TRUE = 0.05       # Tempo di rilassamento [s]
 RHO = 1000.0          # Densità [kg/m³]
+MU_TOT = MU_S_TRUE + MU_P_TRUE  # 1.0 Pa·s
 
-# Architettura Rete Solo Pressione (model_p)
+# Architettura Network
 HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
-VARIANCE_EPS = 1e-4
 
-# Budget Test Diretto (Veloce e Preciso per Problema Diretto Convesso)
+# Iperparametri Training
 ADAM_EPOCHS = 20000
-USE_LBFGS = True
 LBFGS_MAX_ITERS = 2000
-
-# Iperparametri Ottimizzatore
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
-GRAD_CLIP_NORM = 1000.0
+GRAD_CLIP_NORM = 5.0  # Rigido per evitare picchi numerici
 
-# Pesi Funzione di Loss: SOLO Momentum e Singolo PressurePoint
-W_MOMENTUM = 1.0
-W_BC_PRES = 10.0      # Ancoraggio Dirichlet del singolo punto di pressione
+# Pesi Funzione di Loss
+W_PHYSICS = 3.0       # Peso della Momentum PDE
+W_BC = 2.0            # Peso ancoraggio singolo PressurePoint
+W_DATA = 0.0          # ZERO supervisione sui valori interni di pressione
+VARIANCE_EPS = 1e-4
 
-# Chunk Size VRAM
-CHUNK_SIZE_ADAM = 16384
-CHUNK_SIZE_LBFGS = 8192
+# MLS
+MLS_K = 25            # 25 vicini per MLS di 2° grado (robusto)
 
 # Iniezione parametri per i moduli src
+import src.utils
+import src.physics
+import src.train
+import src.debug
+import builtins
+
 for module in [src.debug, src.physics, src.train, src.utils]:
     for name, val in list(globals().items()):
         if name.isupper():
             module.__dict__[name] = val
             builtins.__dict__[name] = val
 
+from src.utils import load_data, plot_fields, plot_high_stress_regions
+
+# Directory di output
+config_name = f"[{datetime.now().strftime('%Y-%m-%d_%H-%M')}][DIR][PHASE2_MLS_SCALED][Ph2_{ADAM_EPOCHS//1000}k+{LBFGS_MAX_ITERS//1000}k]"
+OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+log_file_path = OUTPUT_DIR / "train_log.txt"
+def log_print(*args, **kwargs):
+    print(*args, **kwargs)
+    with open(log_file_path, "a", encoding="utf-8") as f:
+        print(*args, file=f, **kwargs)
 
 # ============================================================================
-# 3. CALCOLO O CARICAMENTO DERIVATE SPAZIALI COMSOL (MLS)
+# 3. MOVING LEAST SQUARES (MLS) CON SCALING LOCALE [-1, 1]
 # ============================================================================
-def compute_or_load_comsol_derivatives(data, cache_path, k_neighbors=32):
-    if cache_path.exists():
-        print(f"\n[Cache] Caricamento derivate COMSOL precalcolate da: {cache_path}")
-        cache = torch.load(cache_path, map_location=DEVICE)
-        print("  Derivate COMSOL caricate con successo!")
+def precompute_comsol_derivatives_scaled_mls(coords, u, v, txx, txy, tyy, device, K=25, cache_path=None):
+    if cache_path and cache_path.exists():
+        log_print(f"\n[Cache] Caricamento derivate MLS 2° grado precalcolate da: {cache_path}")
+        cache = torch.load(cache_path, map_location=device)
+        log_print("  Derivate MLS caricate con successo!")
         return cache
 
-    print("\n" + "=" * 70)
-    print("CALCOLO DERIVATE SPAZIALI DAI DATI COMSOL (Moving Least Squares 3° Grado)")
-    print("=" * 70)
+    log_print(f"\n[MLS] Calcolo derivate spaziali con Moving Least Squares di 2° grado (K={K}, scaling locale [-1, 1])...")
+    coords_np = coords.cpu().numpy()
+    u_np = u.cpu().numpy()
+    v_np = v.cpu().numpy()
+    txx_np = txx.cpu().numpy()
+    txy_np = txy.cpu().numpy()
+    tyy_np = tyy.cpu().numpy()
 
-    coords_np = data["coords"].cpu().numpy()
-    u_np = data["u"].cpu().numpy()
-    v_np = data["v"].cpu().numpy()
-    txx_np = data["tau_xx"].cpu().numpy()
-    txy_np = data["tau_xy"].cpu().numpy()
-    tyy_np = data["tau_yy"].cpu().numpy()
+    N = coords_np.shape[0]
+    tree = spatial.cKDTree(coords_np)
+    distances, indices = tree.query(coords_np, k=K, workers=-1)
 
-    H_ref = data["H"]
-    H_coord = data["H_coord"]
-    s = H_ref / H_coord
+    u_x = np.zeros((N, 1), dtype=np.float32)
+    u_y = np.zeros((N, 1), dtype=np.float32)
+    u_xx = np.zeros((N, 1), dtype=np.float32)
+    u_yy = np.zeros((N, 1), dtype=np.float32)
 
-    tree = cKDTree(coords_np)
-    dists, nbrs = tree.query(coords_np, k=k_neighbors)
+    v_x = np.zeros((N, 1), dtype=np.float32)
+    v_y = np.zeros((N, 1), dtype=np.float32)
+    v_xx = np.zeros((N, 1), dtype=np.float32)
+    v_yy = np.zeros((N, 1), dtype=np.float32)
 
-    coords_t = torch.tensor(coords_np, device=DEVICE, dtype=torch.float64)
-    nbrs_t = torch.tensor(nbrs, device=DEVICE, dtype=torch.long)
-    dists_t = torch.tensor(dists, device=DEVICE, dtype=torch.float64)
+    txx_x = np.zeros((N, 1), dtype=np.float32)
+    txy_y = np.zeros((N, 1), dtype=np.float32)
+    txy_x = np.zeros((N, 1), dtype=np.float32)
+    tyy_y = np.zeros((N, 1), dtype=np.float32)
 
-    dx = coords_t[nbrs_t, 0] - coords_t[:, 0:1]
-    dy = coords_t[nbrs_t, 1] - coords_t[:, 1:2]
-    h = dists_t[:, -1:] / 2.0
-    w = torch.exp(- (dx**2 + dy**2) / (2 * h**2 + 1e-16))
+    for i in range(N):
+        x0 = coords_np[i]
+        idx = indices[i]
+        dist = distances[i]
+        h = max(dist[-1], 1e-4)
 
-    ones = torch.ones_like(dx)
-    A = torch.stack([
-        ones, dx, dy, 0.5 * dx**2, dx * dy, 0.5 * dy**2,
-        (dx**3) / 6.0, (dx**2 * dy) / 2.0, (dx * dy**2) / 2.0, (dy**3) / 6.0
-    ], dim=-1) * w.unsqueeze(-1)
+        dxy = coords_np[idx] - x0
+        dx_scaled = dxy[:, 0] / h
+        dy_scaled = dxy[:, 1] / h
 
-    ATA = torch.matmul(A.transpose(1, 2), A) + 1e-12 * torch.eye(10, device=DEVICE, dtype=torch.float64).unsqueeze(0)
-    fields = torch.tensor(np.column_stack([u_np, v_np, txx_np, txy_np, tyy_np]), device=DEVICE, dtype=torch.float64)
-    fields_nbrs = fields[nbrs_t] * w.unsqueeze(-1)
-    ATB = torch.matmul(A.transpose(1, 2), fields_nbrs)
+        # Base polinomiale di 2° grado con coordinate adimensionali locali [-1, 1]
+        X = np.column_stack([
+            np.ones(K),
+            dx_scaled,
+            dy_scaled,
+            0.5 * dx_scaled**2,
+            0.5 * dy_scaled**2,
+            dx_scaled * dy_scaled
+        ])
 
-    coeff = torch.linalg.solve(ATA, ATB)
+        w = np.exp(- (dist**2) / (h**2))
+        W = np.diag(w)
 
-    ux = coeff[:, 1:2, 0] * s
-    uy = coeff[:, 2:3, 0] * s
-    vx = coeff[:, 1:2, 1] * s
-    vy = coeff[:, 2:3, 1] * s
+        XTW = X.T @ W
+        XTWX = XTW @ X + np.eye(6) * 1e-12
 
-    lap_u = (coeff[:, 3:4, 0] + coeff[:, 5:6, 0]) * (s**2)
-    lap_v = (coeff[:, 3:4, 1] + coeff[:, 5:6, 1]) * (s**2)
+        try:
+            inv_XTWX = np.linalg.inv(XTWX)
+            c_u = inv_XTWX @ XTW @ u_np[idx]
+            c_v = inv_XTWX @ XTW @ v_np[idx]
+            c_txx = inv_XTWX @ XTW @ txx_np[idx]
+            c_txy = inv_XTWX @ XTW @ txy_np[idx]
+            c_tyy = inv_XTWX @ XTW @ tyy_np[idx]
 
-    div_tx = (coeff[:, 1:2, 2] + coeff[:, 2:3, 3]) * s
-    div_ty = (coeff[:, 1:2, 3] + coeff[:, 2:3, 4]) * s
+            u_x[i] = c_u[1] / h
+            u_y[i] = c_u[2] / h
+            u_xx[i] = c_u[3] / (h**2)
+            u_yy[i] = c_u[4] / (h**2)
 
-    u_f = fields[:, 0:1]
-    v_f = fields[:, 1:2]
-    conv_u = u_f * ux + v_f * uy
-    conv_v = u_f * vx + v_f * vy
+            v_x[i] = c_v[1] / h
+            v_y[i] = c_v[2] / h
+            v_xx[i] = c_v[3] / (h**2)
+            v_yy[i] = c_v[4] / (h**2)
 
+            txx_x[i] = c_txx[1] / h
+            txy_y[i] = c_txy[2] / h
+            txy_x[i] = c_txy[1] / h
+            tyy_y[i] = c_tyy[2] / h
+        except np.linalg.LinAlgError:
+            pass
+
+    log_print("[MLS] Calcolo derivate completato con successo!")
     cache = {
-        "conv_u": conv_u.float(),
-        "conv_v": conv_v.float(),
-        "lap_u": lap_u.float(),
-        "lap_v": lap_v.float(),
-        "div_tau_x": div_tx.float(),
-        "div_tau_y": div_ty.float(),
+        "u_x": torch.tensor(u_x, dtype=torch.float32, device=device),
+        "u_y": torch.tensor(u_y, dtype=torch.float32, device=device),
+        "u_xx": torch.tensor(u_xx, dtype=torch.float32, device=device),
+        "u_yy": torch.tensor(u_yy, dtype=torch.float32, device=device),
+        "v_x": torch.tensor(v_x, dtype=torch.float32, device=device),
+        "v_y": torch.tensor(v_y, dtype=torch.float32, device=device),
+        "v_xx": torch.tensor(v_xx, dtype=torch.float32, device=device),
+        "v_yy": torch.tensor(v_yy, dtype=torch.float32, device=device),
+        "txx_x": torch.tensor(txx_x, dtype=torch.float32, device=device),
+        "txy_y": torch.tensor(txy_y, dtype=torch.float32, device=device),
+        "txy_x": torch.tensor(txy_x, dtype=torch.float32, device=device),
+        "tyy_y": torch.tensor(tyy_y, dtype=torch.float32, device=device),
     }
-
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(cache, cache_path)
-    print(f"[OK] Derivate salvate in cache: {cache_path}")
+    if cache_path:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(cache, cache_path)
     return cache
 
+# ============================================================================
+# 4. MODELLO NEURALE PRESSIONE
+# ============================================================================
+class FCN(nn.Module):
+    def __init__(self, n_input, n_output, hidden_layers, activation=nn.SiLU):
+        super().__init__()
+        layers_sizes = [n_input] + hidden_layers + [n_output]
+        layers = []
+        for i in range(len(layers_sizes) - 1):
+            layers.append(nn.Linear(layers_sizes[i], layers_sizes[i + 1]))
+            if i < len(layers_sizes) - 2:
+                layers.append(activation())
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.network(x)
+
+class PressureModel(nn.Module):
+    def __init__(self, p_scale=1.0):
+        super().__init__()
+        self.model_p = FCN(2, 1, HIDDEN_LAYERS, ACTIVATION)
+        self.p_scale = p_scale
+
+    def forward(self, x):
+        return self.model_p(x) * self.p_scale
+
+def init_weights_xavier(m, activation_name="silu"):
+    if isinstance(m, nn.Linear):
+        activation_name = activation_name.lower()
+        if activation_name == "silu":
+            activation_name = "relu"
+        gain = nn.init.calculate_gain(activation_name)
+        nn.init.xavier_normal_(m.weight, gain=gain)
+        if m.bias is not None:
+            nn.init.zeros_(m.bias)
+
+def cast_double(d):
+    for k, v in d.items():
+        if isinstance(v, torch.Tensor):
+            d[k] = v.double()
+        elif isinstance(v, dict):
+            cast_double(v)
+
+def cast_float(d):
+    for k, v in d.items():
+        if isinstance(v, torch.Tensor):
+            d[k] = v.float()
+        elif isinstance(v, dict):
+            cast_float(v)
+
+def compute_pressure_l2_error(model, data, chunk_size=5000):
+    model.eval()
+    _dtype = next(model.parameters()).dtype
+    xy_all = data["coords"].to(_dtype)
+    p_exact = data["p"].to(_dtype)
+    p_pred_list = []
+    with torch.no_grad():
+        for i in range(0, xy_all.shape[0], chunk_size):
+            xc = xy_all[i : i + chunk_size]
+            p_pred_list.append(model(xc))
+    p_pred = torch.cat(p_pred_list, dim=0)
+
+    p_flat = p_pred.view(-1)
+    e_flat = p_exact.view(-1)
+    norm_e = torch.norm(e_flat, 2)
+    if norm_e > 1e-10:
+        return (torch.norm(p_flat - e_flat, 2) / norm_e).item()
+    return 0.0
+
+class PressureHistory:
+    def __init__(self):
+        self.epochs = []
+        self.losses = {
+            "total": [],
+            "momentum": [],
+            "bc_p": [],
+            "l2_p": []
+        }
+
+    def update(self, epoch, total, momentum, bc_p, l2_p):
+        self.epochs.append(epoch)
+        self.losses["total"].append(total)
+        self.losses["momentum"].append(momentum)
+        self.losses["bc_p"].append(bc_p)
+        self.losses["l2_p"].append(l2_p)
+
+    def plot(self, output_dir):
+        plt.figure(figsize=(10, 5))
+        plt.plot(self.epochs, self.losses["total"], label="Total Loss", color="black", linewidth=2)
+        plt.plot(self.epochs, self.losses["momentum"], label="Momentum Loss", color="red", alpha=0.8)
+        plt.plot(self.epochs, self.losses["bc_p"], label="PressurePoint BC Loss", color="green", alpha=0.8)
+        plt.yscale("log")
+        plt.xlabel("Epoca / Iterazione")
+        plt.ylabel("Loss")
+        plt.title("Pressure-Only Training Loss")
+        plt.legend()
+        plt.grid(True, ls="--", alpha=0.5)
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/loss_history.png", dpi=150)
+        plt.close()
+
+        plt.figure(figsize=(10, 5))
+        plt.plot(self.epochs, self.losses["l2_p"], label="L2 Relative Error (P)", color="purple")
+        plt.yscale("log")
+        plt.xlabel("Epoca / Iterazione")
+        plt.ylabel("Errore L2 Relativo Pressione")
+        plt.title("Pressure L2 Relative Error History")
+        plt.legend()
+        plt.grid(True, ls="--", alpha=0.5)
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/l2_errors_history.png", dpi=150)
+        plt.close()
 
 # ============================================================================
-# 4. TRAINING FASE 2 DIRETTA (mu_s FISSO A 0.10, SOLO model_p)
+# 5. MAIN EXECUTION
 # ============================================================================
-def train_direct_p(model_p, physics, data, derivatives, save_dir, tb_writer=None):
+if __name__ == "__main__":
+    log_print(f"Device: {DEVICE} | Dtype: {torch.get_default_dtype()}")
+    log_print(f"Dataset: {DATASET_PATH}\n")
+    log_print(f"Directory Risultati: {OUTPUT_DIR}\n")
+    log_print("=" * 70)
+
+    # 1. Caricamento Dati
+    data = load_data()
     xy_all = data["coords"]
-    p_true = data["p"]
+    u_all = data["u"]
+    v_all = data["v"]
+    p_all = data["p"]
+    txx_all = data["tau_xx"]
+    txy_all = data["tau_xy"]
+    tyy_all = data["tau_yy"]
     var_w = data["var_weights"]
-    p_scale = data["p_scale"]
-    scale_grad = data["H"] / data["H_coord"]
+    bc_data = data["boundary_groups"]
+    total_points = xy_all.shape[0]
 
-    p_pt_data = data["boundary_groups"]["PressurePoint"]
-    p_pt_xy = p_pt_data["xy"]
-    p_pt_true = p_pt_data["fields"]["p"]
+    # Riferimenti adimensionali coerenti con setup originale (mu_tot = 1.0)
+    Re = RHO * data["U_ref"] * data["H"] / MU_TOT
+    beta = MU_S_TRUE / MU_TOT
+    s = data["H"] / data["H_coord"]
 
-    conv_u_all = derivatives["conv_u"].to(DEVICE)
-    conv_v_all = derivatives["conv_v"].to(DEVICE)
-    lap_u_all = derivatives["lap_u"].to(DEVICE)
-    lap_v_all = derivatives["lap_v"].to(DEVICE)
-    div_tx_all = derivatives["div_tau_x"].to(DEVICE)
-    div_ty_all = derivatives["div_tau_y"].to(DEVICE)
+    log_print(f"Scale adimensionali: Re = {Re:.4f}, beta = {beta:.4f}, s = {s:.4f}")
+    log_print(f"Pesi Loss: W_PHYSICS = {W_PHYSICS}, W_BC = {W_BC}, W_DATA = {W_DATA}")
+    log_print(f"Vincolo Dirichlet: SOLO singolo nodo in {bc_data['PressurePoint']['xy'][0].cpu().numpy()}")
 
-    # Costanti Adimensionali FISSE
-    Re_scale = physics.Re_scale
-    mu_s_nd = physics.mu_s / physics.eta_0  # Valore fisso = 0.10 / 2.0 = 0.05
+    # 2. Precalcolo derivate MLS di 2° grado scalate
+    cache_mls = DATASET_PATH.parent / "comsol_derivatives_mls_deg2.pt"
+    derivs = precompute_comsol_derivatives_scaled_mls(
+        xy_all, u_all, v_all, txx_all, txy_all, tyy_all, DEVICE, K=MLS_K, cache_path=cache_mls
+    )
 
-    history = {
-        "epoch": [],
-        "loss_tot": [],
-        "loss_mom": [],
-        "loss_pres": [],
-        "l2_p": [],
-    }
+    # 3. Inizializzazione Modello Pressione
+    model = PressureModel(p_scale=data["p_scale"]).to(DEVICE)
+    model.apply(lambda m: init_weights_xavier(m, activation_name="silu"))
 
-    optimizer_adam = torch.optim.Adam(model_p.parameters(), lr=BASE_LR, eps=ADAM_EPS)
-    scheduler_adam = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_adam, T_max=ADAM_EPOCHS, eta_min=1e-6)
+    history = PressureHistory()
 
-    print("\n" + "=" * 70)
-    print(f"AVVIO TEST 1: FASE 2 DIRETTA (mu_s = {physics.mu_s.item():.4f} Pa·s FISSO, {ADAM_EPOCHS} epoche)")
-    print(f"  Loss: {W_MOMENTUM} * Momentum + {W_BC_PRES} * Singolo PressurePoint")
-    print(f"  Rete addestrata: SOLO model_p ({sum(p.numel() for p in model_p.parameters()):,} pesi)")
-    print(f"  mu_s trainable: {physics._raw_mu_s.requires_grad}")
-    print("=" * 70)
+    # 4. Fase 1: Ottimizzazione Adam (FP32)
+    optimizer = torch.optim.Adam(model.parameters(), lr=BASE_LR, eps=ADAM_EPS)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=ADAM_EPOCHS, eta_min=1e-6)
 
-    def compute_step_loss(model_p, points, conv_u, conv_v, lap_u, lap_v, div_tx, div_ty,
-                          p_pt_xy_in, p_pt_true_in, p_scale, scale_grad, chunk_size, mu_s_val_nd):
-        loss_mom_accum = 0.0
-        n_pts = points.shape[0]
+    chunk_size = 5000 if DEVICE.type == "cuda" else total_points
+    pbar = tqdm(range(ADAM_EPOCHS), desc="Adam (Pressure-Only)", mininterval=2.0)
 
-        for i in range(0, n_pts, chunk_size):
-            xc = points[i : i + chunk_size]
-            w_chunk = xc.shape[0] / n_pts
+    for epoch in pbar:
+        model.train()
+        optimizer.zero_grad(set_to_none=True)
 
-            xph = xc.clone().requires_grad_(True)
-            p_pred = model_p(xph) * p_scale
+        loss_m_accum = 0.0
 
-            grad_p = torch.autograd.grad(
-                p_pred, xph,
-                grad_outputs=torch.ones_like(p_pred),
-                create_graph=True
-            )[0] * scale_grad
+        for i in range(0, total_points, chunk_size):
+            xc = xy_all[i : i + chunk_size]
+            w_chunk = xc.shape[0] / total_points
 
+            xc_ph = xc.clone().requires_grad_(True)
+            p_pred = model(xc_ph)
+
+            grad_p = torch.autograd.grad(p_pred.sum(), xc_ph, create_graph=True, retain_graph=True)[0]
             p_x = grad_p[:, 0:1]
             p_y = grad_p[:, 1:2]
 
-            cu = conv_u[i : i + chunk_size]
-            cv = conv_v[i : i + chunk_size]
-            lu = lap_u[i : i + chunk_size]
-            lv = lap_v[i : i + chunk_size]
-            dtx = div_tx[i : i + chunk_size]
-            dty = div_ty[i : i + chunk_size]
+            ux = derivs["u_x"][i : i + chunk_size]
+            uy = derivs["u_y"][i : i + chunk_size]
+            uxx = derivs["u_xx"][i : i + chunk_size]
+            uyy = derivs["u_yy"][i : i + chunk_size]
 
-            f_u = Re_scale * cu + p_x - mu_s_val_nd * lu - dtx
-            f_v = Re_scale * cv + p_y - mu_s_val_nd * lv - dty
+            vx = derivs["v_x"][i : i + chunk_size]
+            vy = derivs["v_y"][i : i + chunk_size]
+            vxx = derivs["v_xx"][i : i + chunk_size]
+            vyy = derivs["v_yy"][i : i + chunk_size]
 
-            lm = 0.5 * torch.mean(f_u**2 + f_v**2)
-            chunk_loss = W_MOMENTUM * lm * w_chunk
-            loss_mom_accum += lm.item() * w_chunk
+            txx_x_val = derivs["txx_x"][i : i + chunk_size]
+            txy_y_val = derivs["txy_y"][i : i + chunk_size]
+            txy_x_val = derivs["txy_x"][i : i + chunk_size]
+            tyy_y_val = derivs["tyy_y"][i : i + chunk_size]
 
-            if isinstance(chunk_loss, torch.Tensor):
-                chunk_loss.backward()
+            u_val = u_all[i : i + chunk_size]
+            v_val = v_all[i : i + chunk_size]
 
-        x_pt = p_pt_xy_in.clone().requires_grad_(True)
-        p_pred_pt = model_p(x_pt) * p_scale
-        l_pres = weighted_mse(p_pred_pt, p_pt_true_in, var_w["p"])
-        loss_pres_val = l_pres.item()
+            # Momentum equations con derivate scalate
+            f_u = Re * (u_val * (ux * s) + v_val * (uy * s)) + p_x * s - beta * ((uxx + uyy) * s**2) - ((txx_x_val + txy_y_val) * s)
+            f_v = Re * (u_val * (vx * s) + v_val * (vy * s)) + p_y * s - beta * ((vxx + vyy) * s**2) - ((txy_x_val + tyy_y_val) * s)
 
-        pres_chunk_loss = W_BC_PRES * l_pres
-        if isinstance(pres_chunk_loss, torch.Tensor):
-            pres_chunk_loss.backward()
+            loss_m = (f_u**2 + f_v**2).mean() / 2.0
 
-        tot_loss = (W_MOMENTUM * loss_mom_accum) + (W_BC_PRES * loss_pres_val)
-        return tot_loss, loss_mom_accum, loss_pres_val
+            chunk_loss = (W_PHYSICS * loss_m) * w_chunk
+            chunk_loss.backward()
 
-    # Loop Adam
-    pbar = tqdm(range(ADAM_EPOCHS), desc="Adam Phase 2 Diretto", mininterval=2.0)
-    for epoch in pbar:
-        model_p.train()
-        optimizer_adam.zero_grad(set_to_none=True)
+            loss_m_accum += loss_m.item() * w_chunk
 
-        tot_loss, l_mom, l_pres = compute_step_loss(
-            model_p, xy_all, conv_u_all, conv_v_all, lap_u_all, lap_v_all, div_tx_all, div_ty_all,
-            p_pt_xy, p_pt_true, p_scale, scale_grad, CHUNK_SIZE_ADAM, mu_s_nd
-        )
+        # Condizione al contorno sul SINGOLO PressurePoint
+        gd = bc_data["PressurePoint"]
+        x_bc = gd["xy"].clone().requires_grad_(True)
+        p_bc = model(x_bc)
+        bc_loss = torch.mean(((p_bc - gd["fields"]["p"]) ** 2) / var_w["p"])
+        (W_BC * bc_loss).backward()
 
-        torch.nn.utils.clip_grad_norm_(model_p.parameters(), GRAD_CLIP_NORM)
-        optimizer_adam.step()
-        scheduler_adam.step()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
+        optimizer.step()
+        scheduler.step()
 
-        if (epoch + 1) % 10 == 0 or epoch == 0 or (epoch + 1) == ADAM_EPOCHS:
-            pbar.set_postfix({"Loss": f"{tot_loss:.2e}", "Mom": f"{l_mom:.2e}", "Pres": f"{l_pres:.2e}"})
+        tot_loss = W_PHYSICS * loss_m_accum + W_BC * bc_loss.item()
 
-        log_full = ((epoch + 1) % max(1, ADAM_EPOCHS // 25) == 0) or (epoch == 0) or ((epoch + 1) == ADAM_EPOCHS)
-        if log_full:
-            model_p.eval()
-            with torch.no_grad():
-                p_eval = model_p(xy_all) * p_scale
-                l2_p = (torch.norm(p_eval - p_true) / torch.norm(p_true)).item()
+        log_epoch = ((epoch + 1) % 100 == 0) or (epoch == 0) or ((epoch + 1) == ADAM_EPOCHS)
+        if log_epoch:
+            l2_p_val = compute_pressure_l2_error(model, data, chunk_size)
+            if (epoch + 1) % 1000 == 0 or epoch == 0 or ((epoch + 1) == ADAM_EPOCHS):
+                log_print(f"Adam Epoch {epoch+1:5d}/{ADAM_EPOCHS} | Loss: {tot_loss:.4e} | Mom: {loss_m_accum:.4e} | BC P: {bc_loss.item():.4e} | L2 P: {l2_p_val:.4e} ({l2_p_val*100:.2f}%)")
+            history.update(epoch + 1, tot_loss, loss_m_accum, bc_loss.item(), l2_p_val)
 
-            history["epoch"].append(epoch + 1)
-            history["loss_tot"].append(tot_loss)
-            history["loss_mom"].append(l_mom)
-            history["loss_pres"].append(l_pres)
-            history["l2_p"].append(l2_p)
+        pbar.set_postfix({"L_tot": f"{tot_loss:.2e}", "L2_p": f"{l2_p_val*100:.1f}%"})
+    pbar.close()
 
-            print(f"\n[Adam Epoca {epoch+1:5d}/{ADAM_EPOCHS}] "
-                  f"Loss Tot: {tot_loss:.4e} | Mom: {l_mom:.4e} | Pres BC: {l_pres:.4e}")
-            print(f"  -> L2 Errore Pressione: {l2_p:.4e} ({l2_p * 100:.2f}%)")
+    # 5. Fase 2: Raffinamento L-BFGS (FP64)
+    if LBFGS_MAX_ITERS > 0:
+        log_print(f"\n{'=' * 70}\nFASE L-BFGS (FP64): {LBFGS_MAX_ITERS} iterazioni massime (History=300, Strong Wolfe)\n{'=' * 70}")
 
-            if tb_writer is not None:
-                tb_writer.add_scalar("Loss/Total", tot_loss, epoch + 1)
-                tb_writer.add_scalar("Loss/Momentum", l_mom, epoch + 1)
-                tb_writer.add_scalar("Loss/PressurePoint", l_pres, epoch + 1)
-                tb_writer.add_scalar("Errors/L2_p", l2_p, epoch + 1)
+        model.double()
+        torch.set_default_dtype(torch.float64)
+        cast_double(data)
+        cast_double(derivs)
 
-    # Salvataggio Checkpoint Adam
-    torch.save({
-        "model_p_state_dict": model_p.state_dict(),
-        "history": history
-    }, save_dir / "checkpoint_direct_adam.pth")
-
-    # ==================================================================
-    # FASE L-BFGS (FP64)
-    # ==================================================================
-    if USE_LBFGS and LBFGS_MAX_ITERS > 0:
-        print("\n" + "=" * 70)
-        print(f"FASE L-BFGS 2 (DIRETTO): {LBFGS_MAX_ITERS} iterazioni (FP64 ad altissima precisione)")
-        print("=" * 70)
-
-        model_p.double()
-        xy_64 = xy_all.double()
-        p_pt_xy_64 = p_pt_xy.double()
-        p_pt_true_64 = p_pt_true.double()
-        p_true_64 = p_true.double()
-
-        conv_u_64 = conv_u_all.double()
-        conv_v_64 = conv_v_all.double()
-        lap_u_64 = lap_u_all.double()
-        lap_v_64 = lap_v_all.double()
-        div_tx_64 = div_tx_all.double()
-        div_ty_64 = div_ty_all.double()
-
-        mu_s_nd_64 = float(mu_s_nd)
+        xy_all = data["coords"]
+        u_all = data["u"]
+        v_all = data["v"]
+        var_w = data["var_weights"]
+        bc_data = data["boundary_groups"]
 
         optimizer_lbfgs = torch.optim.LBFGS(
-            model_p.parameters(),
+            model.parameters(),
             lr=1.0,
-            max_iter=1,
-            max_eval=20,
-            tolerance_grad=1e-18,
-            tolerance_change=1e-18,
-            history_size=150,
+            max_iter=LBFGS_MAX_ITERS,
+            tolerance_grad=1e-12,
+            tolerance_change=1e-16,
+            history_size=300,
             line_search_fn="strong_wolfe",
         )
 
-        last_step_vals = {}
+        iter_count = [0]
 
-        def closure_lbfgs():
-            optimizer_lbfgs.zero_grad(set_to_none=True)
-            tot_loss, l_mom, l_pres = compute_step_loss(
-                model_p, xy_64, conv_u_64, conv_v_64, lap_u_64, lap_v_64, div_tx_64, div_ty_64,
-                p_pt_xy_64, p_pt_true_64, p_scale, scale_grad, CHUNK_SIZE_LBFGS, mu_s_nd_64
-            )
-            last_step_vals["tot"] = tot_loss
-            last_step_vals["mom"] = l_mom
-            last_step_vals["pres"] = l_pres
+        def closure():
+            optimizer_lbfgs.zero_grad()
+            loss_m_accum = 0.0
+
+            for i in range(0, total_points, chunk_size):
+                xc = xy_all[i : i + chunk_size]
+                w_chunk = xc.shape[0] / total_points
+
+                xc_ph = xc.clone().requires_grad_(True)
+                p_pred = model(xc_ph)
+
+                grad_p = torch.autograd.grad(p_pred.sum(), xc_ph, create_graph=True, retain_graph=True)[0]
+                p_x = grad_p[:, 0:1]
+                p_y = grad_p[:, 1:2]
+
+                ux = derivs["u_x"][i : i + chunk_size]
+                uy = derivs["u_y"][i : i + chunk_size]
+                uxx = derivs["u_xx"][i : i + chunk_size]
+                uyy = derivs["u_yy"][i : i + chunk_size]
+
+                vx = derivs["v_x"][i : i + chunk_size]
+                vy = derivs["v_y"][i : i + chunk_size]
+                vxx = derivs["v_xx"][i : i + chunk_size]
+                vyy = derivs["v_yy"][i : i + chunk_size]
+
+                txx_x_val = derivs["txx_x"][i : i + chunk_size]
+                txy_y_val = derivs["txy_y"][i : i + chunk_size]
+                txy_x_val = derivs["txy_x"][i : i + chunk_size]
+                tyy_y_val = derivs["tyy_y"][i : i + chunk_size]
+
+                u_val = u_all[i : i + chunk_size]
+                v_val = v_all[i : i + chunk_size]
+
+                f_u = Re * (u_val * (ux * s) + v_val * (uy * s)) + p_x * s - beta * ((uxx + uyy) * s**2) - ((txx_x_val + txy_y_val) * s)
+                f_v = Re * (u_val * (vx * s) + v_val * (vy * s)) + p_y * s - beta * ((vxx + vyy) * s**2) - ((txy_x_val + tyy_y_val) * s)
+
+                loss_m = (f_u**2 + f_v**2).mean() / 2.0
+                chunk_loss = (W_PHYSICS * loss_m) * w_chunk
+                chunk_loss.backward()
+
+                loss_m_accum += loss_m.item() * w_chunk
+
+            gd = bc_data["PressurePoint"]
+            x_bc = gd["xy"].clone().requires_grad_(True)
+            p_bc = model(x_bc)
+            bc_loss = torch.mean(((p_bc - gd["fields"]["p"]) ** 2) / var_w["p"])
+            (W_BC * bc_loss).backward()
+
+            tot_loss = W_PHYSICS * loss_m_accum + W_BC * bc_loss.item()
+
+            iter_count[0] += 1
+            if iter_count[0] % 100 == 0 or iter_count[0] == 1 or iter_count[0] == LBFGS_MAX_ITERS:
+                l2_p_val = compute_pressure_l2_error(model, data, chunk_size)
+                log_print(f"L-BFGS Iter {iter_count[0]:4d}/{LBFGS_MAX_ITERS} | Loss: {tot_loss:.4e} | Mom: {loss_m_accum:.4e} | BC P: {bc_loss.item():.4e} | L2 P: {l2_p_val:.4e} ({l2_p_val*100:.2f}%)")
+                history.update(ADAM_EPOCHS + iter_count[0], tot_loss, loss_m_accum, bc_loss.item(), l2_p_val)
+
             return torch.tensor(tot_loss, device=DEVICE, dtype=torch.float64)
 
-        pbar_lbfgs = tqdm(range(LBFGS_MAX_ITERS), desc="L-BFGS Phase 2 Diretto", mininterval=2.0)
-        for it in pbar_lbfgs:
-            optimizer_lbfgs.step(closure_lbfgs)
+        optimizer_lbfgs.step(closure)
 
-            tot_l = last_step_vals.get("tot", 0.0)
-            pbar_lbfgs.set_postfix({"Loss": f"{tot_l:.2e}"})
-
-            log_lbfgs = ((it + 1) % max(1, LBFGS_MAX_ITERS // 20) == 0) or (it == 0) or ((it + 1) == LBFGS_MAX_ITERS)
-            if log_lbfgs:
-                global_it = ADAM_EPOCHS + it + 1
-                with torch.no_grad():
-                    p_eval_64 = model_p(xy_64) * p_scale
-                    l2_p = (torch.norm(p_eval_64 - p_true_64) / torch.norm(p_true_64)).item()
-
-                history["epoch"].append(global_it)
-                history["loss_tot"].append(tot_l)
-                history["loss_mom"].append(last_step_vals.get("mom", 0.0))
-                history["loss_pres"].append(last_step_vals.get("pres", 0.0))
-                history["l2_p"].append(l2_p)
-
-                print(f"\n[L-BFGS Iter {it+1:4d}/{LBFGS_MAX_ITERS}] "
-                      f"Loss: {tot_l:.4e} | Mom: {last_step_vals.get('mom', 0.0):.4e}")
-                print(f"  -> L2 Errore Pressione: {l2_p:.4e} ({l2_p * 100:.2f}%)")
-
-                if tb_writer is not None:
-                    tb_writer.add_scalar("Loss/Total", tot_l, global_it)
-                    tb_writer.add_scalar("Errors/L2_p", l2_p, global_it)
-
-        model_p.float()
+    # 6. Report Finale e Salvataggio
+    log_print("\n" + "=" * 70 + "\nREPORT PRESTAZIONI FINALE\n" + "=" * 70)
+    final_l2_p = compute_pressure_l2_error(model, data, chunk_size)
+    log_print(f"  Errore L2 Relativo Finale Pressione: {final_l2_p:.6f} ({final_l2_p*100:.2f}%)")
 
     torch.save({
-        "model_p_state_dict": model_p.state_dict(),
-        "history": history
-    }, save_dir / "checkpoint_direct_final.pth")
+        "model_state_dict": model.state_dict(),
+        "history_losses": history.losses,
+    }, OUTPUT_DIR / "final_pressure_model.pth")
 
-    return history
+    history.plot(str(OUTPUT_DIR))
 
-
-# ============================================================================
-# 5. GENERAZIONE DIAGNOSTICHE E REPORT FINALE
-# ============================================================================
-def generate_direct_diagnostics(model_p, data, history, output_dir):
-    xy_all = data["coords"]
-    p_true = data["p"]
-    x_np = xy_all[:, 0].cpu().numpy()
-    y_np = xy_all[:, 1].cpu().numpy()
-    p_scale = data["p_scale"]
-
-    model_p.eval()
+    # Generazione mappe dei campi finali
+    model.eval()
+    _dtype = next(model.parameters()).dtype
+    p_pred_list = []
     with torch.no_grad():
-        p_pred = (model_p(xy_all) * p_scale).cpu().numpy().flatten()
-        p_true_np = p_true.cpu().numpy().flatten()
-        err_abs = np.abs(p_pred - p_true_np)
-        l2_err_p = np.linalg.norm(p_pred - p_true_np) / np.linalg.norm(p_true_np)
+        for i in range(0, total_points, chunk_size):
+            xc = xy_all[i : i + chunk_size].to(_dtype)
+            p_pred_list.append(model(xc))
+    p_pred = torch.cat(p_pred_list, dim=0)
 
-    # 1. Plot Loss History
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(history["epoch"], history["loss_tot"], color="black", lw=2, label="Loss Totale")
-    ax.plot(history["epoch"], history["loss_mom"], color="purple", lw=1.5, label="Momentum Loss")
-    ax.plot(history["epoch"], history["loss_pres"], color="green", lw=1.5, label="PressurePoint Loss")
-    ax.set_yscale("log")
-    ax.set_xlabel("Epoca / Iterazione")
-    ax.set_ylabel("Loss")
-    ax.set_title("History Loss (Problema Diretto Pressione: mu_s = 0.10 Fisso, 1 PressurePoint)")
-    ax.grid(True, ls="--", alpha=0.6)
-    ax.legend()
-    plt.tight_layout()
-    plt.savefig(output_dir / "loss_history.png", dpi=150)
-    plt.close()
+    predictions = {
+        "u": u_all.to(_dtype),
+        "v": v_all.to(_dtype),
+        "p": p_pred,
+        "tau_xx": txx_all.to(_dtype),
+        "tau_xy": txy_all.to(_dtype),
+        "tau_yy": tyy_all.to(_dtype)
+    }
+    cast_float(data)
+    cast_float(predictions)
 
-    # 2. Plot L2 Error History
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(history["epoch"], [e * 100.0 for e in history["l2_p"]], color="crimson", lw=2, label="Errore L2 Pressione (%)")
-    ax.set_yscale("log")
-    ax.set_xlabel("Epoca / Iterazione")
-    ax.set_ylabel("Errore L2 (%)")
-    ax.set_title("Evoluzione Errore L2 Pressione nel Problema Diretto")
-    ax.grid(True, ls="--", alpha=0.6)
-    ax.legend()
-    plt.tight_layout()
-    plt.savefig(output_dir / "l2_error_p_history.png", dpi=150)
-    plt.close()
+    plot_fields(predictions, data, save_path=f"{OUTPUT_DIR}/global_fields.png")
+    plot_high_stress_regions(predictions, data, save_path=f"{OUTPUT_DIR}/high_stress.png")
 
-    # 3. Mappe di Contorno 2D
-    triang = mtri.Triangulation(x_np, y_np)
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    v_min, v_max = min(p_true_np.min(), p_pred.min()), max(p_true_np.max(), p_pred.max())
-
-    c0 = axes[0].tricontourf(triang, p_true_np, levels=60, cmap="viridis", vmin=v_min, vmax=v_max)
-    axes[0].set_title("Pressione COMSOL Ground Truth ($p_{true}$)")
-    axes[0].set_aspect("equal")
-    plt.colorbar(c0, ax=axes[0])
-
-    c1 = axes[1].tricontourf(triang, p_pred, levels=60, cmap="viridis", vmin=v_min, vmax=v_max)
-    axes[1].set_title("Pressione Predetta PINN ($p_{pred}$)")
-    axes[1].set_aspect("equal")
-    plt.colorbar(c1, ax=axes[1])
-
-    c2 = axes[2].tricontourf(triang, err_abs, levels=60, cmap="inferno")
-    axes[2].set_title(f"Errore Assoluto $|p_{{pred}} - p_{{true}}|$\n(L2 Relativo: {l2_err_p*100:.2f}%)")
-    axes[2].set_aspect("equal")
-    plt.colorbar(c2, ax=axes[2])
-
-    for ax in axes:
-        ax.set_xlabel("x*")
-        ax.set_ylabel("y*")
-
-    plt.tight_layout()
-    plt.savefig(output_dir / "pressure_field_comparison.png", dpi=150)
-    plt.close()
-
-    print("\n" + "=" * 70)
-    print("RISULTATI FINALI TEST 1 (PROBLEMA DIRETTO MLS):")
-    print("=" * 70)
-    print(f"  Viscosità Solvente Fissa:           {MU_S_TRUE:.6f} Pa·s")
-    print(f"  Errore L2 Relativo sulla Pressione: {l2_err_p * 100:.4f}%")
-    print("=" * 70)
-
-
-# ============================================================================
-# 6. MAIN ENTRYPOINT
-# ============================================================================
-if __name__ == "__main__":
-    print("=" * 70)
-    print("TEST 1: FASE 2 DIRETTA CON DERIVATE COMSOL MLS (mu_s = 0.10 FISSO)")
-    print("=" * 70)
-    print(f"Device: {DEVICE} | Dtype: {torch.get_default_dtype()}")
-    print(f"Dataset Path: {DATASET_PATH}")
-    print(f"Derivatives Cache: {DERIVATIVES_CACHE_PATH}")
-
-    run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    run_name = f"[{run_timestamp}][DIR][PHASE2_MLS_FIXED_MUS][Ph2_{ADAM_EPOCHS//1000}k+{LBFGS_MAX_ITERS//1000}k]"
-    OUTPUT_DIR = BASE_DIR / "output_4rollmill" / run_name
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    global_log_path = OUTPUT_DIR / "train_log.txt"
-
-    data = load_data(filepath=DATASET_PATH, eta_0=ETA_0)
-    derivatives = compute_or_load_comsol_derivatives(data, DERIVATIVES_CACHE_PATH)
-
-    model_p = FCN(n_input=2, n_output=1, hidden_layers=HIDDEN_LAYERS).to(DEVICE)
-    model_p.apply(lambda m: init_weights_xavier(m, activation_name=ACTIVATION))
-
-    physics = Physics(
-        U_ref=data["U_ref"],
-        H_ref=data["H"],
-        H_coord=data["H_coord"],
-        var_weights=data["var_weights"],
-        inverse_mode=False,
-        tau_scale=data["tau_scale"],
-        p_scale=data["p_scale"],
-        eta_0=ETA_0,
-    ).to(DEVICE)
-
-    # Assicura rigidamente che mu_s sia esattamente 0.10 e non addestrabile
-    physics.guess_mu_s.copy_(torch.tensor(MU_S_TRUE, device=DEVICE))
-    physics._raw_mu_s.data.zero_()
-    physics._raw_mu_s.requires_grad = False
-
-    try:
-        launch_tensorboard_server(OUTPUT_DIR.parent)
-    except Exception as e:
-        print(f"[TensorBoard] Server automatico non avviato ({e}).")
-
-    tb_dir = OUTPUT_DIR / "tb_logs"
-    tb_dir.mkdir(parents=True, exist_ok=True)
-    tb_writer = SummaryWriter(log_dir=str(tb_dir))
-
-    history = train_direct_p(
-        model_p=model_p,
-        physics=physics,
-        data=data,
-        derivatives=derivatives,
-        save_dir=OUTPUT_DIR,
-        tb_writer=tb_writer
-    )
-    tb_writer.close()
-
-    generate_direct_diagnostics(model_p, data, history, OUTPUT_DIR)
-    print(f"\n[FINE TEST 1] Risultati salvati in: {OUTPUT_DIR}")
+    log_print(f"\n[OK] Risultati e grafici salvati in: {OUTPUT_DIR}")

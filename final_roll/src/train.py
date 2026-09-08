@@ -226,10 +226,9 @@ def init_weights_xavier(m, activation_name="tanh"):
             nn.init.zeros_(m.bias)
 
 
-def precompute_stress_divergence(model, physics, points):
+def precompute_stress_divergence(model, physics, points, chunk_size=8192):
     """Precalcola la divergenza del tensore degli sforzi tau per model_tau congelato."""
     model.eval()
-    chunk_size = 8192
     div_tau_x_list = []
     div_tau_y_list = []
     for i in range(0, points.shape[0], chunk_size):

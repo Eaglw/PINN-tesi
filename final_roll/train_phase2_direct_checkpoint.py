@@ -87,7 +87,7 @@ LBFGS_MAX_ITERS = 2000
 # Iperparametri Ottimizzatore
 BASE_LR = 1e-3
 ADAM_EPS = 1e-7
-GRAD_CLIP_NORM = 1000.0
+GRAD_CLIP_NORM = 5.0  # Rigido (da paradigma MLS) per stabilizzare i gradienti di pressione
 
 # Pesi Funzione di Loss (Fase 2 Diretta con Moduli src)
 W_DATA = 20.0         # Peso dati velocità (u, v) su model_psi
@@ -272,55 +272,56 @@ def train_direct_from_checkpoint(model, physics, data, save_dir, tb_writer=None)
         optimizer_lbfgs = torch.optim.LBFGS(
             [p for p in model.parameters() if p.requires_grad],
             lr=1.0,
-            max_iter=1,
-            max_eval=20,
-            tolerance_grad=1e-18,
-            tolerance_change=1e-18,
-            history_size=150,
+            max_iter=LBFGS_MAX_ITERS,
+            tolerance_grad=1e-12,
+            tolerance_change=1e-16,
+            history_size=300,
             line_search_fn="strong_wolfe",
         )
 
-        last_step_vals = {}
+        iter_count = [0]
+        pbar_lbfgs = tqdm(total=LBFGS_MAX_ITERS, desc="L-BFGS Direct Checkpoint", mininterval=2.0)
 
         def closure_lbfgs():
             optimizer_lbfgs.zero_grad(set_to_none=True)
             tot_loss, l_mom, l_data, l_pres = compute_step_loss(
                 model, xy_64, uv_64, p_pt_xy_64, p_pt_true_64, div_tx_64, div_ty_64, CHUNK_SIZE_LBFGS
             )
-            last_step_vals["tot"] = tot_loss
-            last_step_vals["mom"] = l_mom
-            last_step_vals["data"] = l_data
-            last_step_vals["pres"] = l_pres
-            return torch.tensor(tot_loss, device=DEVICE, dtype=torch.float64)
+            iter_count[0] += 1
+            it = iter_count[0]
+            pbar_lbfgs.update(1)
+            pbar_lbfgs.set_postfix({"Loss": f"{tot_loss:.2e}", "Mom": f"{l_mom:.2e}"})
 
-        pbar_lbfgs = tqdm(range(LBFGS_MAX_ITERS), desc="L-BFGS Direct Checkpoint", mininterval=2.0)
-        for it in pbar_lbfgs:
-            optimizer_lbfgs.step(closure_lbfgs)
-            tot_l = last_step_vals.get("tot", 0.0)
-            pbar_lbfgs.set_postfix({"Loss": f"{tot_l:.2e}"})
-
-            log_lbfgs = ((it + 1) % max(1, LBFGS_MAX_ITERS // 20) == 0) or (it == 0) or ((it + 1) == LBFGS_MAX_ITERS)
+            log_lbfgs = ((it % max(1, LBFGS_MAX_ITERS // 20) == 0) or (it == 1) or (it == LBFGS_MAX_ITERS))
             if log_lbfgs:
-                global_it = ADAM_EPOCHS + it + 1
+                global_it = ADAM_EPOCHS + it
+                model.eval()
                 with torch.no_grad():
                     l2_errs = compute_l2_errors(model, physics, data)
+                model.train()
 
                 history["epoch"].append(global_it)
-                history["loss_tot"].append(tot_l)
-                history["loss_mom"].append(last_step_vals.get("mom", 0.0))
-                history["loss_data"].append(last_step_vals.get("data", 0.0))
-                history["loss_pres"].append(last_step_vals.get("pres", 0.0))
+                history["loss_tot"].append(tot_loss)
+                history["loss_mom"].append(l_mom)
+                history["loss_data"].append(l_data)
+                history["loss_pres"].append(l_pres)
                 history["l2_p"].append(l2_errs["p"])
                 history["l2_u"].append(l2_errs["u"])
                 history["l2_v"].append(l2_errs["v"])
 
-                print(f"\n[L-BFGS Iter {it+1:4d}/{LBFGS_MAX_ITERS}] "
-                      f"Loss: {tot_l:.4e} | Mom: {last_step_vals.get('mom', 0.0):.4e}")
+                print(f"\n[L-BFGS Iter {it:4d}/{LBFGS_MAX_ITERS}] "
+                      f"Loss: {tot_loss:.4e} | Mom: {l_mom:.4e} | Data: {l_data:.4e} | Pres BC: {l_pres:.4e}")
                 print(f"  -> L2 Errore Pressione: {l2_errs['p']:.4e} ({l2_errs['p'] * 100:.2f}%)")
+                print(f"  -> L2 Errore Velocità:  u={l2_errs['u']:.4e}, v={l2_errs['v']:.4e}")
 
                 if tb_writer is not None:
-                    tb_writer.add_scalar("Loss/Total", tot_l, global_it)
+                    tb_writer.add_scalar("Loss/Total", tot_loss, global_it)
                     tb_writer.add_scalar("Errors/L2_p", l2_errs["p"], global_it)
+
+            return torch.tensor(tot_loss, device=DEVICE, dtype=torch.float64)
+
+        optimizer_lbfgs.step(closure_lbfgs)
+        pbar_lbfgs.close()
 
         convert_to_fp32(model, physics, data)
 
