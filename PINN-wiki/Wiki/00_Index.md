@@ -88,6 +88,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Lasso_Regularization]]: L1 regularization for parsimonious constitutive model discovery (PTT/Giesekus pruning)
 - [[Vorticity_Inversion_Solvent]]: Decoupled identification of solvent viscosity via vorticity transport to break gauge feedback loop
 - [[Zero_Stress_BC_Compatibility]]: Zero-stress BCs and momentum curl compatibility in Phase 1 for Full-PIV rheometry
+- [[MLS_Derivatives_Pressure]]: Moving Least Squares spatial derivative estimation with local scaling [-1, 1] for direct pressure training
 
 
 

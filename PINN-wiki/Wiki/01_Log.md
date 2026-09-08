@@ -612,3 +612,23 @@
 - **[[Fluid_Dynamics]]** (Topics): Inseriti i collegamenti a Oldroyd (1950) e alla guida di scrittura del Capitolo 2.
 - **[[00_Index]]**: Aggiunta la voce di Oldroyd (1950) nel Literature Catalog e la guida del Capitolo 2 in Physical Systems.
 
+---
+
+## [2026-09-08] update_wiki | Metodo MLS per Pressione Diretta & Analisi Comparativa delle Differenze di Training
+
+### Sintesi Operazioni
+- Documentato il metodo di addestramento standalone della pressione da dati discreti COMSOL (**MLS Derivatives for Direct Pressure Training**) senza reti neurali cinematiche o reologiche (senza Fase 1).
+- Identificate e codificate le 5 differenze tecniche critiche rispetto ai setup divergenti:
+  1. Scaling locale delle coordinate dei vicini nell'intervallo $[-1, 1]$ ($dx_{\text{scaled}} = (x_i - x_0)/h$) per evitare il malcondizionamento numerico della matrice di Gram $X^T W X$.
+  2. Polinomio quadratico (6 termini, $K=25$) per limitare le oscillazioni di Runge rispetto al polinomio cubico.
+  3. Gradient clipping rigido (`GRAD_CLIP_NORM = 5.0`) per proteggere i buffer di Adam.
+  4. L-BFGS a chiamata nativa singola con `history_size = 300` e line search di Wolfe.
+  5. Parametrizzazione adimensionale di riferimento ($\mu_{\text{tot}} = 1.0$, $Re = 0.0417$, $\beta = 0.10$).
+- Marcata la determinanza primaria dello scaling $[-1, 1]$ come **ipotesi tecnica da confermare empiricamente** tramite esecuzione comparativa su Kaggle.
+
+### Pagine Create
+- **[[MLS_Derivatives_Pressure]]** (Methods): Metodologia analitica e algoritmica per la stima delle derivate di Navier-Stokes via Moving Least Squares con scaling locale e bilanciamento loss.
+
+### Pagine Modificate
+- **[[00_Index]]**: Registrata la nuova voce `[[MLS_Derivatives_Pressure]]` nella sezione Technical Methods.
+
