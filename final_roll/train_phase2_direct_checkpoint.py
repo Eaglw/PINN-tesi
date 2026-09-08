@@ -64,8 +64,21 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ============================================================================
 # 2. COSTANTI E PARAMETRI FISICI (TEST 2: DIRETTO DA CHECKPOINT FASE 1)
 # ============================================================================
-DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
+import glob
+
+# Rilevamento automatico dataset
+if (BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv").exists():
+    DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
+else:
+    matches_ds = glob.glob("**/4_roll_mill.csv", recursive=True)
+    DATASET_PATH = Path(matches_ds[0]).resolve() if matches_ds else (BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv")
+
+# Rilevamento automatico checkpoint Fase 1
 CHECKPOINT_PATH = BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1_40k+10k.pth"
+if not CHECKPOINT_PATH.exists():
+    matches_chk = glob.glob("**/checkpoint_inverso_fase1_40k+10k.pth", recursive=True)
+    if matches_chk:
+        CHECKPOINT_PATH = Path(matches_chk[0]).resolve()
 
 # Parametri Fisici REALI
 MU_S_TRUE = 0.1       # Viscosità solvente FISSA al valore reale [Pa·s]
@@ -79,8 +92,8 @@ HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
 VARIANCE_EPS = 1e-4
 
-# Budget Fase 2 Diretta
-ADAM_EPOCHS = 30000
+# Budget Fase 2 Diretta (Allineato a Test 1: 20k Adam + 2k L-BFGS)
+ADAM_EPOCHS = 20000
 USE_LBFGS = True
 LBFGS_MAX_ITERS = 2000
 
@@ -89,10 +102,10 @@ BASE_LR = 1e-3
 ADAM_EPS = 1e-7
 GRAD_CLIP_NORM = 5.0  # Rigido (da paradigma MLS) per stabilizzare i gradienti di pressione
 
-# Pesi Funzione di Loss (Fase 2 Diretta con Moduli src)
-W_DATA = 20.0         # Peso dati velocità (u, v) su model_psi
-W_MOMENTUM = 1.0      # Peso equazione di Navier-Stokes
-W_BC_PRES = 10.0      # Ancoraggio del SINGOLO PressurePoint
+# Pesi Funzione di Loss (Allineati al bilanciamento vincente del Test 1)
+W_DATA = 20.0         # Peso dati velocità (u, v) su model_psi per ancoraggio cinematico
+W_MOMENTUM = 3.0      # Peso equazione di Navier-Stokes (identico a W_PHYSICS di Test 1)
+W_BC_PRES = 2.0       # Ancoraggio del SINGOLO PressurePoint (identico a W_BC di Test 1)
 
 # Chunk Size Gestione VRAM
 CHUNK_SIZE_ADAM = 16384
