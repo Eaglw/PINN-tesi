@@ -9,25 +9,66 @@ from scipy.spatial import cKDTree
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 
-def convert_to_fp64(model, physics, data):
+def assert_fp64_integrity(model, physics, data):
+    """
+    [Proposta M] Verifica diagnostica rigida: nessun parametro, buffer registrato o
+    tensore floating-point nei dati deve rimanere in float32 prima di L-BFGS.
+    """
+    for name, p in model.named_parameters():
+        if p.is_floating_point():
+            assert p.dtype == torch.float64, (
+                f"[FP64 GUARD] Parametro model '{name}' ha dtype {p.dtype}, atteso torch.float64"
+            )
+    for name, b in model.named_buffers():
+        if b.is_floating_point():
+            assert b.dtype == torch.float64, (
+                f"[FP64 GUARD] Buffer model '{name}' ha dtype {b.dtype}, atteso torch.float64"
+            )
+    for name, p in physics.named_parameters():
+        if p.is_floating_point():
+            assert p.dtype == torch.float64, (
+                f"[FP64 GUARD] Parametro physics '{name}' ha dtype {p.dtype}, atteso torch.float64"
+            )
+    for name, b in physics.named_buffers():
+        if b.is_floating_point():
+            assert b.dtype == torch.float64, (
+                f"[FP64 GUARD] Buffer physics '{name}' ha dtype {b.dtype}, atteso torch.float64"
+            )
+
+    def _assert_dict_fp64(d, prefix="data"):
+        for k, v in d.items():
+            if isinstance(v, torch.Tensor) and v.is_floating_point():
+                assert v.dtype == torch.float64, (
+                    f"[FP64 GUARD] Tensore '{prefix}.{k}' ha dtype {v.dtype}, atteso torch.float64"
+                )
+            elif isinstance(v, dict):
+                _assert_dict_fp64(v, prefix=f"{prefix}.{k}")
+
+    _assert_dict_fp64(data)
+
+
+def convert_to_fp64(model, physics, data=None):
     """
     Converte in modo centralizzato modello, fisica e dati a FP64 prima di L-BFGS.
-    Include una logica ricorsiva interna per scorrere i dizionari dei dati.
+    Include una logica ricorsiva interna per scorrere i dizionari dei dati e
+    asserzioni rigide su tutti i parametri, buffer e tensori.
+    Supporta signature flessibile (model, physics, data) o (data, model, physics).
     """
+    # Gestione signature flessibile nel caso data sia passato come primo argomento
+    if isinstance(model, dict) and data is not None:
+        data, model, physics = model, physics, data
 
-    def _cast_dict_to_double(
-        d,
-    ):  # funzione interna per ricorsione, per ciclare su tutti i dati e bc.
+    def _cast_dict_to_double(d):
         for key, value in d.items():
-            if isinstance(value, torch.Tensor):
+            if isinstance(value, torch.Tensor) and value.is_floating_point():
                 d[key] = value.double()
             elif isinstance(value, dict):
-                # Se è un dizionario (es. boundary_groups), richiama se stessa
                 _cast_dict_to_double(value)
 
     _cast_dict_to_double(data)
     model.double()
     physics.double()
+    assert_fp64_integrity(model, physics, data)
 
 
 def convert_to_fp32(model, physics, data):
