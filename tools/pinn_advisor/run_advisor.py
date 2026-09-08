@@ -70,6 +70,7 @@ def refresh_local_proxy():
     """Rinfresca il token del local model proxy se necessario."""
     ensure_kaggle_credentials()
     env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
     subprocess.run(
         [KAGGLE_EXE, "benchmarks", "auth", "-y", "--env-file", str(ENV_FILE)],
         cwd=str(BASE_DIR),
@@ -80,74 +81,55 @@ def refresh_local_proxy():
     load_dotenv(ENV_FILE, override=True)
 
 def build_enriched_prompt(topic: str) -> str:
-    """Costruisce il prompt contestualizzato unendo GEMINI.md, Wiki e final_roll/src/."""
-    # 1. Regole e principi guida da GEMINI.md
-    gemini_text = read_text_safe(GEMINI_MD, max_lines=150)
-    
-    # 2. Architettura teorica e lezioni apprese dalla Wiki
-    wiki_training = read_text_safe(WIKI_DIR / "Wiki" / "Systems" / "Viscoelastic_Training.md", max_lines=120)
+    """Costruisce il prompt contestualizzato unendo GEMINI.md, Wiki e i componenti chiave di final_roll/src/."""
+    # 1. Regole e principi guida da GEMINI.md (estratto essenziale)
+    gemini_text = read_text_safe(GEMINI_MD, max_lines=80)
 
-    # 3. Codice sorgente con massimo focus su final_roll/src/
-    physics_code = read_text_safe(SRC_DIR / "physics.py", max_lines=350)
-    train_code = read_text_safe(SRC_DIR / "train.py", max_lines=320)
-    main_code = read_text_safe(FINAL_ROLL_DIR / "train_4roll_main.py", max_lines=180)
+    # 2. Codice essenziale: Physics (residuo momento e costitutivo) e Train (Fase 2)
+    physics_code = read_text_safe(SRC_DIR / "physics.py", max_lines=180)
+    train_code = read_text_safe(SRC_DIR / "train.py", max_lines=180)
 
-    prompt = f"""Sei uno dei massimi scienziati e ricercatori mondiali specializzati in:
+    prompt = f"""Sei uno dei massimi scienziati mondiali specializzati in:
 - Physics-Informed Neural Networks (PINN) avanzate
 - Fluidodinamica computazionale (CFD) per flussi viscoelastici complessi (Oldroyd-B, PTT, Giesekus)
-- Ottimizzazione numerica multi-stadio (Adam, L-BFGS, Variable Projection, analisi dell'Hessiana)
+- Problemi inversi di identificazione parametri e ottimizzazione vincolata
 
-Stiamo sviluppando un solver PINN scientifico ad alta precisione per un flusso 2D bidimensionale nel "Four-Roll Mill" (mulino a 4 rulli) che genera un punto di stagnazione iperbolico ad alto tasso estensionale.
+CONTESTO DEL SOLVER (FOUR-ROLL MILL PINN):
+1. **Formulazione Stream-Function**: $\\psi$ scalare con divergenza identicamente nulla: $u = \\partial_y \\psi, v = -\\partial_x \\psi$.
+2. **Tre Testate Separate**:
+   - `model_psi` (1 out) -> cinematica
+   - `model_p` (1 out) -> pressione
+   - `model_tau` (3 out) -> extra-stress $\\boldsymbol{{\\tau}} = (\\tau_{{xx}}, \\tau_{{xy}}, \\tau_{{yy}})$
+3. **Architettura a Fasi Disaccoppiate (Staged Training)**:
+   - **Fase 1 (Cinematica & Reologia)**: `model_psi` + `model_tau` addestrati su Oldroyd-B e BC rulli ($w_{{mom}}=0$, pressione disattivata). Identifica $\\lambda$ e $\\mu_p$. Generalmente converge bene.
+   - **Fase 2 (Idrodinamica & Pressione)**: `model_tau` è CONGELATO. **`model_psi` RIMANE MOBILE** unitamente a `model_p`. Equazione di conservazione del momento attiva ($w_{{mom}}=1$):
+     $$\\rho (\\mathbf{{u}} \\cdot \\nabla) \\mathbf{{u}} = -\\nabla p + \\mu_s \\nabla^2 \\mathbf{{u}} + \\nabla \\cdot \\boldsymbol{{\\tau}}$$
+     In questa fase si deve identificare la viscosità del solvente $\\mu_s$ (o $\\mu_{{tot}}$) e ricostruire il campo di pressione $p$.
+4. **Condizioni e Dati**: Nessun dato interno di stress da COMSOL. Pressione ancorata in un solo punto ($p(x_0, y_0) = p_{{ref}}$).
 
-==============================================================================
-CONTESTO CHIAVE DEL PROGETTO (DA GEMINI.md E DALLA WIKI DI RICERCA)
-==============================================================================
-1. **Formulazione con Stream-Function**:
-   La rete predice scalarmente $\\psi$, imponendo per costruzione la divergenza nulla:
-   $$u = \\frac{{\\partial \\psi}}{{\\partial y}}, \\quad v = -\\frac{{\\partial \\psi}}{{\\partial x}} \\implies \\nabla \\cdot \\mathbf{{u}} = 0$$
-2. **Tre Testate Distinte (CombinedModel)**:
-   - `model_psi` (1 output) per la cinematica
-   - `model_p` (1 output) per il campo di pressione
-   - `model_tau` (3 output per le componenti simmetriche $\\tau_{{xx}}, \\tau_{{xy}}, \\tau_{{yy}}$)
-3. **Strategia a Stadi Disaccoppiati (Decoupled Training)**:
-   - **Fase 1 (Cinematica e Reologia)**: addestramento di `model_psi` e `model_tau` sulle equazioni costitutive e sulle condizioni al contorno (velocita imposta e ancoraggio roll stress BC sui rulli). Il momento e spento ($w_{{mom}}=0$), la pressione e congelata. Viene identificato $\\lambda$.
-   - **Fase 2 (Idrodinamica e Pressione)**: congeliamo SOLAMENTE `model_tau`. **La stream-function `model_psi` RIMANE MOBILE e trainabile** con $w_{{mom}}=1$ unitamente a `model_p`. Mantenere $\\psi$ mobile e dimostrato essere fondamentale per compensare la componente irrotazionale della velocita e determinare il gradiente di pressione $\\nabla p$.
-4. **Regola fondamentale sui dati**:
-   Nessun dato di stress interno da COMSOL viene fornito alla rete (tranne l'eventuale ancoraggio BC sui rulli).
-5. **Precisione a stadi**: Adam in FP32 $\\rightarrow$ L-BFGS in FP64.
-
-==============================================================================
-CODICE SORGENTE CRITICO DI final_roll/ E IN PARTICOLARE final_roll/src/
-==============================================================================
-
-### A. final_roll/src/physics.py (PDE Costitutive, Momento, Log-space Parametri):
+ESTRATTI CHIAVE DEL CODICE SORGENTE:
+### physics.py (Equazioni di bilancio e momento):
 ```python
 {physics_code}
 ```
 
-### B. final_roll/src/train.py (Loop di Addestramento, Closure L-BFGS, Conversioni):
+### train.py (Loop di training Fase 2 e gestione gradienti):
 ```python
 {train_code}
 ```
 
-### C. final_roll/train_4roll_main.py (Configurazione, Iperparametri, Scaling):
-```python
-{main_code}
-```
-
 ==============================================================================
-DOMANDA / ASPETTO SPECIFICO DA INDAGARE
+OBIETTIVO DELL'ANALISI / QUESITO CRITICO:
 ==============================================================================
-L'utente richiede un'analisi approfondita, rigorosa e focalizzata in particolare sui file della cartella `final_roll/src/` per il seguente aspetto:
-
 🎯 **{topic.upper()}** 🎯
 
-Nel tuo responso:
-1. Analizza la formulazione teorica e matematica dell'aspetto richiesto nel contesto del four-roll mill.
-2. Esamina criticamente l'implementazione attuale nei file in `final_roll/src/` (`physics.py`, `train.py`) evidenziando colli di bottiglia, incoerenze numeriche o criticita.
-3. Fornisci soluzioni e formule matematiche rigorose (in KaTeX/LaTeX).
-4. Proponi modifiche concrete al codice (con snippet drop-in ben commentati) destinate a `final_roll/src/`.
-5. Rispondi in lingua italiana con tono accademico e scientifico di altissimo livello.
+Mentre la Fase 1 converge adeguatamente, riscontriamo difficoltà nella **Fase 2 (Idrodinamica e Pressione)**, in particolare per:
+1. **Identificabilità di $\\mu_s$ (o $\\mu_{{tot}}$) nel problema inverso**: con $\\boldsymbol{{\\tau}}$ congelato e dati di velocità $\\mathbf{{u}}$, qual è la matrice di informazione di Fisher o la sensitività del residuo del momento rispetto a $\\mu_s$ e $\\nabla p$? Esiste accoppiamento spurio / compensazione tra $\\nabla p$ e $\\mu_s \\nabla^2 \\mathbf{{u}}$?
+2. **Mobilità di `model_psi` in Fase 2**: Come bilanciare la loss dati di velocità ($W_{{data}}$), il residuo del momento ($W_{{mom}}$) e le BC per evitare che `model_psi` devii dalla cinematica corretta appresa in Fase 1 per "accomodare" artificialmente la loss di Navier-Stokes?
+3. **Formulazione dell'equazione del momento**: è preferibile la forma standard in pressione $\\nabla p$, oppure la formulazione in vorticità (curl del momento, eliminando $p$ prima di stimarla), oppure una proiezione variabile (VarPro) per $\\mu_s$?
+4. **Proposte concrete e modifiche al codice**: formule matematiche rigorose (KaTeX) e snippet di codice pronti per `final_roll/src/` per sbloccare la convergenza di Fase 2 e garantire l'identificazione esatta di $\\mu_s$.
+
+Rispondi in lingua italiana con rigore accademico e matematico di massimo livello.
 """
     return prompt
 
@@ -192,6 +174,7 @@ if __name__ == "__main__":
         f.write(task_code)
 
     env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
     print(f"📤 Upload task '{task_name}' su Kaggle e attesa build...")
     push_res = subprocess.run(
         [KAGGLE_EXE, "benchmarks", "tasks", "push", task_name, "-f", str(task_file), "--wait"],
@@ -266,6 +249,8 @@ def main():
                         help="Aspetto o domanda da indagare (es. 'convergenza', 'stiffness', 'varpro', 'bilanciamento loss')")
     parser.add_argument("-m", "--model", type=str, default="opus",
                         help="Modello da usare: 'opus' (default: Claude Opus 5), 'sonnet' (Claude Sonnet 5), 'r1' (DeepSeek-R1), 'gemini' (Gemini 3 Flash)")
+    parser.add_argument("-r", "--remote", action="store_true",
+                        help="Forza esecuzione come benchmark task remoto su Kaggle (default: False, usa proxy locale)")
     args = parser.parse_args()
 
     topic = args.topic.strip()
@@ -274,19 +259,19 @@ def main():
     # Mappatura modelli
     if model_choice in ["opus", "opus5", "claude-opus", "claude-opus-5-default"]:
         model_slug = "claude-opus-5-default"
-        is_remote_task = True
+        is_remote_task = True  # Opus e disponibile solo come task remoto
     elif model_choice in ["r1", "deepseek", "deepseek-r1", "deepseek-ai/deepseek-r1-0528"]:
         model_slug = "deepseek-ai/deepseek-r1-0528"
-        is_remote_task = False
+        is_remote_task = args.remote
     elif model_choice in ["sonnet", "sonnet5", "fable", "claude-sonnet", "anthropic/claude-sonnet-5@default"]:
         model_slug = "anthropic/claude-sonnet-5@default"
-        is_remote_task = False
+        is_remote_task = args.remote
     elif model_choice in ["gemini", "gemini3", "flash", "google/gemini-3-flash-preview"]:
         model_slug = "google/gemini-3-flash-preview"
-        is_remote_task = False
+        is_remote_task = args.remote
     else:
         model_slug = args.model
-        is_remote_task = False
+        is_remote_task = args.remote
 
     print("=" * 80)
     print("🔬 PINN AI ADVISOR - FOUR-ROLL MILL")
