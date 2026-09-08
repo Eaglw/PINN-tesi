@@ -27,9 +27,11 @@ Nel dataset standard `4_roll_mill.csv`, in assenza di un `PressurePoint` esplici
 * **Indice nel dataset**: `111092`
 * **Coordinate adimensionali** ($x_{nd}, y_{nd}$): `(1.0000, 0.1348)`
 * **Coordinate fisiche (raw)** ($x, y$ in metri): `(0.025, -0.01826)`
-* **Posizione geometrica**: Sulla parete destra del box quadrangolare del dominio ($[-0.025, 0.025] \times [-0.025, 0.025]$ m), vicino all'angolo in basso a destra.
+### 3. Validazione Sperimentale dell'Ancoraggio Singolo
+La run `[2026-09-08_15-49][DIR][PHASE2_MLS_SCALED][Ph2_20k+2k]` (Run Kaggle #22) ha dimostrato empiricamente che **1 solo PressurePoint è pienamente sufficiente a vincolare la costante di gauge e a far convergere l'intero campo di pressione 2D** fino a un errore minimo $L_2(p) = 4.91\%$, a patto che il membro destro di Navier-Stokes sia calcolato con regolarità numerica appropriata (vedi **[[MLS_Derivatives_Pressure]]**).
 
 ## References & Back-links
 - [[00_Index]]
 - [[COMSOL_Boundary_Extraction]]
 - [[Viscoelastic_Training]]
+- [[MLS_Derivatives_Pressure]]

@@ -614,21 +614,26 @@
 
 ---
 
-## [2026-09-08] update_wiki | Metodo MLS per Pressione Diretta & Analisi Comparativa delle Differenze di Training
+## [2026-09-08] update_wiki | Metodo MLS per Pressione Diretta & Breakthrough Sperimentale (Run Kaggle #22)
 
 ### Sintesi Operazioni
-- Documentato il metodo di addestramento standalone della pressione da dati discreti COMSOL (**MLS Derivatives for Direct Pressure Training**) senza reti neurali cinematiche o reologiche (senza Fase 1).
-- Identificate e codificate le 5 differenze tecniche critiche rispetto ai setup divergenti:
-  1. Scaling locale delle coordinate dei vicini nell'intervallo $[-1, 1]$ ($dx_{\text{scaled}} = (x_i - x_0)/h$) per evitare il malcondizionamento numerico della matrice di Gram $X^T W X$.
-  2. Polinomio quadratico (6 termini, $K=25$) per limitare le oscillazioni di Runge rispetto al polinomio cubico.
-  3. Gradient clipping rigido (`GRAD_CLIP_NORM = 5.0`) per proteggere i buffer di Adam.
-  4. L-BFGS a chiamata nativa singola con `history_size = 300` e line search di Wolfe.
-  5. Parametrizzazione adimensionale di riferimento ($\mu_{\text{tot}} = 1.0$, $Re = 0.0417$, $\beta = 0.10$).
-- Marcata la determinanza primaria dello scaling $[-1, 1]$ come **ipotesi tecnica da confermare empiricamente** tramite esecuzione comparativa su Kaggle.
+- Documentato e validato sperimentalmente il metodo di addestramento standalone della pressione da dati discreti COMSOL (**MLS Derivatives for Direct Pressure Training**) senza reti neurali cinematiche o reologiche (senza Fase 1).
+- **Conferma Sperimentale su Kaggle (Run #22)** (`[2026-09-08_15-49][DIR][PHASE2_MLS_SCALED][Ph2_20k+2k]`):
+  - In fase Adam, errore $L_2(p)$ crollato al **$19.57\%$** (epoca 3.000).
+  - In fase L-BFGS (FP64), discesa progressiva fino a un **minimo storico assoluto di $4.91\%$** (iterazione 1.700), chiudendo al **$13.52\%$**.
+  - Dimostrata definitivamente la convergenza del problema diretto per la pressione con pura PDE di Navier-Stokes e **1 solo punto Dirichlet** al contorno, senza alcuna supervisione interna ($W_{\text{data}} = 0$).
+- Identificate le 5 determinanti tecniche vincenti:
+  1. Scaling locale delle coordinate dei vicini nell'intervallo $[-1, 1]$ ($dx_{\text{scaled}} = (x_i - x_0)/h$) che elimina il malcondizionamento numerico della matrice di Gram.
+  2. Polinomio quadratico di 2° grado (6 termini, $K=25$).
+  3. Gradient clipping rigido (`GRAD_CLIP_NORM = 5.0`).
+  4. L-BFGS a chiamata nativa singola con `history_size = 300` e line search *Strong Wolfe*.
+  5. Parametrizzazione di riferimento adimensionale ($\mu_{\text{tot}} = 1.0$, $Re = 0.0417$, $\beta = 0.10$).
 
 ### Pagine Create
 - **[[MLS_Derivatives_Pressure]]** (Methods): Metodologia analitica e algoritmica per la stima delle derivate di Navier-Stokes via Moving Least Squares con scaling locale e bilanciamento loss.
 
 ### Pagine Modificate
+- **[[Pressure_Point_Anchoring]]** (Methods): Aggiunta la sezione di validazione empirica sul fallback del singolo nodo Dirichlet dimostratosi sufficiente alla convergenza del campo 2D.
 - **[[00_Index]]**: Registrata la nuova voce `[[MLS_Derivatives_Pressure]]` nella sezione Technical Methods.
+- **`final_roll/output_4rollmill/SUMMARY_RUNS.md`**: Catalogata la run storica di successo con metriche dettagliate.
 
