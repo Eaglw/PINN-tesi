@@ -9,7 +9,10 @@ from scipy.spatial import cKDTree
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 
-def assert_fp64_integrity(model, physics, data):
+DEVICE = getattr(builtins, "DEVICE", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+
+
+def assert_fp64_integrity(model, physics, data=None):
     """
     [Proposta M] Verifica diagnostica rigida: nessun parametro, buffer registrato o
     tensore floating-point nei dati deve rimanere in float32 prima di L-BFGS.
@@ -44,7 +47,8 @@ def assert_fp64_integrity(model, physics, data):
             elif isinstance(v, dict):
                 _assert_dict_fp64(v, prefix=f"{prefix}.{k}")
 
-    _assert_dict_fp64(data)
+    if data is not None:
+        _assert_dict_fp64(data)
 
 
 def convert_to_fp64(model, physics, data=None):
@@ -65,13 +69,14 @@ def convert_to_fp64(model, physics, data=None):
             elif isinstance(value, dict):
                 _cast_dict_to_double(value)
 
-    _cast_dict_to_double(data)
+    if data is not None:
+        _cast_dict_to_double(data)
     model.double()
     physics.double()
     assert_fp64_integrity(model, physics, data)
 
 
-def convert_to_fp32(model, physics, data):
+def convert_to_fp32(model, physics, data=None):
     """
     Converte in modo centralizzato modello, fisica e dati a FP32 prima di Adam Fase 2.
     """
@@ -86,7 +91,8 @@ def convert_to_fp32(model, physics, data):
                 # Se è un dizionario (es. boundary_groups), richiama se stessa
                 _cast_dict_to_float(value)
 
-    _cast_dict_to_float(data)
+    if data is not None:
+        _cast_dict_to_float(data)
     model.float()
     physics.float()
 

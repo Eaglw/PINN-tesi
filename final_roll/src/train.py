@@ -198,30 +198,30 @@ class CombinedModel(nn.Module):
 
         self.p_scale = p_scale
 
-        # [Proposta C] Registrazione buffer tau_scale (1, 3)
+        # [Proposta C] Registrazione buffer tau_scale (1, 3) preservando il dtype nativo
         if not isinstance(tau_scale, torch.Tensor):
             if isinstance(tau_scale, (list, tuple)):
-                t_scale = torch.tensor(tau_scale, dtype=torch.float32)
+                t_scale = torch.tensor(tau_scale, dtype=torch.get_default_dtype())
             else:
-                t_scale = torch.tensor([float(tau_scale)] * 3, dtype=torch.float32)
+                t_scale = torch.tensor([float(tau_scale)] * 3, dtype=torch.get_default_dtype())
         else:
-            t_scale = tau_scale.clone().detach().float()
+            t_scale = tau_scale.clone().detach()
         if t_scale.numel() == 1:
             t_scale = t_scale.repeat(3)
         self.register_buffer("tau_scale", t_scale.view(1, 3))
 
-        # [Proposta AB] Registrazione buffer per ancoraggio hard algebrico di pressione
+        # [Proposta AB] Registrazione buffer per ancoraggio hard algebrico di pressione preservando il dtype nativo
         if x_anchor is not None:
             if not isinstance(x_anchor, torch.Tensor):
-                x_anc = torch.tensor(x_anchor, dtype=torch.float32)
+                x_anc = torch.tensor(x_anchor, dtype=torch.get_default_dtype())
             else:
-                x_anc = x_anchor.clone().detach().float()
+                x_anc = x_anchor.clone().detach()
             self.register_buffer("x_anchor", x_anc.view(1, 2))
 
             if not isinstance(p_ref, torch.Tensor):
-                p_r = torch.tensor([[float(p_ref)]], dtype=torch.float32)
+                p_r = torch.tensor([[float(p_ref)]], dtype=torch.get_default_dtype())
             else:
-                p_r = p_ref.clone().detach().float().view(1, 1)
+                p_r = p_ref.clone().detach().view(1, 1)
             self.register_buffer("p_ref", p_r)
             self.hard_anchor = True
         else:
