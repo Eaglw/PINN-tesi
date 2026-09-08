@@ -115,3 +115,40 @@ def debug_physics_magnitudes(model, physics, data, num_points=2000):
         print(
             f" Asse Y -> div_tau: {div_tau_y.abs().mean().item():.6f} | grad_p: {p_y.abs().mean().item():.6f} | visc: {viscous_y.abs().mean().item():.6f} | adv: {advection_y.abs().mean().item():.6f}"
         )
+
+
+def diagnose_identifiability(model, physics, coords, num_points=2000):
+    """
+    [Proposta AE] Diagnostica preventiva di identificabilita' di Leray rho_id a inizio Fase 2.
+    Calcola rho_id = ||P_perp Delta u|| / ||Delta u|| e stampa un report dettagliato.
+    """
+    print(f"\n{'=' * 60}\nDIAGNOSTICA PREVENTIVA IDENTIFICABILITA' LERAY (rho_id)\n{'=' * 60}")
+    model.eval()
+    if coords.shape[0] > num_points:
+        idx = torch.randperm(coords.shape[0])[:num_points]
+        x_sample = coords[idx]
+    else:
+        x_sample = coords
+
+    metrics = physics.compute_identifiability_index(model, x_sample, return_dict=True)
+    rho_id = metrics["rho_id"]
+    a_norm = metrics["a_norm"]
+    a_perp_norm = metrics["a_perp_norm"]
+
+    if rho_id >= 0.20:
+        status = "BEN IDENTIFICABILE (rho_id >= 0.20)"
+    elif rho_id >= 0.02:
+        status = "MARGINALE / MAL CONDIZIONATO (0.02 <= rho_id < 0.20)"
+    else:
+        status = "STRUTTURALMENTE NON IDENTIFICABILE (rho_id < 0.02)"
+
+    print(f"  Rapporto di Leray rho_id = {rho_id:.4f}  [{status}]")
+    print(f"  ||Delta u|| = {a_norm:.4e} | ||P_perp Delta u|| = {a_perp_norm:.4e}")
+    if rho_id < 0.02:
+        print("  [ATTENZIONE] Il gradiente di pressione puo' assorbire quasi interamente Delta u!")
+    elif rho_id < 0.20:
+        print("  [INFO] Stima di mu_s sensibile; raccomandato l'uso di mu_tot softplus e FP64 L-BFGS.")
+    else:
+        print("  [OK] Informazione ortogonale sufficiente per l'identificazione diretta di mu_s.")
+    print("=" * 60)
+    return metrics

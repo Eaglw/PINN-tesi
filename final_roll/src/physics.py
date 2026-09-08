@@ -4,6 +4,7 @@ import torch.nn as nn
 from src.utils import weighted_mse
 
 DEVICE = getattr(builtins, "DEVICE", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+RHO = getattr(builtins, "RHO", 1000.0)
 
 
 def inverse_softplus(y, min_val=1e-8):
@@ -70,6 +71,12 @@ class Physics(nn.Module):
         self.register_buffer("guess_mu_p", torch.tensor(guess_mu_p, device=DEVICE, dtype=torch.float32))
         self.register_buffer("guess_mu_s", torch.tensor(guess_mu_s, device=DEVICE, dtype=torch.float32))
 
+        # [Proposta AC] Supporto per parametrizzazione mu_tot in Fase 2
+        self.use_mu_tot_param = False
+        default_guess_mu_tot = guess_mu_s + guess_mu_p
+        self.register_buffer("guess_mu_tot", torch.tensor(float(default_guess_mu_tot), device=DEVICE, dtype=torch.float32))
+        self.register_parameter("_raw_mu_tot", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32), requires_grad=False))
+
         # Parametri raw in log-space (inizializzati a 0.0 -> param = guess)
         self.register_parameter("_raw_lam", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32)))
         self.register_parameter("_raw_mu_p", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32)))
@@ -80,6 +87,11 @@ class Physics(nn.Module):
             self._raw_lam.requires_grad_(False)
             self._raw_mu_p.requires_grad_(False)
             self._raw_mu_s.requires_grad_(False)
+
+    @property
+    def scale_mom(self):
+        """[Proposta AA] Fattore di scala dimensionale del residuo di momento: scale_mom = (eta_0 * U_ref) / (H_coord ** 2)."""
+        return (self.eta_0 * self.U_ref) / (self.H_coord ** 2)
 
     @property
     def lam(self):
@@ -98,7 +110,10 @@ class Physics(nn.Module):
 
     @property
     def mu_s(self):
-        """Viscosita' solvente dimensionale: eta_s = guess_mu_s * exp(r_mus)."""
+        """Viscosita' solvente dimensionale: se use_mu_tot_param, calcolata via softplus protetta."""
+        if getattr(self, "use_mu_tot_param", False):
+            mu_p_frozen = self.mu_p.detach()
+            return nn.functional.softplus(self.mu_tot - mu_p_frozen, beta=20.0)
         return self.guess_mu_s * torch.exp(self._raw_mu_s).squeeze()
 
     @property
@@ -108,7 +123,9 @@ class Physics(nn.Module):
 
     @property
     def mu_tot(self):
-        """Viscosita' totale derivata: eta_tot = eta_s + eta_p."""
+        """Viscosita' totale derivata o ottimizzata: eta_tot = eta_s + eta_p."""
+        if getattr(self, "use_mu_tot_param", False):
+            return self.guess_mu_tot * torch.exp(self._raw_mu_tot).squeeze()
         return self.mu_s + self.mu_p
 
     @property
@@ -139,14 +156,47 @@ class Physics(nn.Module):
     def alpha(self):
         return torch.tensor(0.0, device=self._raw_lam.device, dtype=self._raw_lam.dtype)
 
+    def enable_phase2_mu_tot(self, guess_mu_tot=None):
+        """
+        [Proposta AC] Abilita l'ottimizzazione in Fase 2 su mu_tot in log-space,
+        congelando mu_p da Fase 1 e derivando mu_s tramite softplus(mu_tot - mu_p, beta=20).
+        """
+        self.use_mu_tot_param = True
+        # Congela i parametri reologici di Fase 1
+        if hasattr(self, "_raw_mu_p") and isinstance(self._raw_mu_p, nn.Parameter):
+            self._raw_mu_p.requires_grad_(False)
+        if hasattr(self, "_raw_lam") and isinstance(self._raw_lam, nn.Parameter):
+            self._raw_lam.requires_grad_(False)
+        if hasattr(self, "_raw_mu_s") and isinstance(self._raw_mu_s, nn.Parameter):
+            self._raw_mu_s.requires_grad_(False)
+
+        dtype = self._raw_mu_p.dtype if hasattr(self, "_raw_mu_p") else torch.float32
+        device = self._raw_mu_p.device if hasattr(self, "_raw_mu_p") else DEVICE
+
+        if guess_mu_tot is not None:
+            self.guess_mu_tot.copy_(torch.tensor(float(guess_mu_tot), device=device, dtype=dtype))
+        else:
+            init_tot = (self.mu_p.detach() + self.guess_mu_s).item()
+            self.guess_mu_tot.copy_(torch.tensor(init_tot, device=device, dtype=dtype))
+
+        self._raw_mu_tot = nn.Parameter(torch.zeros(1, device=device, dtype=dtype), requires_grad=True)
+
     def set_trainable(self, name, trainable=True):
         """Imposta requires_grad sul parametro raw sottostante."""
+        if getattr(self, "use_mu_tot_param", False) and name in ("mu_s", "mu_tot"):
+            raw_param = getattr(self, "_raw_mu_tot", None)
+            if raw_param is not None and isinstance(raw_param, nn.Parameter):
+                raw_param.requires_grad_(trainable)
+            return
         raw_param = getattr(self, f"_raw_{name}", None)
         if raw_param is not None and isinstance(raw_param, nn.Parameter):
             raw_param.requires_grad_(trainable)
 
     def get_phase2_params(self):
-        """Restituisce la lista di parametri fisici addestrabili per la Fase 2 (default: _raw_mu_s)."""
+        """Restituisce la lista di parametri fisici addestrabili per la Fase 2."""
+        if getattr(self, "use_mu_tot_param", False):
+            raw_tot = getattr(self, "_raw_mu_tot", None)
+            return [raw_tot] if (raw_tot is not None and isinstance(raw_tot, nn.Parameter)) else []
         raw_p = getattr(self, "_raw_mu_s", None)
         return [raw_p] if (raw_p is not None and isinstance(raw_p, nn.Parameter)) else []
 
@@ -259,18 +309,19 @@ class Physics(nn.Module):
                 div_tau_x = tau_xx_x + tau_xy_y
                 div_tau_y = tau_xy_x + tau_yy_y
 
+            scale_m = self.scale_mom
             f_u = (
                 Re_scale * (u * u_x + v * u_y)
                 + p_x
                 - mu_s_nd * (u_xx + u_yy)
                 - div_tau_x
-            )
+            ) / scale_m
             f_v = (
                 Re_scale * (u * v_x + v * v_y)
                 + p_y
                 - mu_s_nd * (v_xx + v_yy)
                 - div_tau_y
-            )
+            ) / scale_m
         else:
             f_u = f_v = torch.zeros_like(u)
 
@@ -428,6 +479,61 @@ class Physics(nn.Module):
             "Re_scale": self.Re_scale.item(),
             "Re_phys": self.Re_phys.item(),
         }
+
+    def compute_identifiability_index(self, model, coords, lam_tik=1e-8, return_dict=False):
+        """
+        [Proposta AE] Calcola l'indice di identificabilita' di Leray rho_id = ||P_perp Delta u|| / ||Delta u||.
+        Valuta se il gradiente di pressione puo' mascherare/assorbire la diffusione viscosa Delta u.
+        """
+        model.eval()
+        _dtype = next(model.parameters()).dtype
+        _device = next(model.parameters()).device
+
+        with torch.enable_grad():
+            x_req = coords.to(_device).to(_dtype).clone().detach().requires_grad_(True)
+            u, v, _, _ = self.get_velocity(model, x_req)
+            gu = self._grad(u, x_req, create_graph=True)
+            gv = self._grad(v, x_req, create_graph=True)
+            u_x, u_y = gu[:, 0:1], gu[:, 1:2]
+            v_x, v_y = gv[:, 0:1], gv[:, 1:2]
+
+            # Laplaciano di u e v (sensibilita' a mu_s)
+            u_xx = self._grad(u_x, x_req, create_graph=False)[:, 0:1]
+            u_yy = self._grad(u_y, x_req, create_graph=False)[:, 1:2]
+            v_xx = self._grad(v_x, x_req, create_graph=False)[:, 0:1]
+            v_yy = self._grad(v_y, x_req, create_graph=False)[:, 1:2]
+
+            lap_u = u_xx + u_yy
+            lap_v = v_xx + v_yy
+            a = torch.cat([lap_u, lap_v], dim=0).detach()  # shape (2N, 1)
+
+            # Feature dell'ultimo layer di model_p
+            trunk = model.model_p.network[:-1]
+            F = trunk(x_req)
+            M = F.shape[1]
+            dF_x_list, dF_y_list = [], []
+            for j in range(M):
+                g_fj = self._grad(F[:, j : j + 1], x_req, create_graph=False)
+                dF_x_list.append(g_fj[:, 0:1])
+                dF_y_list.append(g_fj[:, 1:2])
+            dF_x = torch.cat(dF_x_list, dim=1)
+            dF_y = torch.cat(dF_y_list, dim=1)
+            Phi = torch.cat([dF_x, dF_y], dim=0).detach() * model.p_scale  # shape (2N, M)
+
+            # Risoluzione proiezione ai minimi quadrati su Phi
+            G = Phi.T @ Phi + lam_tik * torch.eye(M, device=Phi.device, dtype=Phi.dtype)
+            Pa = Phi @ torch.linalg.solve(G, Phi.T @ a)
+            a_perp = a - Pa
+            schur = (a_perp**2).sum()
+            a_norm_sq = (a**2).sum()
+            rho_id = torch.sqrt(schur / (a_norm_sq + 1e-30)).item()
+
+        res = {
+            "rho_id": rho_id,
+            "a_norm": torch.sqrt(a_norm_sq).item(),
+            "a_perp_norm": torch.sqrt(schur).item(),
+        }
+        return res if return_dict else rho_id
 
 
 def evaluate_final_losses(model, physics, data, chunk_size=2000):

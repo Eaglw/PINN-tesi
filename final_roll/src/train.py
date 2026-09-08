@@ -902,6 +902,18 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         # Azzera i gradienti residui accumulati della Fase 1
         model.zero_grad(set_to_none=True)
 
+        # [Proposta AE] Diagnostica preventiva di identificabilita' a inizio Fase 2
+        try:
+            from src.debug import diagnose_identifiability
+            diagnose_identifiability(model, physics, xy_all)
+        except Exception as e:
+            print(f"  [Diagnostica AE] Avviso calcolo rho_id: {e}")
+
+        # [Proposta AC] Abilitazione parametrizzazione mu_tot con softplus se attiva
+        if getattr(builtins, "USE_MU_TOT_PARAM", True) and physics.inverse_mode:
+            physics.enable_phase2_mu_tot()
+            print("  [Proposta AC] Parametrizzazione mu_tot con softplus per mu_s abilitata.")
+
         if STAGED_TRAINING:
             # Fase 2: Pressione sbloccata (LR pieno), Psi sbloccata a basso LR (micro-unfreezing), Tau congelato
             for p in model.parameters():
@@ -920,15 +932,16 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         warmup_ph2 = getattr(builtins, "WARMUP_PHASE2_EPOCHS", globals().get("WARMUP_PHASE2_EPOCHS", 0))
         is_warmup_ph2 = (local_start < warmup_ph2)
 
-        # In modalità inversa Fase 2: allena solo mu_s (solvente)
+        # In modalità inversa Fase 2: allena solo mu_s / mu_tot
         if physics.inverse_mode:
-            physics.set_trainable("mu_s", not is_warmup_ph2)
+            train_name = "mu_tot" if getattr(physics, "use_mu_tot_param", False) else "mu_s"
+            physics.set_trainable(train_name, not is_warmup_ph2)
             physics.set_trainable("mu_p", False)
             physics.set_trainable("lam", False)
             if is_warmup_ph2:
-                print(f"\n  [Warmup Stage 2] Attivo per {warmup_ph2} epoche: mu_s congelato per pre-formare p(x,y).")
+                print(f"\n  [Warmup Stage 2] Attivo per {warmup_ph2} epoche: {train_name} congelato per pre-formare p(x,y).")
             else:
-                print(f"\n  [Warmup Stage 2] Nessun warmup o gia' superato: mu_s attivo.")
+                print(f"\n  [Warmup Stage 2] Nessun warmup o gia' superato: {train_name} attivo.")
 
         # Precalcola la divergenza dello stress tau (tau è congelato)
         print("\n[Optimization] Precalcolo divergenza sforzi in corso per la Fase 2 (Adam)...")
@@ -1206,7 +1219,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             p.requires_grad = True
 
         if physics.inverse_mode:
-            physics.set_trainable("mu_s", True)
+            train_name = "mu_tot" if getattr(physics, "use_mu_tot_param", False) else "mu_s"
+            physics.set_trainable(train_name, True)
             physics.set_trainable("mu_p", False)
             physics.set_trainable("lam", False)
 
