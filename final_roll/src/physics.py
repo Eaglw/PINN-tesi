@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 from src.utils import weighted_mse
 
+DEVICE = getattr(builtins, "DEVICE", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+
 
 def inverse_softplus(y, min_val=1e-8):
     """Calcola l'inversa della funzione Softplus: x = softplus_inv(y).
@@ -31,10 +33,21 @@ class Physics(nn.Module):
         self.H_coord = H_coord
         self.var_weights = var_weights
         self.inverse_mode = inverse_mode
-        self.tau_scale = tau_scale
         self.p_scale = p_scale
         self.use_roll_stress_bc = use_roll_stress_bc
         self.w_roll_stress = w_roll_stress
+
+        # [Proposta C] Registrazione buffer tau_scale (1, 3)
+        if not isinstance(tau_scale, torch.Tensor):
+            if isinstance(tau_scale, (list, tuple)):
+                t_scale = torch.tensor(tau_scale, dtype=torch.float32)
+            else:
+                t_scale = torch.tensor([float(tau_scale)] * 3, dtype=torch.float32)
+        else:
+            t_scale = tau_scale.clone().detach().float()
+        if t_scale.numel() == 1:
+            t_scale = t_scale.repeat(3)
+        self.register_buffer("tau_scale", t_scale.view(1, 3))
 
         # Parametri di scala e guess (full-blind: nessuna informazione privilegiata nel training)
         mod_globals = globals()
@@ -167,8 +180,8 @@ class Physics(nn.Module):
             x = x.clone().requires_grad_(True)
 
         psi = model.model_psi(x) * (self.H_coord / self.H_ref)
-        p = model.model_p(x) * model.p_scale
-        tau = model.model_tau(x) * model.tau_scale
+        p = model.pressure(x) if hasattr(model, "pressure") else (model.model_p(x) * model.p_scale)
+        tau = model.tau(x) if hasattr(model, "tau") else (model.model_tau(x) * model.tau_scale)
 
         grad_psi = self._grad(psi, x, create_graph=create_graph)
         u, v = grad_psi[:, 1:2], -grad_psi[:, 0:1]
@@ -294,12 +307,13 @@ class Physics(nn.Module):
                 - mu_p_nd * (u_y + v_x)
             )
 
-            # Bilanciamento Loss PDE
-            f_txx, f_tyy, f_txy = (
-                f_txx / self.tau_scale,
-                f_tyy / self.tau_scale,
-                f_txy / self.tau_scale,
-            )
+            # Bilanciamento Loss PDE per-componente [Proposta C]
+            s_xx = self.tau_scale[0, 0] if self.tau_scale.ndim == 2 else self.tau_scale[0]
+            s_xy = self.tau_scale[0, 1] if self.tau_scale.ndim == 2 else self.tau_scale[1]
+            s_yy = self.tau_scale[0, 2] if self.tau_scale.ndim == 2 else self.tau_scale[2]
+            f_txx = f_txx / s_xx
+            f_tyy = f_tyy / s_yy
+            f_txy = f_txy / s_xy
         else:
             f_txx = f_tyy = f_txy = torch.zeros_like(u)
 
@@ -383,8 +397,12 @@ class Physics(nn.Module):
                     g_loss += w_stress * (2.0 / 3.0) * g_stress
 
             elif group_name == "PressurePoint":
-                if active_bcs is None or "p" in active_bcs:
-                    g_loss += weighted_mse(p, gd["fields"]["p"], var_w["p"])
+                # [Proposta AB] Se ancoraggio hard attivo su CombinedModel, p(x_0) == p_ref per costruzione algebrica
+                if getattr(model, "hard_anchor", False):
+                    pass
+                else:
+                    if active_bcs is None or "p" in active_bcs:
+                        g_loss += weighted_mse(p, gd["fields"]["p"], var_w["p"])
 
             total_loss = total_loss + g_loss
 

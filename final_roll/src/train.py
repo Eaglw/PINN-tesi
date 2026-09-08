@@ -171,11 +171,12 @@ class FCN(nn.Module):
         layers_sizes = [n_input] + hidden_layers + [n_output]
 
         layers = []
+        act_cls = getattr(builtins, "ACTIVATION", globals().get("ACTIVATION", nn.Tanh))
         for i in range(len(layers_sizes) - 1):
             layers.append(nn.Linear(layers_sizes[i], layers_sizes[i + 1]))
             # Inseriamo l'attivazione globale ovunque tranne che nell'ultimo layer
             if i < len(layers_sizes) - 2:
-                layers.append(ACTIVATION())
+                layers.append(act_cls())
 
         # Delegazione del forward a nn.Sequential
         self.network = nn.Sequential(*layers)
@@ -185,9 +186,9 @@ class FCN(nn.Module):
 
 
 class CombinedModel(nn.Module):
-    """Combina psi (1), p (1), tau (3) in un unico output con scaling di pressione e stress."""
+    """Combina psi (1), p (1), tau (3) in un unico output con hard anchor di pressione e scaling vettoriale di stress."""
 
-    def __init__(self, p_scale=1.0, tau_scale=1.0):
+    def __init__(self, p_scale=1.0, tau_scale=1.0, x_anchor=None, p_ref=0.0):
         super().__init__()
         mod_globals = globals()
         hidden_layers = getattr(builtins, "HIDDEN_LAYERS", mod_globals.get("HIDDEN_LAYERS", [128] * 8))
@@ -196,12 +197,54 @@ class CombinedModel(nn.Module):
         self.model_tau = FCN(2, 3, hidden_layers)
 
         self.p_scale = p_scale
-        self.tau_scale = tau_scale
+
+        # [Proposta C] Registrazione buffer tau_scale (1, 3)
+        if not isinstance(tau_scale, torch.Tensor):
+            if isinstance(tau_scale, (list, tuple)):
+                t_scale = torch.tensor(tau_scale, dtype=torch.float32)
+            else:
+                t_scale = torch.tensor([float(tau_scale)] * 3, dtype=torch.float32)
+        else:
+            t_scale = tau_scale.clone().detach().float()
+        if t_scale.numel() == 1:
+            t_scale = t_scale.repeat(3)
+        self.register_buffer("tau_scale", t_scale.view(1, 3))
+
+        # [Proposta AB] Registrazione buffer per ancoraggio hard algebrico di pressione
+        if x_anchor is not None:
+            if not isinstance(x_anchor, torch.Tensor):
+                x_anc = torch.tensor(x_anchor, dtype=torch.float32)
+            else:
+                x_anc = x_anchor.clone().detach().float()
+            self.register_buffer("x_anchor", x_anc.view(1, 2))
+
+            if not isinstance(p_ref, torch.Tensor):
+                p_r = torch.tensor([[float(p_ref)]], dtype=torch.float32)
+            else:
+                p_r = p_ref.clone().detach().float().view(1, 1)
+            self.register_buffer("p_ref", p_r)
+            self.hard_anchor = True
+        else:
+            self.register_buffer("x_anchor", None)
+            self.register_buffer("p_ref", None)
+            self.hard_anchor = False
+
+    def pressure(self, x):
+        """Calcolo pressione con ancoraggio algebrico HARD o scaling standard."""
+        p_raw = self.model_p(x)
+        if getattr(self, "hard_anchor", False) and self.x_anchor is not None:
+            p_anchor = self.model_p(self.x_anchor)
+            return self.p_scale * (p_raw - p_anchor) + self.p_ref
+        return self.p_scale * p_raw
+
+    def tau(self, x):
+        """Calcolo stress tensoriale con scaling vettoriale per-componente."""
+        return self.model_tau(x) * self.tau_scale
 
     def forward(self, x):
         psi = self.model_psi(x)
-        p = self.model_p(x) * self.p_scale
-        tau = self.model_tau(x) * self.tau_scale
+        p = self.pressure(x)
+        tau = self.tau(x)
         return torch.cat([psi, p, tau], dim=1)
 
 
@@ -282,7 +325,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             print(f"\n[Checkpoint] Caricamento da: {resume_checkpoint}")
             chk = torch.load(resume_checkpoint, map_location=DEVICE)
 
-            model.load_state_dict(chk['model_state_dict'])
+            model.load_state_dict(chk['model_state_dict'], strict=False)
             physics.load_state_dict(chk['physics_state_dict'], strict=False)
 
             loaded_opt_state = chk.get('optimizer_state_dict', None)

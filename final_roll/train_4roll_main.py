@@ -202,9 +202,12 @@ if __name__ == "__main__":
     data = load_data(eta_0=ETA_0)
 
     # 2. Inizializzazione Modello e Fisica
-    model = CombinedModel(p_scale=data["p_scale"], tau_scale=data["tau_scale"]).to(
-        DEVICE
-    )
+    model = CombinedModel(
+        p_scale=data["p_scale"],
+        tau_scale=data["tau_scale_vec"],
+        x_anchor=data.get("x_anchor"),
+        p_ref=data.get("p_ref", 0.0),
+    ).to(DEVICE)
     for submodel in [model.model_psi, model.model_p, model.model_tau]:
         submodel.apply(lambda m: init_weights_xavier(m, activation_name=ACTIVATION))
 
@@ -217,7 +220,7 @@ if __name__ == "__main__":
         H_coord=data["H_coord"],
         var_weights=data["var_weights"],
         inverse_mode=INVERSE_PROBLEM,
-        tau_scale=data["tau_scale"],
+        tau_scale=data["tau_scale_vec"],
         p_scale=data["p_scale"],
         eta_0=ETA_0,
     ).to(DEVICE)

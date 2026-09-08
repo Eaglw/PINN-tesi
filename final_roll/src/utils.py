@@ -161,16 +161,12 @@ def load_data(filepath=None, use_fp64=False, eta_0=None):
 
     # Output scales: normalizzazione rigorosa su [-1, 1] per garantire l'invarianza di scala
     p_scale = max(float(np.abs(fields_nd["p"]).max()), 1e-6)
-    tau_scale = max(
-        float(
-            max(
-                np.abs(fields_nd["tau_xx"]).max(),
-                np.abs(fields_nd["tau_xy"]).max(),
-                np.abs(fields_nd["tau_yy"]).max(),
-            )
-        ),
-        1e-6,
-    )
+    # [Proposta C] Scale per-componente indipendenti per lo stress tensor
+    s_xx = max(float(np.abs(fields_nd["tau_xx"]).max()), 1e-6)
+    s_xy = max(float(np.abs(fields_nd["tau_xy"]).max()), 1e-6)
+    s_yy = max(float(np.abs(fields_nd["tau_yy"]).max()), 1e-6)
+    tau_scale_vec = torch.tensor([s_xx, s_xy, s_yy], dtype=pt_dtype, device=DEVICE).reshape(1, 3)
+    tau_scale = max(s_xx, s_xy, s_yy)
 
     # --- 5. Calcolo Varianze Automatizzato ---
     variance_eps = getattr(builtins, "VARIANCE_EPS", mod_globals.get("VARIANCE_EPS", 1e-4))
@@ -187,12 +183,21 @@ def load_data(filepath=None, use_fp64=False, eta_0=None):
     print(
         f"  eta_0={eta_0:.4f}, Re_0={rho_val * U_ref * H / eta_0:.4f}, Wi_true={lam_val * U_ref / H:.4f}"
     )
-    print(f"  [Output Scaling] p_scale={p_scale:.4f}, tau_scale={tau_scale:.4f}")
+    print(f"  [Output Scaling] p_scale={p_scale:.4f}, tau_scale_vec=[{s_xx:.4f}, {s_xy:.4f}, {s_yy:.4f}]")
 
     # --- 7. Boundary Groups ---
     boundary_groups = _extract_boundary_groups(
         coords, x_raw, y_raw, x_min, y_min, H_coord, tensors
     )
+
+    # [Proposta AB] Estrazione coordinate e pressione di riferimento dal punto di ancoraggio
+    x_anchor = None
+    p_ref_anchor = None
+    if "PressurePoint" in boundary_groups:
+        x_anchor = boundary_groups["PressurePoint"]["xy"][0:1]
+        if "p" in boundary_groups["PressurePoint"]["fields"]:
+            p_ref_anchor = boundary_groups["PressurePoint"]["fields"]["p"][0:1]
+            print(f"  [Ancoraggio Pressione] x_anchor={x_anchor.cpu().numpy().tolist()}, p_ref={p_ref_anchor.item():.4f}")
 
     print("=" * 60)
 
@@ -210,10 +215,13 @@ def load_data(filepath=None, use_fp64=False, eta_0=None):
         "H": H,
         "H_coord": H_coord,
         "eta_0": eta_0,
-        "p_ref": p_ref,
+        "p_ref": p_ref_anchor if p_ref_anchor is not None else torch.zeros((1, 1), dtype=pt_dtype, device=DEVICE),
+        "p_ref_dim": p_ref,
         "tau_ref": tau_ref,
         "p_scale": p_scale,
         "tau_scale": tau_scale,
+        "tau_scale_vec": tau_scale_vec,
+        "x_anchor": x_anchor,
     }
 
 
