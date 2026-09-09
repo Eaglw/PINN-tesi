@@ -538,7 +538,6 @@ def train_inverse_mls(args):
         def closure():
             optimizer_lbfgs.zero_grad()
             re_eff = physics.Re_scale
-            mu_s_nd = physics.mu_s_nd
             s_geom = physics.s_geom
             scale_m = physics.scale_mom
 
@@ -561,6 +560,9 @@ def train_inverse_mls(args):
                 lv = lap_v_64[i : i + chunk_size_lbfgs]
                 dtx = div_tau_x_64[i : i + chunk_size_lbfgs]
                 dty = div_tau_y_64[i : i + chunk_size_lbfgs]
+
+                # Compute mu_s_nd fresh inside chunk loop to avoid graph reuse across multiple backward() calls
+                mu_s_nd = physics.mu_s_nd
 
                 fu = (re_eff * cu + px - mu_s_nd * s_geom * lu - dtx) / scale_m
                 fv = (re_eff * cv + py - mu_s_nd * s_geom * lv - dty) / scale_m
