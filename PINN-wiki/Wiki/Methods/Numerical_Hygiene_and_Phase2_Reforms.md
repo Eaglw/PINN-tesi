@@ -133,21 +133,27 @@ Seguendo il principio di equilibrazione riga di Van der Sluis, si applicano tre 
 $$\mathbf{s}_\tau = \begin{bmatrix} s_{xx} \\ s_{xy} \\ s_{yy} \end{bmatrix} = \begin{bmatrix} \max(|\tau_{xx}|) \\ \max(|\tau_{xy}|) \\ \max(|\tau_{yy}|) \end{bmatrix}$$
 registrati come buffer di forma `(1, 3)` in `CombinedModel` e applicati con broadcasting vettoriale su `model_tau(x) * self.tau_scale`. Nel calcolo dei residui costitutivi di Oldroyd-B, ciascuna equazione scalare è normalizzata per la rispettiva componente ($f_{\tau_{xx}}/s_{xx}$, $f_{\tau_{xy}}/s_{xy}$, $f_{\tau_{yy}}/s_{yy}$).
 
-### Proposta [AA]: Adimensionalizzazione del Residuo di Momento ($\text{scale}_{mom} = \frac{\eta_0 U_{ref}}{H_{coord}^2} = 400.0\text{ Pa/m}$)
+### Proposta [AA]: Adimensionalizzazione del Residuo di Momento e Rettifica per Script Adimensionali
 L'equazione stazionaria di bilancio della quantità di moto in 2D (Navier-Stokes) è:
 $$\mathbf{R}_{\text{mom}} = \rho (\mathbf{u} \cdot \nabla)\mathbf{u} + \nabla p - \mu_s \nabla^2 \mathbf{u} - \nabla \cdot \boldsymbol{\tau} = \mathbf{0}$$
 L'analisi dimensionale delle singole componenti rivela:
 $$[\nabla p] = \frac{\text{Pa}}{\text{m}}, \qquad [\mu_s \nabla^2 \mathbf{u}] = (\text{Pa}\cdot\text{s})\frac{\text{m/s}}{\text{m}^2} = \frac{\text{Pa}}{\text{m}}, \qquad [\nabla \cdot \boldsymbol{\tau}] = \frac{\text{Pa}}{\text{m}}$$
-La scala fisica caratteristica di variazione spaziale delle forze per unità di volume nel dominio del 4-roll mill ($H_{ref} = 0.05\text{ m}$, $U_{ref} = 1.0\text{ m/s}$, $\eta_0 = 1.0\text{ Pa}\cdot\text{s}$) è:
+La scala fisica caratteristica di variazione spaziale delle forze per unità di volume nel dominio dimensionale del 4-roll mill ($H_{ref} = 0.05\text{ m}$, $U_{ref} = 1.0\text{ m/s}$, $\eta_0 = 1.0\text{ Pa}\cdot\text{s}$) è:
 $$\text{scale}_{mom} = \frac{\eta_0 U_{ref}}{H_{ref}^2} = \frac{1.0 \times 1.0}{0.05^2} = 400.0 \text{ Pa/m}$$
 Elevando al quadrato il residuo non scalato per la MSE loss:
 $$\text{scale}_{mom}^2 = (400.0)^2 = 1.6 \times 10^5 \text{ Pa}^2/\text{m}^2$$
-Nel codice non scalato, la loss del momento partiva da valori $\sim 1.6 \times 10^5$. Con un peso $W_{mom} = 1.0$, il residuo di momento pesava **$160.000$ volte più della loss sui dati di velocità** ($O(U^2) \sim 1$). Di conseguenza, l'ottimizzatore distruggeva la cinematica di Fase 1 nel tentativo disperato di azzerare il momento.
+Nel codice dimensionale non scalato, la loss del momento partiva da valori $\sim 1.6 \times 10^5$. Con un peso $W_{mom} = 1.0$, il residuo di momento pesava **$160.000$ volte più della loss sui dati di velocità** ($O(U^2) \sim 1$). Di conseguenza, l'ottimizzatore distruggeva la cinematica di Fase 1 nel tentativo disperato di azzerare il momento.
 
-**Formulazione scalata**:
-$$f_u^{\text{scaled}} = \frac{f_u}{\text{scale}_{mom}}, \qquad f_v^{\text{scaled}} = \frac{f_v}{\text{scale}_{mom}}$$
-$$\mathcal{L}_{\text{mom}} = \frac{1}{2} \text{mean}\left( (f_u^{\text{scaled}})^2 + (f_v^{\text{scaled}})^2 \right) \in \mathcal{O}(10^{-2} - 10^0)$$
-Ciò comprime la loss di un fattore $1.6 \times 10^5$, ristabilendo il perfetto bilanciamento asintotico tra momento e dati cinematici.
+#### Rettifica Fondamentale: Codice Dimensionale vs Script Già Adimensionali (2026-09-09)
+Un'analisi rigorosa della catena di normalizzazione dimostra che:
+1. **Formulazione in `src/physics.py`**: le coordinate e i campi sono già normalizzati, e l'helper `self._grad` include internamente il fattore di conversione spaziale $H_{ref}/H_{coord}$, operando già nello spazio adimensionale $\tilde{\mathbf{x}} = \mathbf{x}/H_{ref}$. Il residuo di Navier-Stokes calcolato nel numeratore di `physics.py` è dunque **già nativamente adimensionale e di ordine $\mathcal{O}(0.1 - 1.0)$**. La divisione per $\text{scale}_{mom} = \frac{\eta_0 U_{ref}}{H_{coord}^2} \approx 3.333$ (introdotta recependo la raccomandazione di Claude) riduceva artificialmente la loss del momento di $(3.333)^2 \approx 11.1$ volte, depotenziando il peso effettivo del vincolo fisico rispetto a quello nominale. Tale fattore è stato rimosso, fissando `scale_mom = 1.0`.
+2. **Formulazione Già Adimensionale (`kaggle_run_inverse_mls.py`, `kaggle_run_direct_checkpoint_precomputed.py`)**: le coordinate $x_{nd} \in [0, 1]$ e i campi $u_{nd}, p_{nd}, \boldsymbol{\tau}_{nd} \in [-1, 1]$ sono **già adimensionali a monte**. In tale sistema di riferimento, il residuo di Navier-Stokes è:
+   $$\mathbf{R}_{nd} = Re_{eff} (\mathbf{u}_{nd} \cdot \nabla_{nd})\mathbf{u}_{nd} + \nabla_{nd} p_{nd} - \mu_s^* s \nabla_{nd}^2 \mathbf{u}_{nd} - \nabla_{nd} \cdot \boldsymbol{\tau}_{nd}$$
+   ed è **intrinsecamente di ordine $\mathcal{O}(1)$**. Dividere un residuo adimensionale per $400.0$ riduce il residuo a $2.5 \times 10^{-3}$, comprime la loss a $\sim 10^{-8}$ e riduce i gradienti dei parametri fisici a $10^{-11}$. Ciò congela completamente l'ottimizzazione Adam e fa abortire prematuramente L-BFGS. In tutti gli script vige ora la regola categorica: **$\text{scale}_{mom} = 1.0$**.
+3. **Fattore Geometrico del Laplaciano $s = H_{ref} / H_{coord} = 0.10$**: nello spazio $[0, 1]$, le derivate prime scalano come $1/H_{coord}$, mentre il Laplaciano scala come $1/H_{coord}^2$. Dividendo per la scala naturale del gradiente di pressione $\frac{\eta_0 U_{ref}}{H_{ref} H_{coord}}$, il coefficiente del Laplaciano diventa:
+   $$\frac{\mu_s \frac{U_{ref}}{H_{coord}^2}}{\frac{\eta_0 U_{ref}}{H_{ref} H_{coord}}} = \frac{\mu_s}{\eta_0} \frac{H_{ref}}{H_{coord}} = \mu_s^* \cdot s$$
+   dove $s = \frac{0.005\text{ m}}{0.05\text{ m}} = 0.10$. Se si omette il fattore geometrico $s=0.10$, l'ottimizzatore calibra il residuo con un Laplaciano 10 volte troppo forte, facendo collassare $\mu_s \to 0.010\text{ Pa}\cdot\text{s}$ anziché il valore reale $0.100\text{ Pa}\cdot\text{s}$.
+4. **Proibizione del Gradient Clipping nella `closure()` di L-BFGS**: l'esecuzione di `clip_grad_norm_` all'interno della closure altera la norma del gradiente valutata dalla line search `strong_wolfe`, violando le condizioni di curvatura e Armijo-Wolfe. L-BFGS abortisce istantaneamente al passo 1. Il clipping va impiegato **esclusivamente in Adam**.
 
 ### Proposta [AB]: Ancoraggio Hard Algebrico della Pressione in `CombinedModel`
 Nel problema idrodinamico incomprimibile con condizioni di velocità al contorno (senza trazioni imposte), la pressione è definita solo a meno di una costante additiva arbitraria:

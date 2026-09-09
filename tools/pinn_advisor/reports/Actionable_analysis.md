@@ -113,21 +113,30 @@ Questo registro traccia ogni modifica implementata nel codice in seguito alle ra
 ---
 
 ### Proposta AA — Adimensionalizzazione del Residuo di Momento ($\eta_0 U/H^2$)
-- **Stato**: 🟢 `[x]` Implementato (Commit `e1f181e`)
+- **Stato**: 🟢 `[x]` Implementato (Commit `e1f181e`, rettificato 2026-09-09)
 - **Priorità**: 🔴 CRITICA (Quick Win Immediato)
-- **Target Files**: [`src/physics.py:L266-L268`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/physics.py#L266-L268), [`train_4roll_main.py`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/train_4roll_main.py)
+- **Target Files**: [`src/physics.py:L266-L268`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/physics.py#L266-L268), [`train_4roll_main.py`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/train_4roll_main.py), [`final_roll/kaggle_run_inverse_mls.py`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/kaggle_run_inverse_mls.py)
 - **Motivazione Fisica/Numerica**:  
-  Nel codice originale il residuo del momento veniva calcolato dimensionalmente:
+  Nel codice con formulazione dimensionale il residuo del momento veniva calcolato in unità fisiche (Pa/m):
   $$\mathbf{R}_{mom} = \rho (\mathbf{u} \cdot \nabla) \mathbf{u} + \nabla p - \mu_s \nabla^2 \mathbf{u} - \nabla \cdot \boldsymbol{\tau}$$
   La scala fisica naturale del gradiente di pressione e viscosità nel dominio è:
   $$\text{scale}_{mom} = \frac{\eta_0 U_{ref}}{H_{ref}^2} = \frac{1.0 \times 1.0}{0.05^2} = 400 \text{ Pa/m}$$
   Elevando al quadrato il residuo non scalato, la loss ha un fattore implicito di $\sim 1.6 \times 10^5$. Con $W_{mom} = 1.0$, il residuo di Navier-Stokes era pesato **$160.000$ volte di più** rispetto alla loss dati di velocità ($O(U^2) \sim 1$). Questo spiega categoricamente perché `model_psi` mobile distruggeva la cinematica di Fase 1 per soddisfare il momento non scalato.
+  
+  > [!WARNING]
+  > **Distinzione Cruciale: Codice Dimensionale vs Script Adimensionali (Rettifica 2026-09-09)**:
+  > - **In `src/physics.py`**: l'helper `self._grad` moltiplica già internamente per $H_{ref}/H_{coord}$, operando nativamente nello spazio adimensionale $\tilde{\mathbf{x}} = \mathbf{x}/H_{ref}$. Il numeratore del momento è quindi **già intrinsecamente adimensionale $\mathcal{O}(1)$**. La divisione per $\text{scale}_{mom} = \frac{\eta_0 U_{ref}}{H_{coord}^2} \approx 3.333$ introdotta dal commit `e1f181e` comprimeva artificialmente la loss di $(3.333)^2 \approx 11.1$ volte (depotenziando il peso effettivo di Navier-Stokes). È stata pertanto rimossa, imponendo `scale_mom = 1.0` nativo.
+  > - **In script a monte già adimensionalizzati (`kaggle_run_inverse_mls.py`, `kaggle_run_direct_checkpoint_precomputed.py`)**: le grandezze in ingresso sono già adimensionate ($x_{nd} \in [0, 1]$, $u_{nd} \in [-1, 1]$, $p_{nd} \in [-1, 1]$, $\tau_{nd} \in [-1, 1]$). In tali contesti, dividere per $400$ comprimeva la loss di un fattore $1.6 \times 10^5$ (a $\sim 10^{-8}$) e riduceva i gradienti dei parametri a $10^{-11}$, paralizzando Adam e L-BFGS. In tutti gli script vige ora la regola unificata: **$\text{scale}_{mom} = 1.0$**.
+  > - **Fattore Geometrico del Laplaciano $s = H_{ref} / H_{coord} = 0.10$**: sulle coordinate adimensionali $[0, 1]$, il Laplaciano $\nabla_{nd}^2 \mathbf{u}$ scala come $1/H_{coord}^2$ mentre il gradiente di pressione scala come $1/(H_{ref} H_{coord})$. Dividendo per la scala di pressione, il termine viscoso del solvente deve obbligatoriamente avere coefficiente $\mathbf{\mu_s^* \cdot s \cdot \nabla_{nd}^2 \mathbf{u}}$ con $s = 0.005 / 0.05 = 0.10$. L'omissione di $s=0.10$ induceva artificialmente l'ottimizzatore a far collassare $\mu_s \to 0.010\text{ Pa}\cdot\text{s}$ (ossia $10\times$ inferiore).
 - **Ricetta Implementativa**:
   ```python
-  scale_mom = (self.eta_0 * self.U_ref) / (self.H_ref ** 2)
-  loss_m = (((f_u / scale_mom) ** 2 + (f_v / scale_mom) ** 2).mean()) / 2.0
+  # Formulazione universale nativamente adimensionale (physics.py e standalone):
+  s_geom = H_ref / H_coord  # 0.005 / 0.05 = 0.10
+  fu = re_eff * cu + px - mu_s_nd * s_geom * lu - dtx
+  fv = re_eff * cv + py - mu_s_nd * s_geom * lv - dty
+  loss_m = 0.5 * ((fu**2 + fv**2).mean())  # scale_mom = 1.0 identico
   ```
-- **Metrica di Verifica**: Loss del momento compressa a valori $O(10^{-2} - 10^0)$ anziché $O(10^5)$, perfetta stabilità delle velocità in Fase 2.
+- **Metrica di Verifica**: Loss del momento non alterata da fattori spuri, perfetta coerenza tra le loss di momento e dati cinematici, e stabilità asintotica in Fase 2.
 
 ---
 
@@ -254,17 +263,23 @@ Questo registro traccia ogni modifica implementata nel codice in seguito alle ra
 ---
 
 ### Proposta H — Gradient Clipping Rigido (`GRAD_CLIP_NORM = 5.0`)
-- **Stato**: 🟢 `[x]` Implementato (Commits `c23d8a6`, `289b7bb`)
+- **Stato**: 🟢 `[x]` Implementato (Commits `c23d8a6`, `289b7bb`, rettificato L-BFGS 2026-09-09)
 - **Priorità**: 🟡 MEDIA
-- **Target Files**: [`src/train.py:L430-L440`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/train.py#L430-L440), `train_4roll_main*.py`
+- **Target Files**: [`src/train.py:L430-L440`](file:///C:/Users/eaglw/Documents/PINN%20tesi/final_roll/src/train.py#L430-L440), `train_4roll_main*.py`, `final_roll/kaggle_run_*.py`
 - **Motivazione Fisica/Numerica**:  
-  In presenza di singolarità di gradiente nei punti di ristagno o in prossimità dei rulli, i gradienti autograd possono superare norme di centinaia. Un clipping permissivo (`1000.0`) permetteva salti distruttivi nei pesi della rete. Lo standard a `5.0` garantisce regolarità asintotica della discesa.
+  In presenza di singolarità di gradiente nei punti di ristagno o in prossimità dei rulli, i gradienti autograd possono superare norme di centinaia. Un clipping permissivo (`1000.0`) permetteva salti distruttivi nei pesi della rete. Lo standard a `5.0` garantisce regolarità asintotica della discesa in Adam.
+  
+  > [!CAUTION]
+  > **Invariante Assoluto per L-BFGS**:
+  > `torch.nn.utils.clip_grad_norm_` **NON DEVE MAI** essere eseguito all'interno della `closure()` di L-BFGS quando si adotta `line_search_fn="strong_wolfe"`. Alterare la norma o la direzione del gradiente durante la ricerca del passo viola i test di Armijo-Goldstein e di curvatura di Wolfe. L-BFGS rileva pendenza incoerente e abortisce immediatamente alla prima iterazione senza generare output o errore esplicito. Il clipping si applica esclusivamente ad Adam.
 - **Ricetta Implementativa**:
   ```python
+  # Esclusivamente in Adam:
   GRAD_CLIP_NORM = 5.0
   torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
+  # In L-BFGS: nessun clipping nella closure
   ```
-- **Metrica di Verifica**: Assenza di esplosioni di gradiente o NaN durante l'esplorazione Adam.
+- **Metrica di Verifica**: Assenza di esplosioni di gradiente in Adam e prosecuzione regolare della Strong Wolfe line search in L-BFGS.
 
 ---
 

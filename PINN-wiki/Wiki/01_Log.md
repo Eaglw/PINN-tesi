@@ -663,3 +663,26 @@
 - **[[00_Index]]**: Inserita la voce `[[Numerical_Hygiene_and_Phase2_Reforms]]` nella sezione Technical Methods.
 - **`tools/pinn_advisor/reports/Actionable_analysis.md`**: Sincronizzato il dashboard (9 implementati, 27%), marcate con `🟢 [x]` le proposte A, B, C, H, M, AA, AB, AC, AE con i commit atomici, integrato il changelog dettagliato e aggiornate le schede tecniche.
 
+---
+
+## [2026-09-09] update_wiki | Rettifica Analisi Claude (Proposta AA, Scalatura Laplaciano s=0.10 e Invariante L-BFGS Closure)
+
+### Sintesi Operazioni
+- **Risoluzione Bug L-BFGS Line Search**: identificata e rimossa la causa del salto/fallimento istantaneo di L-BFGS al passo 1. L'esecuzione di `torch.nn.utils.clip_grad_norm_` all'interno della `closure()` modificava la norma del gradiente richiesta da `strong_wolfe` per testare la curvatura di Wolfe e Armijo-Goldstein, provocando il fallimento della line search. Rimossa la chiamata di clipping da L-BFGS in entrambi gli script Kaggle (il clipping resta unicamente in Adam).
+- **Rettifica Analisi Claude su Proposta [AA] (Divisione per 400)**: chiarito il discrimine tra formulazione dimensionale e adimensionale.
+  - La proposta di Claude $\text{scale}_{mom} = 400.0\text{ Pa/m}$ è nata assumendo Navier-Stokes in unità fisiche $[\text{Pa/m}]$.
+  - Negli script con coordinate $x_{nd} \in [0, 1]$ e campi normalizzati $u_{nd}, p_{nd}, \boldsymbol{\tau}_{nd} \in [-1, 1]$ (`kaggle_run_inverse_mls.py` e `kaggle_run_direct_checkpoint_precomputed.py`), il residuo è **già intrinsecamente adimensionale e di ordine $\mathcal{O}(1)$**. La divisione per $400$ schiacciava il residuo a $2.5 \times 10^{-3}$, la loss di un fattore $1.6 \times 10^5$ (a $\sim 10^{-8}$) e i gradienti dei parametri a $10^{-11}$, paralizzando Adam e interrompendo L-BFGS. Imposto default $\text{scale}_{mom} = 1.0$.
+- **Risoluzione Collasso Storico di $\mu_s$ (Fattore Geometrico $s = H_{ref} / H_{coord} = 0.10$)**:
+  - Dimostrato analiticamente che nelle coordinate $[0, 1]$ le derivate prime scalano con $1/H_{coord}$ mentre il Laplaciano con $1/H_{coord}^2$. Dividendo per la scala di gradiente di pressione $\frac{\eta_0 U_{ref}}{H_{ref} H_{coord}}$, il termine del Laplaciano porta il prefattore $s = H_{ref} / H_{coord} = 0.005 / 0.05 = 0.10$.
+  - L'omissione di $s$ faceva pesare il Laplaciano $10\times$ più del dovuto, forzando l'ottimizzatore a compensare con $\mu_s \to 0.010\text{ Pa}\cdot\text{s}$ anziché $0.100\text{ Pa}\cdot\text{s}$. Corretto il termine in $\mu_s^* \cdot s \cdot \nabla_{nd}^2 \mathbf{u}$ in entrambi gli script.
+- **Supporto Chunking FP64 in L-BFGS Closure**: introdotto chunking a blocchi ($16.384$ punti) per calcolare la loss e accumulare i gradienti `backward()` su tutti i $125.456$ punti discreti senza sforare la VRAM in FP64.
+- **Adam Warmup per il Problema Diretto**: integrata una fase di riscaldamento Adam di $2.000$ epoche in `kaggle_run_direct_checkpoint_precomputed.py` prima della discesa quasi-Newton FP64.
+
+### Pagine Modificate
+- **[[Numerical_Hygiene_and_Phase2_Reforms]]** (Methods): Integrata la sottosezione di rettifica sulla Proposta [AA], formalizzata la rimozione del fattore artificiale $3.333$ in `src/physics.py` (`scale_mom = 1.0`), la distinzione dimensionale/adimensionale, il fattore $s=0.10$ sul Laplaciano e l'invariante di divieto clipping in L-BFGS closure.
+- **`tools/pinn_advisor/reports/Actionable_analysis.md`**: Aggiornate le schede tecniche di Proposta AA e Proposta H documentando la rimozione di `scale_mom = 3.333` in `src/physics.py` e i vincoli operativi universali.
+- **`final_roll/src/physics.py`**: Rimosso `/ scale_m` nel calcolo dei residui di quantità di moto $f_u, f_v$ e fissato `scale_mom = 1.0` nativo.
+- **`final_roll/train_4roll_main_mauri.py`**: Sincronizzato con `physics.py` stampando formulazione adimensionale nativa (`scale_mom = 1.0`).
+- **`final_roll/kaggle_run_inverse_mls.py`**: Corretto `InversePhysicsMLS` con `s_geom=0.10`, `scale_mom=1.0`, chunking FP64 e rimozione clipping in closure L-BFGS.
+- **`final_roll/kaggle_run_direct_checkpoint_precomputed.py`**: Integrato `s_geom` in `precompute_momentum_rhs`, allineato il budget a 20.000 epoche Adam FP32 + 2.000 iterazioni L-BFGS FP64 e ripulita la closure L-BFGS.
+
