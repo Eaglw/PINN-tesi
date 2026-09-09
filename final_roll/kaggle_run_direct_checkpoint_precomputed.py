@@ -252,16 +252,16 @@ def load_comsol_dataset(dataset_path, device):
 # ============================================================================
 # 3. STATIC RHS PRECOMPUTATION FROM PHASE 1 CHECKPOINT
 # ============================================================================
-def precompute_momentum_rhs(phase1_model, coords, rho_eff, mu_s_nd, chunk_size=4096):
+def precompute_momentum_rhs(phase1_model, coords, rho_eff, mu_s_nd, s_geom=0.10, chunk_size=4096):
     """
     Statically precomputes the entire RHS vector once across all collocation points:
       conv_u = u * ux + v * uy;  conv_v = u * vx + v * vy
       lap_u = uxx + uyy;         lap_v = vxx + vyy
       div_tx = txx_x + txy_y;    div_ty = txy_x + tyy_y
-      rhs_x = - rho_eff * conv_u + mu_s_nd * lap_u + div_tx
-      rhs_y = - rho_eff * conv_v + mu_s_nd * lap_v + div_ty
+      rhs_x = - rho_eff * conv_u + mu_s_nd * s_geom * lap_u + div_tx
+      rhs_y = - rho_eff * conv_v + mu_s_nd * s_geom * lap_v + div_ty
     """
-    print(f"\n[Precompute] Statically precomputing RHS vector across {coords.shape[0]} points (chunk={chunk_size})...")
+    print(f"\n[Precompute] Statically precomputing RHS vector across {coords.shape[0]} points (chunk={chunk_size}, s_geom={s_geom:.4f})...")
     t0 = time.time()
     phase1_model.eval()
 
@@ -320,10 +320,10 @@ def precompute_momentum_rhs(phase1_model, coords, rho_eff, mu_s_nd, chunk_size=4
         div_ty = txy_x + tyy_y
 
         # 3. Assemble RHS: grad(p) = RHS
-        # NS Momentum: rho*conv + grad(p) - mu_s*lap - div_tau = 0
-        #   => grad(p) = - rho*conv + mu_s*lap + div_tau = RHS
-        chunk_rhs_x = (- rho_eff * conv_u + mu_s_nd * lap_u + div_tx).detach()
-        chunk_rhs_y = (- rho_eff * conv_v + mu_s_nd * lap_v + div_ty).detach()
+        # NS Momentum: rho*conv + grad(p) - mu_s*s_geom*lap - div_tau = 0
+        #   => grad(p) = - rho*conv + mu_s*s_geom*lap + div_tau = RHS
+        chunk_rhs_x = (- rho_eff * conv_u + mu_s_nd * s_geom * lap_u + div_tx).detach()
+        chunk_rhs_y = (- rho_eff * conv_v + mu_s_nd * s_geom * lap_v + div_ty).detach()
 
         rhs_x_list.append(chunk_rhs_x)
         rhs_y_list.append(chunk_rhs_y)
@@ -381,6 +381,8 @@ def train_direct_pressure_precomputed(args):
     eta_0 = data["eta_0"]
     U_ref = data["U_ref"]
     H_ref = data["H_ref"]
+    H_coord = data["H_coord"]
+    s_geom = H_ref / H_coord
     rho_eff = (args.rho * U_ref * H_ref) / eta_0
     mu_s_nd = args.mu_s_true / eta_0
     scale_mom = args.scale_mom
@@ -405,7 +407,7 @@ def train_direct_pressure_precomputed(args):
 
     # 3. Static RHS Precomputation
     rhs_x, rhs_y = precompute_momentum_rhs(
-        phase1_model, coords, rho_eff=rho_eff, mu_s_nd=mu_s_nd, chunk_size=args.chunk_size_precompute
+        phase1_model, coords, rho_eff=rho_eff, mu_s_nd=mu_s_nd, s_geom=s_geom, chunk_size=args.chunk_size_precompute
     )
 
     # Free phase1_model memory from GPU
@@ -436,9 +438,57 @@ def train_direct_pressure_precomputed(args):
     init_l2_p = compute_pressure_l2_error(pressure_model, coords, p_exact)
     print(f"  Initial Relative L2(p) error: {init_l2_p * 100:.2f}%")
 
-    # 5. Convert to FP64 for Scientific L-BFGS Precision (Proposal M)
+    history = {
+        "iter": [],
+        "loss": [],
+        "l2_p": [],
+        "iter_time": [],
+    }
+
+    # 5. Optional Adam Warm-up (FP32)
+    if args.epochs_adam > 0:
+        print("\n" + "=" * 70)
+        print(f"PHASE 1: ADAM WARM-UP (FP32) — {args.epochs_adam} Epochs")
+        print("=" * 70)
+        optimizer_adam = torch.optim.Adam(pressure_model.parameters(), lr=args.lr_adam)
+        
+        N_total = coords.shape[0]
+        n_coll = args.n_collocation
+        if 0 < n_coll < N_total:
+            coll_idx = torch.linspace(0, N_total - 1, n_coll, dtype=torch.long, device=DEVICE)
+            train_coords_32 = coords[coll_idx]
+            train_rhs_x_32 = rhs_x[coll_idx]
+            train_rhs_y_32 = rhs_y[coll_idx]
+            train_p_exact_32 = p_exact[coll_idx]
+        else:
+            train_coords_32 = coords
+            train_rhs_x_32 = rhs_x
+            train_rhs_y_32 = rhs_y
+            train_p_exact_32 = p_exact
+
+        for ep in range(args.epochs_adam):
+            pressure_model.train()
+            optimizer_adam.zero_grad()
+            xc_ph = train_coords_32.clone().requires_grad_(True)
+            p_pred = pressure_model(xc_ph)
+            grad_p = torch.autograd.grad(p_pred.sum(), xc_ph, create_graph=True, retain_graph=True)[0]
+            px = grad_p[:, 0:1]
+            py = grad_p[:, 1:2]
+            res_x = (px - train_rhs_x_32) / scale_mom
+            res_y = (py - train_rhs_y_32) / scale_mom
+            loss_adam = 0.5 * ((res_x**2 + res_y**2).mean())
+            loss_adam.backward()
+            torch.nn.utils.clip_grad_norm_(pressure_model.parameters(), args.grad_clip)
+            optimizer_adam.step()
+
+            if (ep + 1) % max(1, args.epochs_adam // 10) == 0 or ep == 0 or (ep + 1) == args.epochs_adam:
+                with torch.no_grad():
+                    l2_p_val = compute_pressure_l2_error(pressure_model, train_coords_32, train_p_exact_32)
+                print(f"Adam Warmup Epoch {ep+1:5d}/{args.epochs_adam} | Loss: {loss_adam.item():.4e} | L2(p): {l2_p_val*100:.2f}%")
+
+    # 6. Phase 2: L-BFGS Direct Pressure Solver (FP64)
     print("\n" + "=" * 70)
-    print(f"L-BFGS DIRECT PRESSURE SOLVER (FP64) — {args.iters_lbfgs} Iterations")
+    print(f"PHASE 2: L-BFGS DIRECT PRESSURE SOLVER (FP64) — {args.iters_lbfgs} Iterations")
     print(f"  Precomputed static RHS | History: 300 | Strong Wolfe")
     print("=" * 70)
 
@@ -470,7 +520,7 @@ def train_direct_pressure_precomputed(args):
         pressure_model.parameters(),
         lr=1.0,
         max_iter=args.iters_lbfgs,
-        tolerance_grad=1e-16,
+        tolerance_grad=1e-12,
         tolerance_change=1e-16,
         history_size=300,
         line_search_fn="strong_wolfe",
@@ -486,13 +536,6 @@ def train_direct_pressure_precomputed(args):
     optimizer.zero_grad()
     if torch.cuda.is_available():
         torch.cuda.synchronize()
-
-    history = {
-        "iter": [],
-        "loss": [],
-        "l2_p": [],
-        "iter_time": [],
-    }
 
     iter_count = [0]
     pure_iter_times = []
@@ -518,7 +561,8 @@ def train_direct_pressure_precomputed(args):
         loss = 0.5 * ((res_x**2 + res_y**2).mean())
         loss.backward()
 
-        torch.nn.utils.clip_grad_norm_(pressure_model.parameters(), args.grad_clip)
+        # Note: Do NOT apply clip_grad_norm_ inside closure!
+        # Modifying gradients inside Strong Wolfe line search breaks curvature condition and aborts L-BFGS.
 
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -529,7 +573,7 @@ def train_direct_pressure_precomputed(args):
         curr_iter = iter_count[0]
 
         log_step = (
-            curr_iter % max(1, args.iters_lbfgs // 10) == 0
+            curr_iter % 50 == 0
             or curr_iter == 1
             or curr_iter == args.iters_lbfgs
         )
@@ -620,20 +664,23 @@ def parse_args():
     parser.add_argument("--output-dir", type=str, default=str(default_output), help="Output directory")
 
     # Training settings
-    parser.add_argument("--smoke-test", action="store_true", help="Run rapid smoke test (2 L-BFGS iterations)")
+    parser.add_argument("--smoke-test", action="store_true", help="Run rapid smoke test (2 Adam + 2 L-BFGS iterations)")
+    parser.add_argument("--epochs-adam", type=int, default=20000, help="Number of Adam warmup epochs (0 to skip)")
+    parser.add_argument("--lr-adam", type=float, default=1e-3, help="Adam base learning rate")
     parser.add_argument("--iters-lbfgs", type=int, default=2000, help="Number of L-BFGS iterations")
     parser.add_argument("--n-collocation", type=int, default=16384, help="Number of collocation points for L-BFGS (0 for full mesh)")
     parser.add_argument("--chunk-size-precompute", type=int, default=4096, help="Chunk size for static RHS precompute")
     parser.add_argument("--grad-clip", type=float, default=5.0, help="Rigid gradient clipping norm")
 
     # Physical parameters
-    parser.add_argument("--scale-mom", type=float, default=400.0, help="Momentum loss scaling scale_mom [Pa/m]")
+    parser.add_argument("--scale-mom", type=float, default=1.0, help="Momentum loss scaling (1.0 for dimensionless residual)")
     parser.add_argument("--mu-s-true", type=float, default=0.10, help="True solvent viscosity mu_s [Pa·s]")
     parser.add_argument("--rho", type=float, default=1000.0, help="Fluid density [kg/m^3]")
     parser.add_argument("--seed", type=int, default=123, help="Random seed")
 
     args = parser.parse_args()
     if args.smoke_test:
+        args.epochs_adam = 2
         args.iters_lbfgs = 2
         args.n_collocation = 8192
     return args

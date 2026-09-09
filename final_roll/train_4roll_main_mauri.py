@@ -10,7 +10,7 @@ Formulazione Standard Disaccoppiata (ViscoelasticNet Framework):
   - Pressione p (model_p) SBLOCCATA e addestrabile (lr = BASE_LR = 1e-3).
   - Parametrizzazione viscosità totale mu_tot con calcolo mu_s protetto da softplus (Proposta AC).
   - Ancoraggio algebrico HARD della pressione su model_p (Proposta AB) ed esclusione della penalty soft.
-  - Adimensionalizzazione e riscalamento del residuo di Navier-Stokes per scale_mom = (eta_0 * U_ref) / (H_coord ** 2) (Proposta AA).
+  - Formulazione Navier-Stokes nativamente adimensionale (scale_mom = 1.0, Proposta AA rettificata).
   - Igiene numerica: TF32 disabilitato, Adam EPS differenziato (1e-8 / 1e-15), Gradient Clipping a 5.0.
   - L-BFGS Fase 2: history_size = 300, line_search_fn = "strong_wolfe" (Run 23 tuning).
   - Diagnostica preventiva del rapporto di identificabilità di Leray rho_id a inizio Fase 2 (Proposta AE).
@@ -247,7 +247,7 @@ def main():
     print(f"  - model_psi: MOBILE (micro-lr={BASE_LR * 0.1})")
     print(f"  - mu_tot: ADDESTRABILE (softplus mu_s protetto da valori negativi)")
     print(f"  - Ancoraggio Pressione: HARD ALGEBRICO (p(x0) = p_ref esatto, penalty soft rimossa)")
-    print(f"  - Riscalamento Momento: scale_mom = {physics.scale_mom.item():.4f} Pa/m")
+    print(f"  - Formulazione Momento: Nativamente Adimensionale (scale_mom = {physics.scale_mom.item():.1f})")
     print(f"  - Budget: {ADAM_EPOCHS_PHASE2} Adam + {LBFGS_MAX_ITERS_PHASE2} L-BFGS (history_size=300, strong_wolfe)")
 
     # 3. Setup TensorBoard

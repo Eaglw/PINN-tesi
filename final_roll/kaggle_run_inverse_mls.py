@@ -124,7 +124,7 @@ class InversePhysicsMLS(nn.Module):
     Handles physical parameter mu_s identification with softplus protection (Proposal AC).
     Guarantees mu_s > 0 strictly throughout training.
     """
-    def __init__(self, guess_mu_s=0.08, scale_mom=400.0, rho=1000.0, U_ref=8.33319e-3, H_ref=0.005, eta_0=1.0):
+    def __init__(self, guess_mu_s=0.08, scale_mom=1.0, rho=1000.0, U_ref=8.33319e-3, H_ref=0.005, H_coord=0.05, eta_0=1.0):
         super().__init__()
         self.register_buffer("guess_mu_s", torch.tensor(float(guess_mu_s), dtype=torch.get_default_dtype()))
         self.register_buffer("scale_mom", torch.tensor(float(scale_mom), dtype=torch.get_default_dtype()))
@@ -132,8 +132,12 @@ class InversePhysicsMLS(nn.Module):
         # Characteristic scales
         self.U_ref = U_ref
         self.H_ref = H_ref
+        self.H_coord = H_coord
         self.eta_0 = eta_0
         self.rho_phys = rho
+        # Geometric ratio s = H_ref / H_coord for coordinate scaling on [0, 1] domain
+        s_val = H_ref / H_coord
+        self.register_buffer("s_geom", torch.tensor(float(s_val), dtype=torch.get_default_dtype()))
         # Dimensionless convective factor Re_scale = rho * U_ref * H_ref / eta_0
         re_val = (rho * U_ref * H_ref) / eta_0
         self.register_buffer("Re_scale", torch.tensor(float(re_val), dtype=torch.get_default_dtype()))
@@ -402,6 +406,7 @@ def train_inverse_mls(args):
         rho=args.rho,
         U_ref=data["U_ref"],
         H_ref=data["H_ref"],
+        H_coord=data["H_coord"],
         eta_0=data["eta_0"]
     ).to(DEVICE)
 
@@ -460,19 +465,20 @@ def train_inverse_mls(args):
             dtx = div_tau_x[i : i + chunk_size]
             dty = div_tau_y[i : i + chunk_size]
 
-            # Dimensionless Navier-Stokes Momentum Residuals (Proposal AA)
+            # Dimensionless Navier-Stokes Momentum Residuals
             re_eff = physics.Re_scale
             mu_s_nd = physics.mu_s_nd
+            s_geom = physics.s_geom
             scale_m = physics.scale_mom
 
-            fu = (re_eff * cu + px - mu_s_nd * lu - dtx) / scale_m
-            fv = (re_eff * cv + py - mu_s_nd * lv - dty) / scale_m
+            fu = (re_eff * cu + px - mu_s_nd * s_geom * lu - dtx) / scale_m
+            fv = (re_eff * cv + py - mu_s_nd * s_geom * lv - dty) / scale_m
 
             loss_chunk = 0.5 * ((fu**2 + fv**2).mean()) * w_chunk
             loss_chunk.backward()
             loss_accum += loss_chunk.item()
 
-        # Rigid Gradient Clipping (Proposal H)
+        # Rigid Gradient Clipping for Adam (Proposal H)
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         torch.nn.utils.clip_grad_norm_([physics._raw_mu_s], args.grad_clip)
 
@@ -519,7 +525,7 @@ def train_inverse_mls(args):
             list(model.parameters()) + [physics._raw_mu_s],
             lr=1.0,
             max_iter=args.iters_lbfgs,
-            tolerance_grad=1e-16,
+            tolerance_grad=1e-12,
             tolerance_change=1e-16,
             history_size=300,
             line_search_fn="strong_wolfe",
@@ -527,40 +533,62 @@ def train_inverse_mls(args):
 
         iter_count = [0]
         lbfgs_start_time = time.time()
+        chunk_size_lbfgs = 16384
 
         def closure():
             optimizer_lbfgs.zero_grad()
-            xc_ph = coords_64.clone().requires_grad_(True)
-            p_pred = model(xc_ph)
-
-            grad_p = torch.autograd.grad(p_pred.sum(), xc_ph, create_graph=True, retain_graph=True)[0]
-            px = grad_p[:, 0:1]
-            py = grad_p[:, 1:2]
-
             re_eff = physics.Re_scale
             mu_s_nd = physics.mu_s_nd
+            s_geom = physics.s_geom
             scale_m = physics.scale_mom
 
-            fu = (re_eff * conv_u_64 + px - mu_s_nd * lap_u_64 - div_tau_x_64) / scale_m
-            fv = (re_eff * conv_v_64 + py - mu_s_nd * lap_v_64 - div_tau_y_64) / scale_m
+            total_loss = 0.0
+            # Chunked evaluation over all collocation points to bound FP64 VRAM
+            for i in range(0, N_points, chunk_size_lbfgs):
+                xc = coords_64[i : i + chunk_size_lbfgs]
+                w_chunk = xc.shape[0] / N_points
 
-            loss = 0.5 * ((fu**2 + fv**2).mean())
-            loss.backward()
+                xc_ph = xc.clone().requires_grad_(True)
+                p_pred = model(xc_ph)
 
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-            torch.nn.utils.clip_grad_norm_([physics._raw_mu_s], args.grad_clip)
+                grad_p = torch.autograd.grad(p_pred.sum(), xc_ph, create_graph=True, retain_graph=True)[0]
+                px = grad_p[:, 0:1]
+                py = grad_p[:, 1:2]
+
+                cu = conv_u_64[i : i + chunk_size_lbfgs]
+                cv = conv_v_64[i : i + chunk_size_lbfgs]
+                lu = lap_u_64[i : i + chunk_size_lbfgs]
+                lv = lap_v_64[i : i + chunk_size_lbfgs]
+                dtx = div_tau_x_64[i : i + chunk_size_lbfgs]
+                dty = div_tau_y_64[i : i + chunk_size_lbfgs]
+
+                fu = (re_eff * cu + px - mu_s_nd * s_geom * lu - dtx) / scale_m
+                fv = (re_eff * cv + py - mu_s_nd * s_geom * lv - dty) / scale_m
+
+                chunk_loss = 0.5 * ((fu**2 + fv**2).mean()) * w_chunk
+                chunk_loss.backward()
+                total_loss += chunk_loss.item()
+
+            # Note: Do NOT apply clip_grad_norm_ inside closure!
+            # Modifying gradients inside Strong Wolfe line search breaks curvature condition and aborts L-BFGS.
 
             iter_count[0] += 1
-            if iter_count[0] % max(1, args.iters_lbfgs // 10) == 0 or iter_count[0] == args.iters_lbfgs:
+            curr_it = iter_count[0]
+            log_step = (
+                curr_it % 50 == 0
+                or curr_it == 1
+                or curr_it == args.iters_lbfgs
+            )
+            if log_step:
                 l2_p_val = compute_pressure_l2_error(model, coords_64, p_exact_64, chunk_size=8192)
                 mu_s_val = physics.mu_s.item()
-                history["epoch"].append(args.epochs_adam + iter_count[0])
-                history["loss"].append(loss.item())
+                history["epoch"].append(args.epochs_adam + curr_it)
+                history["loss"].append(total_loss)
                 history["mu_s"].append(mu_s_val)
                 history["l2_p"].append(l2_p_val)
-                print(f"L-BFGS Iter {iter_count[0]:4d}/{args.iters_lbfgs} | Loss: {loss.item():.4e} | mu_s: {mu_s_val:.4f} Pa·s | L2(p): {l2_p_val*100:.2f}% | Elapsed: {time.time() - lbfgs_start_time:.1f}s")
+                print(f"L-BFGS Iter {curr_it:4d}/{args.iters_lbfgs} | Loss: {total_loss:.4e} | mu_s: {mu_s_val:.5f} Pa·s | L2(p): {l2_p_val*100:.2f}% | Elapsed: {time.time() - lbfgs_start_time:.1f}s")
 
-            return loss
+            return torch.tensor(total_loss, dtype=torch.float64, device=coords_64.device)
 
         optimizer_lbfgs.step(closure)
 
@@ -650,7 +678,7 @@ def parse_args():
     parser.add_argument("--grad-clip", type=float, default=5.0, help="Rigid gradient clipping norm")
 
     # Physical parameters
-    parser.add_argument("--scale-mom", type=float, default=400.0, help="Momentum loss scaling scale_mom [Pa/m]")
+    parser.add_argument("--scale-mom", type=float, default=1.0, help="Momentum loss scaling (1.0 for dimensionless residual)")
     parser.add_argument("--guess-mu-s", type=float, default=0.08, help="Initial guess for mu_s [Pa·s]")
     parser.add_argument("--rho", type=float, default=1000.0, help="Fluid density [kg/m^3]")
     parser.add_argument("--seed", type=int, default=123, help="Random seed")

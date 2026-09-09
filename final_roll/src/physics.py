@@ -90,8 +90,10 @@ class Physics(nn.Module):
 
     @property
     def scale_mom(self):
-        """[Proposta AA] Fattore di scala dimensionale del residuo di momento: scale_mom = (eta_0 * U_ref) / (H_coord ** 2)."""
-        return (self.eta_0 * self.U_ref) / (self.H_coord ** 2)
+        """[Proposta AA - Rettificata] Il residuo di Navier-Stokes è già intrinsecamente adimensionale (scala = 1.0)."""
+        device = self.eta_0.device if hasattr(self, "eta_0") else DEVICE
+        dtype = self.eta_0.dtype if hasattr(self, "eta_0") else torch.float32
+        return torch.tensor(1.0, device=device, dtype=dtype)
 
     @property
     def lam(self):
@@ -309,19 +311,18 @@ class Physics(nn.Module):
                 div_tau_x = tau_xx_x + tau_xy_y
                 div_tau_y = tau_xy_x + tau_yy_y
 
-            scale_m = self.scale_mom
             f_u = (
                 Re_scale * (u * u_x + v * u_y)
                 + p_x
                 - mu_s_nd * (u_xx + u_yy)
                 - div_tau_x
-            ) / scale_m
+            )
             f_v = (
                 Re_scale * (u * v_x + v * v_y)
                 + p_y
                 - mu_s_nd * (v_xx + v_yy)
                 - div_tau_y
-            ) / scale_m
+            )
         else:
             f_u = f_v = torch.zeros_like(u)
 
