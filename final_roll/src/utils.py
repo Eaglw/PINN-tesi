@@ -242,7 +242,16 @@ def _extract_boundary_groups(
     if not os.path.isfile(mphtxt_path):
         mphtxt_path = str(DATASET_PATH).replace(".csv", ".mphtxt")
     if not os.path.isfile(mphtxt_path):
-        raise FileNotFoundError(f"File mesh .mphtxt non trovato per {DATASET_PATH}")
+        # Fallback alla mesh comune della geometria 4-roll mill
+        common_mesh = Path(DATASET_PATH).parent / "4_roll_mill_geom.mphtxt"
+        if common_mesh.is_file():
+            mphtxt_path = str(common_mesh)
+        else:
+            common_mesh_alt = Path(DATASET_PATH).parent / "4_roll_mill.mphtxt"
+            if common_mesh_alt.is_file():
+                mphtxt_path = str(common_mesh_alt)
+            else:
+                raise FileNotFoundError(f"File mesh .mphtxt non trovato per {DATASET_PATH}")
 
     with open(mphtxt_path, "r") as f:
         lines = [line.strip() for line in f]
