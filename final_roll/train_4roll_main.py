@@ -78,13 +78,6 @@ DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 USE_ROLL_STRESS_BC = True
 W_ROLL_STRESS = 1.0  # Peso dello stress BC rispetto al velocity BC sui rulli (pesato 1:1 per componente)
 
-# --- Percorsi Base ---
-BASE_DIR = Path(__file__).resolve().parent
-DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
-
-# --- Checkpointing ---
-RESUME_CHECKPOINT = BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1_40k+10k.pth"
-
 # --- Parametri Fisici REALI (Ground Truth) ---
 MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
 MU_P_TRUE = 0.9  # Viscosità polimerica [Pa·s]
@@ -94,6 +87,18 @@ LAM_TRUE = 0.05  # Tempo di rilassamento [s]
 EPS_TRUE = 0.0  # Parametro PTT (bloccato a 0)
 ALPHA_TRUE = 0.0  # Parametro Giesekus (bloccato a 0)
 RHO = 1000.0  # Densità [kg/m³]
+
+# Tag identificativo standard della configurazione reologica (L-P-S)
+PARAM_TAG = f"L{LAM_TRUE:g}-P{MU_P_TRUE:g}-S{MU_S_TRUE:g}"
+
+# --- Percorsi Base & Dataset ---
+BASE_DIR = Path(__file__).resolve().parent
+_ds_candidate = BASE_DIR.parent / "COMSOL" / "4roll" / f"4_roll_mill_{PARAM_TAG}.csv"
+DATASET_PATH = _ds_candidate if _ds_candidate.exists() else (BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv")
+
+# --- Checkpointing (con risoluzione automatica L-P-S) ---
+_ckpt_candidate = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_40k+10k.pth"
+RESUME_CHECKPOINT = _ckpt_candidate if _ckpt_candidate.exists() else (BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1_40k+10k.pth")
 
 # --- Costanti e Calcolo Dinamico dei Guess Iniziali (Log-Space Parametrization) ---
 MIN_MU_S = 1e-6
@@ -174,7 +179,7 @@ def _format_iters(n):
 budget_tag = f"Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}_Warmup{_format_iters(WARMUP_PHASE2_EPOCHS)}"
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
 
-config_name = f"[{run_timestamp}][{mode_tag}][{strategy_tag}][{budget_tag}]"
+config_name = f"[{run_timestamp}][{mode_tag}][{strategy_tag}][{PARAM_TAG}][{budget_tag}]"
 
 OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

@@ -686,3 +686,19 @@
 - **`final_roll/kaggle_run_inverse_mls.py`**: Corretto `InversePhysicsMLS` con `s_geom=0.10`, `scale_mom=1.0`, chunking FP64 e rimozione clipping in closure L-BFGS.
 - **`final_roll/kaggle_run_direct_checkpoint_precomputed.py`**: Integrato `s_geom` in `precompute_momentum_rhs`, allineato il budget a 20.000 epoche Adam FP32 + 2.000 iterazioni L-BFGS FP64 e ripulita la closure L-BFGS.
 
+---
+
+## [2026-09-10] plan | Roadmap Identificabilità Parametrica & Continuation in Weissenberg
+
+### Sintesi Operazioni
+- **Cambio di Paradigma Ricevimento Maurizio**: spostato l'obiettivo dalla forzatura numerica del singolo caso $\beta = 0.10$ alla mappatura sistematica dello spazio dei parametri $(\beta, Wi)$ per determinare la regione di reale identificabilità fisica nel Four-Roll Mill.
+- **Analisi Comparativa ViscoelasticNet (Thakur et al. 2024)**: evidenziato che i benchmark Oldroyd-B in letteratura operano sempre con $\beta = \eta_s / \eta_{tot} \in [0.44, 0.67]$ (rapporto solvente/polimero paritario o superiore), mentre il caso attuale a $\beta = 0.10$ è fortemente polymer-dominated, causando il mascheramento del segnale $\eta_s \nabla^2 \mathbf{u}$ da parte di $\nabla \cdot \boldsymbol{\tau}_p$ e $\nabla p$.
+- **Formalizzazione del Protocollo (`ROADMAP_IDENTIFIABILITY_AND_CONTINUATION.md`)**:
+  1. **Vincolo Fisico Invariante**: mantenimento di $\eta_{tot} = \eta_s + \eta_p = 1.0\text{ Pa}\cdot\text{s}$ costante per preservare il numero di Reynolds globale e le scale di velocità tra le simulazioni COMSOL.
+  2. **Matrice COMSOL Prioritaria**:
+     - $\beta = 0.30$ ($\eta_s = 0.3, \eta_p = 0.7, \lambda = 0.05\text{ s}$);
+     - $\beta = 0.50$ ($\eta_s = 0.5, \eta_p = 0.5, \lambda = 0.05\text{ s}$, analogo al canonico Thakur).
+  3. **Diagnostica Offline Preventiva**: screening rapido dei dataset tramite il rapporto $R = \|\eta_s \nabla^2 \mathbf{u}\|_{L_2} / \|\nabla \cdot \boldsymbol{\tau}_p\|_{L_2}$, correlazione spaziale e calcolo preventivo di $\dot{\gamma}_{char}$ e $Wi$.
+  4. **Metodo di Continuazione / Transfer Learning su $Wi$**: sequenza a $\lambda$ crescente ereditando i pesi neurali $\theta_{NN}^{(k+1)} \leftarrow \theta_{NN}^{(k)}$ ma resettando rigidamente i parametri fisici $\lambda, \eta_p$ al guess perturbato.
+
+

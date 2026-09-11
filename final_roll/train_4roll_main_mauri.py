@@ -95,12 +95,6 @@ DEBUG_MODE = False
 USE_ROLL_STRESS_BC = True
 W_ROLL_STRESS = 1.0
 
-BASE_DIR = Path(__file__).resolve().parent
-DATASET_PATH = BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv"
-
-# Checkpoint consolidato Fase 1
-RESUME_CHECKPOINT = BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1_40k+10k.pth"
-
 # Parametri Fisici REALI (Ground Truth)
 MU_S_TRUE = 0.100
 MU_P_TRUE = 0.900
@@ -110,6 +104,17 @@ LAM_TRUE = 0.050
 EPS_TRUE = 0.0
 ALPHA_TRUE = 0.0
 RHO = 1000.0
+
+# Tag identificativo standard della configurazione reologica (L-P-S)
+PARAM_TAG = f"L{LAM_TRUE:g}-P{MU_P_TRUE:g}-S{MU_S_TRUE:g}"
+
+BASE_DIR = Path(__file__).resolve().parent
+_ds_candidate = BASE_DIR.parent / "COMSOL" / "4roll" / f"4_roll_mill_{PARAM_TAG}.csv"
+DATASET_PATH = _ds_candidate if _ds_candidate.exists() else (BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv")
+
+# Checkpoint consolidato Fase 1 (con risoluzione automatica L-P-S)
+_ckpt_candidate = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_40k+10k.pth"
+RESUME_CHECKPOINT = _ckpt_candidate if _ckpt_candidate.exists() else (BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1_40k+10k.pth")
 
 MIN_MU_S = 1e-6
 MIN_MU_P = 1e-6
@@ -183,7 +188,7 @@ def _format_iters(n):
 
 budget_tag = f"Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}_Warmup{_format_iters(WARMUP_PHASE2_EPOCHS)}"
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
-config_name = f"[{run_timestamp}][{mode_tag}][{strategy_tag}][{budget_tag}][mauri]"
+config_name = f"[{run_timestamp}][{mode_tag}][{strategy_tag}][{PARAM_TAG}][{budget_tag}][mauri]"
 
 OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
