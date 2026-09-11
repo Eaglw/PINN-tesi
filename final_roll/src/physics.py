@@ -112,10 +112,11 @@ class Physics(nn.Module):
 
     @property
     def mu_s(self):
-        """Viscosita' solvente dimensionale: se use_mu_tot_param, calcolata via softplus protetta."""
+        """Viscosita' solvente dimensionale: se use_mu_tot_param, calcolata direttamente in log-space garantendo mu_s > 0."""
         if getattr(self, "use_mu_tot_param", False):
-            mu_p_frozen = self.mu_p.detach()
-            return nn.functional.softplus(self.mu_tot - mu_p_frozen, beta=20.0)
+            raw_s = getattr(self, "_raw_mu_s_phase2", None)
+            if raw_s is not None:
+                return self.guess_mu_s * torch.exp(raw_s).squeeze()
         return self.guess_mu_s * torch.exp(self._raw_mu_s).squeeze()
 
     @property
@@ -125,9 +126,10 @@ class Physics(nn.Module):
 
     @property
     def mu_tot(self):
-        """Viscosita' totale derivata o ottimizzata: eta_tot = eta_s + eta_p."""
+        """Viscosita' totale derivata o vincolata: eta_tot = eta_p (frozen F1) + eta_s garantendo mu_tot >= mu_p."""
         if getattr(self, "use_mu_tot_param", False):
-            return self.guess_mu_tot * torch.exp(self._raw_mu_tot).squeeze()
+            # Vincolo fisico analitico: mu_tot e' rigorosamente vincolato >= mu_p
+            return self.mu_p.detach() + self.mu_s
         return self.mu_s + self.mu_p
 
     @property
@@ -160,8 +162,9 @@ class Physics(nn.Module):
 
     def enable_phase2_mu_tot(self, guess_mu_tot=None):
         """
-        [Proposta AC] Abilita l'ottimizzazione in Fase 2 su mu_tot in log-space,
-        congelando mu_p da Fase 1 e derivando mu_s tramite softplus(mu_tot - mu_p, beta=20).
+        [Vincolo Fisico Garantito Fase 2]
+        Congela mu_p da Fase 1 e parametrizza mu_s in log-space:
+        mu_tot = mu_p_fixed + mu_s e' rigorosamente >= mu_p.
         """
         self.use_mu_tot_param = True
         # Congela i parametri reologici di Fase 1
@@ -175,18 +178,12 @@ class Physics(nn.Module):
         dtype = self._raw_mu_p.dtype if hasattr(self, "_raw_mu_p") else torch.float32
         device = self._raw_mu_p.device if hasattr(self, "_raw_mu_p") else DEVICE
 
-        if guess_mu_tot is not None:
-            self.guess_mu_tot.copy_(torch.tensor(float(guess_mu_tot), device=device, dtype=dtype))
-        else:
-            init_tot = (self.mu_p.detach() + self.guess_mu_s).item()
-            self.guess_mu_tot.copy_(torch.tensor(init_tot, device=device, dtype=dtype))
-
-        self._raw_mu_tot = nn.Parameter(torch.zeros(1, device=device, dtype=dtype), requires_grad=True)
+        self._raw_mu_s_phase2 = nn.Parameter(torch.zeros(1, device=device, dtype=dtype), requires_grad=True)
 
     def set_trainable(self, name, trainable=True):
         """Imposta requires_grad sul parametro raw sottostante."""
         if getattr(self, "use_mu_tot_param", False) and name in ("mu_s", "mu_tot"):
-            raw_param = getattr(self, "_raw_mu_tot", None)
+            raw_param = getattr(self, "_raw_mu_s_phase2", None)
             if raw_param is not None and isinstance(raw_param, nn.Parameter):
                 raw_param.requires_grad_(trainable)
             return
@@ -197,8 +194,8 @@ class Physics(nn.Module):
     def get_phase2_params(self):
         """Restituisce la lista di parametri fisici addestrabili per la Fase 2."""
         if getattr(self, "use_mu_tot_param", False):
-            raw_tot = getattr(self, "_raw_mu_tot", None)
-            return [raw_tot] if (raw_tot is not None and isinstance(raw_tot, nn.Parameter)) else []
+            raw_s = getattr(self, "_raw_mu_s_phase2", None)
+            return [raw_s] if (raw_s is not None and isinstance(raw_s, nn.Parameter)) else []
         raw_p = getattr(self, "_raw_mu_s", None)
         return [raw_p] if (raw_p is not None and isinstance(raw_p, nn.Parameter)) else []
 
