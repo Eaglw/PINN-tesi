@@ -96,10 +96,10 @@ USE_ROLL_STRESS_BC = True
 W_ROLL_STRESS = 1.0
 
 # Parametri Fisici REALI (Ground Truth)
-MU_S_TRUE = 0.100
-MU_P_TRUE = 0.900
+MU_S_TRUE = 0.500
+MU_P_TRUE = 0.500
 MU_TOT_TRUE = 1.000
-BETA_TRUE = 0.100
+BETA_TRUE = 0.500
 LAM_TRUE = 0.050
 EPS_TRUE = 0.0
 ALPHA_TRUE = 0.0
@@ -112,9 +112,8 @@ BASE_DIR = Path(__file__).resolve().parent
 _ds_candidate = BASE_DIR.parent / "COMSOL" / "4roll" / f"4_roll_mill_{PARAM_TAG}.csv"
 DATASET_PATH = _ds_candidate if _ds_candidate.exists() else (BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv")
 
-# Checkpoint consolidato Fase 1 (con risoluzione automatica L-P-S)
-_ckpt_candidate = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_40k+10k.pth"
-RESUME_CHECKPOINT = _ckpt_candidate if _ckpt_candidate.exists() else (BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1_40k+10k.pth")
+# Esecuzione completa end-to-end da zero: RESUME_CHECKPOINT impostato a None
+RESUME_CHECKPOINT = None
 
 MIN_MU_S = 1e-6
 MIN_MU_P = 1e-6
@@ -134,23 +133,25 @@ GUESS_ALPHA = 0.0
 HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
 
-# Budget Fase 1 (usato da src/train per indicizzare la transizione al checkpoint F1 40k+10k)
+# Budget Fase 1: Cinematica & Reologia (40k Adam + 10k L-BFGS)
 ADAM_EPOCHS_PHASE1 = 40000
 USE_LBFGS_PHASE1 = True
 LBFGS_MAX_ITERS_PHASE1 = 10000
 
-# Budget Fase 2 per PC Maurizio (Standard: 20.000 Adam + 2.000 L-BFGS)
-ADAM_EPOCHS_PHASE2 = 20000
+# Budget Fase 2: Idrodinamica & Pressione (30k Adam + 5k L-BFGS)
+ADAM_EPOCHS_PHASE2 = 30000
 USE_LBFGS_PHASE2 = True
-LBFGS_MAX_ITERS_PHASE2 = 2000
+LBFGS_MAX_ITERS_PHASE2 = 5000
 
-# Nessun warmup su mu_tot in Fase 2 (attivo e stimato da epoca 0)
+# Warmup Fase 2 (opzionale, default 0 epoche: mu_tot attivo da subito)
 WARMUP_PHASE2_EPOCHS = 0
 USE_MU_TOT_PARAM = True
 
 # Supporto per esecuzione rapida di collaudo (--smoke-test)
 if "--smoke-test" in sys.argv:
-    print("\n[ATTENZIONE] Modalita' --smoke-test attiva: 2 epoche Adam e 2 iterazioni L-BFGS.")
+    print("\n[ATTENZIONE] Modalita' --smoke-test attiva: 2 epoche Adam e 2 iterazioni L-BFGS per fase.")
+    ADAM_EPOCHS_PHASE1 = 2
+    LBFGS_MAX_ITERS_PHASE1 = 2
     ADAM_EPOCHS_PHASE2 = 2
     LBFGS_MAX_ITERS_PHASE2 = 2
 
@@ -186,7 +187,7 @@ def _format_iters(n):
         return f"{n // 1000}k"
     return f"{n / 1000:.1f}k"
 
-budget_tag = f"Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}_Warmup{_format_iters(WARMUP_PHASE2_EPOCHS)}"
+budget_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}_Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}"
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
 config_name = f"[{run_timestamp}][{mode_tag}][{strategy_tag}][{PARAM_TAG}][{budget_tag}][mauri]"
 
@@ -206,10 +207,11 @@ for name, val in list(globals().items()):
 # ============================================================================
 def main():
     print("=" * 80)
-    print("PINN 4-ROLL MILL: ADDESTRAMENTO FASE 2 STANDARD DISACCOPPIATA (PC MAURIZIO)")
+    print("PINN 4-ROLL MILL: ADDESTRAMENTO COMPLETO END-TO-END FASE 1 + FASE 2 (PC MAURIZIO)")
     print(f"Device: {DEVICE} | Dtype: {torch.get_default_dtype()}")
     print(f"Dataset: {DATASET_PATH}")
-    print(f"Checkpoint di partenza: {RESUME_CHECKPOINT.name}")
+    ckpt_msg = RESUME_CHECKPOINT.name if RESUME_CHECKPOINT is not None else "Nessuno (Partenza da zero: Fase 1 + Fase 2)"
+    print(f"Checkpoint di partenza: {ckpt_msg}")
     print(f"Output Directory: {OUTPUT_DIR}")
     print("=" * 80)
 
@@ -240,20 +242,17 @@ def main():
         eta_0=ETA_0,
     ).to(DEVICE)
 
-    # Verifica presenza checkpoint Fase 1
-    if not RESUME_CHECKPOINT.exists():
-        raise FileNotFoundError(f"Checkpoint Fase 1 non trovato: {RESUME_CHECKPOINT}")
+    # Verifica eventuale checkpoint di ripresa
+    if RESUME_CHECKPOINT is not None and not RESUME_CHECKPOINT.exists():
+        raise FileNotFoundError(f"Checkpoint specificato non trovato: {RESUME_CHECKPOINT}")
 
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nModello inizializzato: {total_params:,} parametri totali")
-    print(f"Configurazione Fase 2 Standard:")
-    print(f"  - model_tau: CONGELATO")
-    print(f"  - model_p: ADDESTRABILE (lr={BASE_LR})")
-    print(f"  - model_psi: MOBILE (micro-lr={BASE_LR * 0.1})")
-    print(f"  - mu_tot: ADDESTRABILE (softplus mu_s protetto da valori negativi)")
+    print(f"Configurazione Addestramento Completo (ViscoelasticNet Staged):")
+    print(f"  - Fase 1: {ADAM_EPOCHS_PHASE1} Adam + {LBFGS_MAX_ITERS_PHASE1} L-BFGS (Stima lambda ed eta_p, p congelata)")
+    print(f"  - Fase 2: {ADAM_EPOCHS_PHASE2} Adam + {LBFGS_MAX_ITERS_PHASE2} L-BFGS (tau congelato, psi mobile, stima eta_s)")
     print(f"  - Ancoraggio Pressione: HARD ALGEBRICO (p(x0) = p_ref esatto, penalty soft rimossa)")
     print(f"  - Formulazione Momento: Nativamente Adimensionale (scale_mom = {physics.scale_mom.item():.1f})")
-    print(f"  - Budget: {ADAM_EPOCHS_PHASE2} Adam + {LBFGS_MAX_ITERS_PHASE2} L-BFGS (history_size=300, strong_wolfe)")
 
     # 3. Setup TensorBoard
     launch_tensorboard_server(OUTPUT_DIR.parent)
@@ -261,7 +260,7 @@ def main():
     tb_dir.mkdir(parents=True, exist_ok=True)
     tb_writer = SummaryWriter(log_dir=str(tb_dir))
 
-    # 4. Esecuzione Addestramento Standard Fase 2
+    # 4. Esecuzione Addestramento Completo (Fase 1 -> Fase 2)
     history = train(
         model,
         physics,
@@ -272,7 +271,15 @@ def main():
     )
     tb_writer.close()
 
-    # 5. Report Risultati Finali
+    # 5. Archiviazione Checkpoint Fase 1 per benchmark e test futuri
+    f1_ckpt_in_run = OUTPUT_DIR / "checkpoint_lbfgs_phase1.pth"
+    if f1_ckpt_in_run.exists():
+        f1_dest = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_40k+10k.pth"
+        import shutil
+        shutil.copy2(f1_ckpt_in_run, f1_dest)
+        print(f"\n[Checkpoint F1] Checkpoint consolidato Fase 1 archiviato in: {f1_dest}")
+
+    # 6. Report Risultati Finali
     params = physics.log_params()
     print(f"\n{'=' * 60}\nRISULTATI FINALI PARAMETRI FISICI (Dimensionali e Adimensionali)\n{'=' * 60}")
     print(f"  eta_0 (scala rif.) : {params['eta_0']:.6f} Pa·s")
@@ -296,14 +303,14 @@ def main():
     for fn, err in errors.items():
         print(f"  {fn:>8s}: {err:.6f} ({err*100:.2f}%)")
 
-    # 6. Generazione Plot e Diagnostiche
+    # 7. Generazione Plot e Diagnostiche
     print(f"\nGenerazione diagnostiche e plot in: {OUTPUT_DIR} ...")
     history.plot_losses(str(OUTPUT_DIR / "loss_history.png"))
     history.plot_params(str(OUTPUT_DIR / "params_evolution.png"))
     history.plot_l2_errors(str(OUTPUT_DIR / "l2_errors_history.png"))
     generate_all_diagnostics(model, physics, data, str(OUTPUT_DIR))
 
-    print(f"\n[OK] Run Fase 2 Standard completata con successo sul PC di Maurizio! Output: {OUTPUT_DIR}")
+    print(f"\n[OK] Run Completa End-to-End conclusa con successo sul PC di Maurizio! Output: {OUTPUT_DIR}")
 
 
 if __name__ == "__main__":
