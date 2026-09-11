@@ -978,9 +978,11 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             {"params": psi_params, "lr": BASE_LR * 0.1, "eps": ADAM_EPS},
         ]
         if physics.inverse_mode:
-            phys_lr = BASE_LR * PARAM_LR_FACTOR if not is_warmup_ph2 else 0.0
+            phys_lr = BASE_LR * PARAM_LR_FACTOR
             if hasattr(physics, "get_phase2_params"):
                 phys_params_ph2 = physics.get_phase2_params()
+            elif hasattr(physics, "_raw_mu_s_phase2"):
+                phys_params_ph2 = [physics._raw_mu_s_phase2]
             elif hasattr(physics, "_raw_mu_tot"):
                 phys_params_ph2 = [physics._raw_mu_tot]
             else:
@@ -989,8 +991,30 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
 
-        steps_rem = ADAM_EPOCHS_PHASE2 - local_start
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=1e-6)
+        steps_rem = max(ADAM_EPOCHS_PHASE2 - local_start, 1)
+        warmup_steps_phys = int(0.20 * steps_rem)
+
+        def net_lr_lambda(step):
+            # Cosine decay standard per le reti (model_p e model_psi) da 1.0 a 1e-3
+            prog = min(step / steps_rem, 1.0)
+            return float(0.5 * (1.0 + np.cos(np.pi * prog)) * 0.999 + 0.001)
+
+        def phys_lr_lambda(step):
+            # Warmup-Peak-Decay per parametro fisico:
+            # Primi 20% sale dolcemente dal 5% al 100% per far pre-formare p(x,y)
+            # Dal 20% al 100% discesa cosenoidale morbida
+            if warmup_steps_phys > 0 and step < warmup_steps_phys:
+                alpha = step / warmup_steps_phys
+                return float(0.05 + 0.95 * alpha)
+            else:
+                prog = min((step - warmup_steps_phys) / max(steps_rem - warmup_steps_phys, 1), 1.0)
+                return float(0.5 * (1.0 + np.cos(np.pi * prog)) * 0.999 + 0.001)
+
+        lr_lambdas = [net_lr_lambda, net_lr_lambda]
+        if physics.inverse_mode:
+            lr_lambdas.append(phys_lr_lambda)
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambdas)
 
         # Carica stato se ripreso da checkpoint
         opt_loaded = False
