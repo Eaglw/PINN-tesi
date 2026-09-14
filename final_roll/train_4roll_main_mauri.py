@@ -100,7 +100,7 @@ MU_S_TRUE = 0.500
 MU_P_TRUE = 0.500
 MU_TOT_TRUE = 1.000
 BETA_TRUE = 0.500
-LAM_TRUE = 0.050
+LAM_TRUE = 0.200
 EPS_TRUE = 0.0
 ALPHA_TRUE = 0.0
 RHO = 1000.0
@@ -112,8 +112,11 @@ BASE_DIR = Path(__file__).resolve().parent
 _ds_candidate = BASE_DIR.parent / "COMSOL" / "4roll" / f"4_roll_mill_{PARAM_TAG}.csv"
 DATASET_PATH = _ds_candidate if _ds_candidate.exists() else (BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv")
 
-# Esecuzione completa end-to-end da zero: RESUME_CHECKPOINT impostato a None
-RESUME_CHECKPOINT = None
+# Checkpoint di partenza: ripresa dal consolidato/transfer di Fase 1
+_default_f1_ckpt = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_transfer.pth"
+if not _default_f1_ckpt.exists():
+    _default_f1_ckpt = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_40k+10k.pth"
+RESUME_CHECKPOINT = _default_f1_ckpt if _default_f1_ckpt.exists() else None
 
 MIN_MU_S = 1e-6
 MIN_MU_P = 1e-6
@@ -133,15 +136,15 @@ GUESS_ALPHA = 0.0
 HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
 
-# Budget Fase 1: Cinematica & Reologia (40k Adam + 10k L-BFGS)
-ADAM_EPOCHS_PHASE1 = 40000
+# Budget Fase 1: Cinematica & Reologia (5k Adam + 1k L-BFGS di rifinitura per abbattere ulteriormente lo stress)
+ADAM_EPOCHS_PHASE1 = 5000
 USE_LBFGS_PHASE1 = True
-LBFGS_MAX_ITERS_PHASE1 = 10000
+LBFGS_MAX_ITERS_PHASE1 = 1000
 
-# Budget Fase 2: Idrodinamica & Pressione (30k Adam + 5k L-BFGS)
+# Budget Fase 2: Idrodinamica & Pressione (30k Adam + 3k L-BFGS per un totale complessivo di ~34h)
 ADAM_EPOCHS_PHASE2 = 30000
 USE_LBFGS_PHASE2 = True
-LBFGS_MAX_ITERS_PHASE2 = 5000
+LBFGS_MAX_ITERS_PHASE2 = 3000
 
 # Warmup Fase 2 (opzionale, default 0 epoche: mu_tot attivo da subito)
 WARMUP_PHASE2_EPOCHS = 0
@@ -149,7 +152,7 @@ USE_MU_TOT_PARAM = True
 
 # Supporto per esecuzione rapida di collaudo (--smoke-test)
 if "--smoke-test" in sys.argv:
-    print("\n[ATTENZIONE] Modalita' --smoke-test attiva: 2 epoche Adam e 2 iterazioni L-BFGS per fase.")
+    print("\n[ATTENZIONE] Modalita' --smoke-test attiva: 2 epoche Adam F1, 2 iterazioni L-BFGS F1, 2 epoche Adam F2, 2 iterazioni L-BFGS F2.")
     ADAM_EPOCHS_PHASE1 = 2
     LBFGS_MAX_ITERS_PHASE1 = 2
     ADAM_EPOCHS_PHASE2 = 2
@@ -170,7 +173,7 @@ W_CONSTITUTIVE = 1.0
 W_DATA_2 = 20.0
 W_BC_2 = 5.0
 W_MOMENTUM = 1.0
-W_DRIFT = 0.0
+W_DRIFT = 0.1
 VARIANCE_EPS = 1e-4
 
 # ============================================================================
@@ -274,7 +277,8 @@ def main():
     # 5. Archiviazione Checkpoint Fase 1 per benchmark e test futuri
     f1_ckpt_in_run = OUTPUT_DIR / "checkpoint_lbfgs_phase1.pth"
     if f1_ckpt_in_run.exists():
-        f1_dest = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_40k+10k.pth"
+        f1_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}"
+        f1_dest = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_{f1_tag}.pth"
         import shutil
         shutil.copy2(f1_ckpt_in_run, f1_dest)
         print(f"\n[Checkpoint F1] Checkpoint consolidato Fase 1 archiviato in: {f1_dest}")
@@ -309,6 +313,9 @@ def main():
     history.plot_params(str(OUTPUT_DIR / "params_evolution.png"))
     history.plot_l2_errors(str(OUTPUT_DIR / "l2_errors_history.png"))
     generate_all_diagnostics(model, physics, data, str(OUTPUT_DIR))
+    best_p_ckpt = OUTPUT_DIR / "checkpoint_best_p.pth"
+    if best_p_ckpt.exists():
+        print(f"\n[Checkpoint Best p] Modello ottimale al minimo errore di pressione salvato in: {best_p_ckpt}")
 
     print(f"\n[OK] Run Completa End-to-End conclusa con successo sul PC di Maurizio! Output: {OUTPUT_DIR}")
 

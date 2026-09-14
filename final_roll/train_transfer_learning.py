@@ -83,7 +83,7 @@ MU_S_TRUE = 0.5  # Viscosità solvente [Pa·s]
 MU_P_TRUE = 0.5  # Viscosità polimerica [Pa·s]
 MU_TOT_TRUE = MU_S_TRUE + MU_P_TRUE  # Viscosità totale [Pa·s] (1.0)
 BETA_TRUE = MU_S_TRUE / MU_TOT_TRUE  # Rapporto di viscosità (0.50)
-LAM_TRUE = 0.10  # Tempo di rilassamento target [s]
+LAM_TRUE = 0.20  # Tempo di rilassamento target [s]
 EPS_TRUE = 0.0  # Parametro PTT (bloccato a 0)
 ALPHA_TRUE = 0.0  # Parametro Giesekus (bloccato a 0)
 RHO = 1000.0  # Densità [kg/m³]
@@ -97,7 +97,7 @@ _ds_candidate = BASE_DIR.parent / "COMSOL" / "4roll" / f"4_roll_mill_{PARAM_TAG}
 DATASET_PATH = _ds_candidate if _ds_candidate.exists() else (BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv")
 
 # --- Checkpoint Sorgente per Transfer Learning ---
-TRANSFER_SOURCE_CHECKPOINT = BASE_DIR / "checkpoints" / "chekcpoint_inv_40k+10k_fase1_L 0.05-P0.5-S0.5.pth"
+TRANSFER_SOURCE_CHECKPOINT = BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1_L0.1-P0.5-S0.5_transfer.pth"
 
 # Se si vuole riprendere un training interrotto in-flight di questa run, impostare il percorso del checkpoint:
 RESUME_INFLIGHT_PATH = None
@@ -174,10 +174,12 @@ def _format_iters(n):
 budget_tag = f"TL_Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}"
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
 
-config_name = f"[{run_timestamp}][{mode_tag}][{strategy_tag}][{PARAM_TAG}][{budget_tag}]"
+if RESUME_INFLIGHT_PATH is not None and Path(RESUME_INFLIGHT_PATH).exists():
+    OUTPUT_DIR = Path(RESUME_INFLIGHT_PATH).parent
+else:
+    config_name = f"[{run_timestamp}][{mode_tag}][{strategy_tag}][{PARAM_TAG}][{budget_tag}]"
+    OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
 
-OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 global_log_path = OUTPUT_DIR / "train_log.txt"

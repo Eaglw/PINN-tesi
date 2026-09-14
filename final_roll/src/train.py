@@ -321,6 +321,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
     start_epoch = 0
     loaded_opt_state = None
     loaded_sch_state = None
+    best_l2_p = float("inf")
 
     if resume_checkpoint is not None:
         if os.path.exists(resume_checkpoint):
@@ -1160,6 +1161,12 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                         torch.save(state, chk_path)
                         print(f"  [Checkpoint] Salvato in: {chk_path}")
 
+                        if l2_errs["p"] < best_l2_p:
+                            best_l2_p = l2_errs["p"]
+                            best_p_path = os.path.join(save_dir, "checkpoint_best_p.pth")
+                            torch.save(state, best_p_path)
+                            print(f"  [Best Checkpoint p] Record L2(p) = {best_l2_p:.4e} ({best_l2_p*100:.2f}%)! Salvato in: {best_p_path}")
+
                         if (epoch + 1) == end_adam2:
                             phase2_path = os.path.join(save_dir, "checkpoint_phase2_adam.pth")
                             torch.save(state, phase2_path)
@@ -1401,12 +1408,19 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
                 if save_dir is not None:
                     chk_path = os.path.join(save_dir, "checkpoint.pth")
-                    torch.save({
+                    state_lbfgs2 = {
                         'epoch': global_step,
                         'model_state_dict': model.state_dict(),
                         'physics_state_dict': physics.state_dict(),
                         'history_state_dict': history.state_dict()
-                    }, chk_path)
+                    }
+                    torch.save(state_lbfgs2, chk_path)
+
+                    if l2_errs["p"] < best_l2_p:
+                        best_l2_p = l2_errs["p"]
+                        best_p_path = os.path.join(save_dir, "checkpoint_best_p.pth")
+                        torch.save(state_lbfgs2, best_p_path)
+                        print(f"  [Best Checkpoint p] Record L2(p) = {best_l2_p:.4e} ({best_l2_p*100:.2f}%)! Salvato in: {best_p_path}")
 
                 if tb_writer is not None:
                     tb_writer.add_scalar('Loss/Total', tot_loss, global_step)
