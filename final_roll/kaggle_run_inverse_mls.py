@@ -435,7 +435,7 @@ def train_inverse_mls(args):
 
     print("\n" + "=" * 70)
     print(f"PHASE 1: ADAM OPTIMIZATION (FP32) — {args.epochs_adam} Epochs")
-    print(f"  scale_mom = {args.scale_mom:.1f} Pa/m | Guess mu_s = {physics.mu_s.item():.4f} Pa·s (True = 0.1000)")
+    print(f"  scale_mom = {args.scale_mom:.1f} Pa/m | Guess mu_s = {physics.mu_s.item():.4f} Pa·s (True = {args.true_mu_s:.4f})")
     print("=" * 70)
 
     start_time = time.time()
@@ -601,7 +601,7 @@ def train_inverse_mls(args):
     print("\n" + "=" * 70)
     print("TRAINING COMPLETED SUCCESSFULLY")
     print(f"  Total Wall Time: {total_time:.2f} s ({total_time / 60.0:.2f} min)")
-    print(f"  Final Identified mu_s: {final_mu_s:.5f} Pa·s (True: 0.10000 Pa·s, Rel Error: {abs(final_mu_s - 0.1) / 0.1 * 100:.2f}%)")
+    print(f"  Final Identified mu_s: {final_mu_s:.5f} Pa·s (True: {args.true_mu_s:.5f} Pa·s, Rel Error: {abs(final_mu_s - args.true_mu_s) / args.true_mu_s * 100:.2f}%)")
     print(f"  Final Relative L2(p):  {final_l2_p * 100:.2f}%")
     print("=" * 70)
 
@@ -629,7 +629,7 @@ def train_inverse_mls(args):
 
         plt.subplot(1, 3, 2)
         plt.plot(history["epoch"], history["mu_s"], "g-", label="Learned mu_s")
-        plt.axhline(0.1, color="r", linestyle="--", label="True mu_s (0.1)")
+        plt.axhline(args.true_mu_s, color="r", linestyle="--", label=f"True mu_s ({args.true_mu_s})")
         plt.title(r"Solvent Viscosity $\mu_s$ [Pa·s]")
         plt.xlabel("Step")
         plt.legend()
@@ -663,9 +663,19 @@ def parse_args():
     # Paths with intelligent repository defaults
     script_dir = Path(__file__).resolve().parent
     repo_root = script_dir.parent
-    default_dataset = repo_root / "COMSOL" / "4roll" / "4_roll_mill.csv"
-    default_cache = repo_root / "COMSOL" / "4roll" / "comsol_derivatives_mls.pt"
-    default_output = script_dir / "output_kaggle_inverse_mls"
+    
+    # Automatic detection for Kaggle input or local COMSOL folder
+    import glob
+    kaggle_csv = glob.glob("/kaggle/input/**/4_roll_mill_L0.2-P0.5-S0.5.csv", recursive=True)
+    if kaggle_csv:
+        default_dataset = Path(kaggle_csv[0])
+    elif (repo_root / "COMSOL" / "4roll" / "4_roll_mill_L0.2-P0.5-S0.5.csv").exists():
+        default_dataset = repo_root / "COMSOL" / "4roll" / "4_roll_mill_L0.2-P0.5-S0.5.csv"
+    else:
+        default_dataset = repo_root / "COMSOL" / "4roll" / "4_roll_mill.csv"
+
+    default_cache = default_dataset.parent / "comsol_derivatives_mls_L0.2-P0.5-S0.5.pt"
+    default_output = script_dir / "output_kaggle_inverse_mls_L0.2-P0.5-S0.5"
 
     parser.add_argument("--dataset", type=str, default=str(default_dataset), help="Path to COMSOL CSV dataset")
     parser.add_argument("--cache-path", type=str, default=str(default_cache), help="Path to MLS derivatives .pt cache")
@@ -680,8 +690,9 @@ def parse_args():
     parser.add_argument("--grad-clip", type=float, default=5.0, help="Rigid gradient clipping norm")
 
     # Physical parameters
+    parser.add_argument("--true-mu-s", type=float, default=0.50, help="True solvent viscosity mu_s [Pa·s]")
+    parser.add_argument("--guess-mu-s", type=float, default=0.40, help="Initial guess for mu_s [Pa·s]")
     parser.add_argument("--scale-mom", type=float, default=1.0, help="Momentum loss scaling (1.0 for dimensionless residual)")
-    parser.add_argument("--guess-mu-s", type=float, default=0.08, help="Initial guess for mu_s [Pa·s]")
     parser.add_argument("--rho", type=float, default=1000.0, help="Fluid density [kg/m^3]")
     parser.add_argument("--seed", type=int, default=123, help="Random seed")
 
