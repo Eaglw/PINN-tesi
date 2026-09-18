@@ -95,7 +95,9 @@ class SimpleHistory:
                       ('param_mu_tot', tot_visc, r'$\eta_{tot} = \eta_s + \eta_p$ [Pa·s]'),
                       ('param_mu_p', mu_p_true, r'$\mu_p$ [Pa·s]'),
                       ('param_mu_s', mu_s_true, r'$\mu_s$ [Pa·s]'),
-                      ('param_lam', lam_true, r'$\lambda$ [s]')]
+                      ('param_lam', lam_true, r'$\lambda$ [s]'),
+                      ('param_alpha', alpha_true, r'$\alpha$ (Giesekus mobility)'),
+                      ('param_eps', eps_true, r'$\varepsilon$ (PTT extensibility)')]
 
         active = [(k, t, l) for k, t, l in param_keys if k in self.losses]
         if not active:
@@ -494,9 +496,13 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             active_bcs, w_mom, w_con, frozen_vel = None, W_MOMENTUM, W_CONSTITUTIVE, False
 
         warmup_epoch = getattr(builtins, "WARMUP_UNLOCK_EPOCH", 0)
-        # Configura parametri fisici in modalità inversa (Fase 1: lam ed eta_p)
+        # Configura parametri fisici in modalita' inversa (Fase 1: lam, mu_p, alpha, eps)
         if physics.inverse_mode:
             trainable_names = ["lam", "mu_p"]
+            if getattr(builtins, "TRAIN_ALPHA", True) and hasattr(physics, "_raw_alpha"):
+                trainable_names.append("alpha")
+            if getattr(builtins, "TRAIN_EPS", True) and hasattr(physics, "_raw_eps"):
+                trainable_names.append("eps")
             for pname in ["beta", "mu_tot", "mu_s", "mu_p", "lam", "eps", "alpha"]:
                 is_tr = (pname in trainable_names) and (start_epoch >= warmup_epoch)
                 physics.set_trainable(pname, is_tr)
@@ -529,11 +535,13 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         net_params = [p for p in model.parameters() if p.requires_grad]
         groups = [{"params": net_params, "lr": BASE_LR, "eps": ADAM_EPS}]
         if physics.inverse_mode:
-            phys_params_ph1 = [physics._raw_lam, physics._raw_mu_p]
+            phys_params_ph1 = [getattr(physics, f"_raw_{pname}") for pname in trainable_names if hasattr(physics, f"_raw_{pname}")]
             phys_lr = BASE_LR * PARAM_LR_FACTOR if start_epoch >= warmup_epoch else 0.0
             groups.append({"params": phys_params_ph1, "lr": phys_lr, "eps": adam_eps_phys})
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=1e-6)
+        eta_min_ph1 = getattr(builtins, "ETA_MIN", 2.5e-6)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=eta_min_ph1)
+        print(f"  Learning Rate Fase 1: Cosine Annealing da {BASE_LR:.2e} a {eta_min_ph1:.2e} (con parametri fisici a LR={phys_lr:.2e} -> {eta_min_ph1:.2e})")
 
         # Carica stato se ripreso da checkpoint
         opt_loaded = False
@@ -554,9 +562,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         for epoch in pbar:
             # Sblocco parametri fisici se warmup attivo (SENZA ricreare l'ottimizzatore Adam)
             if physics.inverse_mode and warmup_epoch > 0 and epoch == warmup_epoch:
-                print(f"\n  [Warmup Stage 1] Sblocco parametri reologici lam, mu_p (epoca {epoch})")
-                physics.set_trainable("lam", True)
-                physics.set_trainable("mu_p", True)
+                print(f"\n  [Warmup Stage 1] Sblocco parametri reologici {trainable_names} (epoca {epoch})")
+                for pname in trainable_names:
+                    physics.set_trainable(pname, True)
                 if len(optimizer.param_groups) > 1:
                     optimizer.param_groups[1]["lr"] = BASE_LR * PARAM_LR_FACTOR
 
@@ -678,6 +686,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     for sm, norm in grad_norms.items():
                         if norm > 0:
                             tb_writer.add_scalar(f'GradNorm/{sm}', norm ** 0.5, epoch)
+                    tb_writer.flush()
 
             pbar.set_postfix(
                 {
@@ -723,6 +732,10 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
 
         if physics.inverse_mode:
             trainable_names = ["lam", "mu_p"]
+            if getattr(builtins, "TRAIN_ALPHA", True) and hasattr(physics, "_raw_alpha"):
+                trainable_names.append("alpha")
+            if getattr(builtins, "TRAIN_EPS", True) and hasattr(physics, "_raw_eps"):
+                trainable_names.append("eps")
             for pname in ["mu_s", "mu_p", "lam", "eps", "alpha"]:
                 physics.set_trainable(pname, pname in trainable_names)
 

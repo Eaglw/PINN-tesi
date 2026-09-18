@@ -938,3 +938,25 @@
 
 ### Pagine Modificate
 - **[[Mesh_Convergence_Protocol]]** (Methods): integrata la Sezione 5 (risultati benchmark, tabella norme di errore, invarianti) e la Sezione 6 (grafici cutline, mappe 2D, CDF), arricchita con la discussione metodologica sulla dualità di convergenza FEM vs PINN.
+
+---
+
+## [2026-09-18] update_wiki | Rettifica Risoluzione 12k, Punti PINN Full-Batch e Fisica degli Sforzi Normali
+
+### Sintesi Operazioni
+- **Rettifica Limite di Risoluzione Minima (Sezione 2)**:
+  - Eliminata la stima cautelativa a priori secondo cui le mesh al di sotto di 20k-25k nodi perdessero il 15% di stress al centro;
+  - Documentata l'evidenza sperimentale formale: la mesh $M_4$ a $12.760$ nodi si trova già in pieno regime asintotico (errore $L_2 < 0.23\%$ su $\boldsymbol{\tau}$, $0.021\%$ su $\mathbf{u}$, picco a sella $< 0.01\%$).
+- **Correzione della Meccanica dei Punti PINN (Sezione 4)**:
+  - Rettificata la descrizione dell'addestramento: la PINN non effettua sottocampionamenti ($N_{data} \sim 2k-5k, N_{coll} \sim 10k-20k$), ma processa il **100% dei nodi del dataset** (tutti i $12.760$ punti) come punti di supervisione dati ($u,v$) e simultaneamente come punti di collocazione PDE ($\boldsymbol{\tau}, p$) mediante gradient chunking sequenziale.
+- **Analisi delle Simmetrie e Incomprimibilità degli Sforzi (Sezione 6.4)**:
+  - Chiarita l'univocità tensoriale al punto centrale $(0,0)$ dove $\tau_{xx} = -0.628\,\mathrm{Pa}$ e $\tau_{yy} = +0.838\,\mathrm{Pa}$ per entrambe le cutline.
+  - Dimostrato l'annullamento rigoroso di $\tau_{xy} \equiv 0$ su entrambi gli assi per simmetria speculare del flusso estensionale.
+  - Dimostrato che l'incomprimibilità $\frac{\partial u}{\partial x} = -\frac{\partial v}{\partial y}$ forza la stessa polarità dei gradienti sia vicino alla parete laterale che a quella superiore ($\frac{\partial u}{\partial x} > 0, \frac{\partial v}{\partial y} < 0$), spiegando la comune morfologia a "W" per $\tau_{xx}$ e a "M" per $\tau_{yy}$.
+  - Dimostrata la netta separazione convettiva tra flusso in entrata (orizzontale) e in uscita (verticale), con scarto di $0.230\,\mathrm{Pa}$ e segni opposti a $s = 10\,\mathrm{mm}$.
+- **Ingestione Nuovo Asset Grafico**:
+  - Aggiunto `direct_comparison_h_vs_v.png` in `Wiki/Assets/Mesh_Convergence/`.
+
+### Pagine Modificate
+- **[[Mesh_Convergence_Protocol]]** (Methods): revisionate le Sezioni 2, 4 e integrata la Sezione 6.4.
+

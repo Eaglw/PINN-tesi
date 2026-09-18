@@ -93,8 +93,16 @@ BETA_TRUE = MU_S_TRUE / MU_TOT_TRUE  # Rapporto di viscosità (0.50)
 LAM_TRUE = 0.1  # Tempo di rilassamento [s]
 EPS_TRUE = 0.0  # Parametro PTT (bloccato a 0)
 ALPHA_TRUE = 0.0  # Parametro Giesekus (bloccato a 0)
-MESH_TAG = "12k"  # Risoluzione mesh COMSOL (es. '12k', '52k', '88k', '125k')
 RHO = 1000.0  # Densità [kg/m³]
+
+# Risoluzione mesh COMSOL (default '12k', sovrascrivibile da CLI es. --mesh 29k o --mesh 52k)
+import sys
+MESH_TAG = "12k"
+for i, arg in enumerate(sys.argv):
+    if arg == "--mesh" and i + 1 < len(sys.argv):
+        MESH_TAG = sys.argv[i + 1]
+    elif arg.startswith("--mesh="):
+        MESH_TAG = arg.split("=")[1]
 
 # Tag identificativo standard della configurazione reologica (L-P-S-A-E_M)
 PARAM_TAG = build_dataset_tag(LAM_TRUE, MU_P_TRUE, MU_S_TRUE, ALPHA_TRUE, EPS_TRUE, MESH_TAG)
@@ -103,9 +111,8 @@ PARAM_TAG = build_dataset_tag(LAM_TRUE, MU_P_TRUE, MU_S_TRUE, ALPHA_TRUE, EPS_TR
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = resolve_dataset_path(BASE_DIR.parent / "COMSOL" / "4roll" / "Datasets", PARAM_TAG)
 
-# --- Checkpointing (Ripresa in-flight da checkpoint epoca 5000) ---
-_existing_ckpt = BASE_DIR / "output_4rollmill" / f"[2026-09-18_20-18][INV][{PARAM_TAG}][Ph1_40k+10k]" / "checkpoint.pth"
-RESUME_CHECKPOINT = _existing_ckpt if _existing_ckpt.exists() else None
+# --- Checkpointing (Disattivato per training ex-novo da zero) ---
+RESUME_CHECKPOINT = None
 
 # --- Costanti e Calcolo Dinamico dei Guess Iniziali (Log-Space Parametrization) ---
 MIN_MU_S = 1e-6
@@ -123,8 +130,8 @@ GUESS_MU_S = MU_S_TRUE * GUESS_FACTOR                    # 0.50 * 0.80 = 0.4000 
 GUESS_MU_P = MU_P_TRUE * GUESS_FACTOR                    # 0.50 * 0.80 = 0.4000 Pa·s
 GUESS_MU_TOT = GUESS_MU_S + GUESS_MU_P                  # 0.8000 Pa·s
 GUESS_BETA = GUESS_MU_S / GUESS_MU_TOT                  # 0.5000
-GUESS_EPS = 0.05
-GUESS_ALPHA = 0.05
+GUESS_EPS = 0.25
+GUESS_ALPHA = 0.25
 TRAIN_ALPHA = True
 TRAIN_EPS = True
 
@@ -143,11 +150,12 @@ ADAM_EPOCHS_PHASE2 = 0
 USE_LBFGS_PHASE2 = False
 LBFGS_MAX_ITERS_PHASE2 = 0
 
-BASE_LR = 1e-3
+BASE_LR = 2.5e-3
+ETA_MIN = 2.5e-6
 ADAM_EPS = 1e-8
 # [Proposta B] Epsilon differenziato per non soffocare gradienti fisici piccoli
 ADAM_EPS_PHYS = 1e-15
-PARAM_LR_FACTOR = 0.1
+PARAM_LR_FACTOR = 1.0    # LR parametri fisici = BASE_LR * 1.0 = 2.5e-3 (stesso range cosine annealing da 2.5e-3 a 2.5e-6)
 # [Proposta H & Run 23] Gradient clipping rigido a 5.0 per prevenire salti numerici
 GRAD_CLIP_NORM = 5.0
 PARAM_CLIP_NORM = 1.0
@@ -353,5 +361,60 @@ if __name__ == "__main__":
             run_folder_name=obsidian_run_name,
             results_details=results_details
         )
+
+    # 7. Summary Benchmark Tabellare & Salvataggio JSON (Facile consultazione)
+    import json
+    err_lam_pct = 100.0 * (params['lam'] - LAM_TRUE) / (LAM_TRUE + 1e-12)
+    err_mup_pct = 100.0 * (params['mu_p'] - MU_P_TRUE) / (MU_P_TRUE + 1e-12)
+    avg_l2_uv = 0.5 * (errors.get('u', 0.0) + errors.get('v', 0.0))
+    avg_l2_diag = 0.5 * (errors.get('tau_xx', 0.0) + errors.get('tau_yy', 0.0))
+    
+    summary_metrics = {
+        "mesh_tag": MESH_TAG,
+        "param_tag": PARAM_TAG,
+        "n_points": int(len(data['points'])),
+        "lambda_estimated": float(params['lam']),
+        "lambda_true": float(LAM_TRUE),
+        "lambda_error_pct": float(err_lam_pct),
+        "mu_p_estimated": float(params['mu_p']),
+        "mu_p_true": float(MU_P_TRUE),
+        "mu_p_error_pct": float(err_mup_pct),
+        "alpha_estimated": float(params['alpha']),
+        "alpha_true": float(ALPHA_TRUE),
+        "eps_estimated": float(params['eps']),
+        "eps_true": float(EPS_TRUE),
+        "l2_u": float(errors.get('u', 0.0)),
+        "l2_v": float(errors.get('v', 0.0)),
+        "l2_uv_mean": float(avg_l2_uv),
+        "l2_tau_xx": float(errors.get('tau_xx', 0.0)),
+        "l2_tau_xy": float(errors.get('tau_xy', 0.0)),
+        "l2_tau_yy": float(errors.get('tau_yy', 0.0)),
+        "l2_tau_diag_mean": float(avg_l2_diag),
+        "final_loss_total": float(final_losses.get('total_loss', 0.0)),
+        "final_loss_data": float(final_losses.get('data_loss', 0.0)),
+        "final_loss_bc": float(final_losses.get('bc_loss', 0.0)),
+        "final_loss_pde": float(final_losses.get('pde_loss', 0.0))
+    }
+    
+    summary_json_path = OUTPUT_DIR / "metrics_summary.json"
+    with open(summary_json_path, "w", encoding="utf-8") as f_json:
+        json.dump(summary_metrics, f_json, indent=2)
+
+    print(f"\n{'=' * 75}")
+    print(f"  >>> BENCHMARK METRICS SUMMARY [{MESH_TAG}] <<<")
+    print(f"{'=' * 75}")
+    print(f"  Mesh:                  {MESH_TAG} ({len(data['points']):,} nodi)")
+    print(f"  Final Loss Totale:     {final_losses.get('total_loss', 0.0):.6e}")
+    print(f"  Errore L2 (u, v):      {avg_l2_uv*100:.4f}%  (u: {errors.get('u', 0.0)*100:.4f}%, v: {errors.get('v', 0.0)*100:.4f}%)")
+    print(f"  Errore L2 tau_xy:      {errors.get('tau_xy', 0.0)*100:.4f}%")
+    print(f"  Errore L2 tau_diag:    {avg_l2_diag*100:.4f}%  (xx: {errors.get('tau_xx', 0.0)*100:.4f}%, yy: {errors.get('tau_yy', 0.0)*100:.4f}%)")
+    print(f"  ---------------------------------------------------------------------------")
+    print(f"  Parametro lambda:      {params['lam']:.6f} s   [True: {LAM_TRUE:.4f} s | Err: {err_lam_pct:+.2f}%]")
+    print(f"  Parametro mu_p:        {params['mu_p']:.6f} Pa·s [True: {MU_P_TRUE:.4f} Pa·s | Err: {err_mup_pct:+.2f}%]")
+    print(f"  Parametro alpha:       {params['alpha']:.6f}     [True: {ALPHA_TRUE:.4f} | Guess: {GUESS_ALPHA:.2f}]")
+    print(f"  Parametro eps:         {params['eps']:.6f}     [True: {EPS_TRUE:.4f} | Guess: {GUESS_EPS:.2f}]")
+    print(f"{'=' * 75}")
+    print(f"  [JSON Salvato]: {summary_json_path}")
+    print(f"{'=' * 75}\n")
         
     print(f"\n[OK] Esecuzione terminata. Plot salvati in: {OUTPUT_DIR}")

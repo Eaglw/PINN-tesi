@@ -118,8 +118,8 @@ GUESS_MU_S = MU_S_TRUE * GUESS_FACTOR                    # 0.50 * 0.80 = 0.4000 
 GUESS_MU_P = MU_P_TRUE * GUESS_FACTOR                    # 0.50 * 0.80 = 0.4000 Pa·s
 GUESS_MU_TOT = GUESS_MU_S + GUESS_MU_P                  # 0.8000 Pa·s
 GUESS_BETA = GUESS_MU_S / GUESS_MU_TOT                  # 0.5000
-GUESS_EPS = 0.0
-GUESS_ALPHA = 0.0
+GUESS_EPS = 0.25
+GUESS_ALPHA = 0.25
 
 # --- Architettura Neural Network ---
 HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni

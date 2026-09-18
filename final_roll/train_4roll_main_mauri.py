@@ -102,7 +102,7 @@ MU_S_TRUE = 0.500
 MU_P_TRUE = 0.500
 MU_TOT_TRUE = 1.000
 BETA_TRUE = 0.500
-LAM_TRUE = 0.200
+LAM_TRUE = 0.100
 EPS_TRUE = 0.0
 ALPHA_TRUE = 0.0
 MESH_TAG = "125k"
@@ -114,11 +114,8 @@ PARAM_TAG = build_dataset_tag(LAM_TRUE, MU_P_TRUE, MU_S_TRUE, ALPHA_TRUE, EPS_TR
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = resolve_dataset_path(BASE_DIR.parent / "COMSOL" / "4roll" / "Datasets", PARAM_TAG)
 
-# Checkpoint di partenza: ripresa dal consolidato/transfer di Fase 1
-_default_f1_ckpt = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_transfer.pth"
-if not _default_f1_ckpt.exists():
-    _default_f1_ckpt = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_40k+10k.pth"
-RESUME_CHECKPOINT = _default_f1_ckpt if _default_f1_ckpt.exists() else None
+# Checkpoint di partenza: disattivato per training ex-novo da zero
+RESUME_CHECKPOINT = None
 
 MIN_MU_S = 1e-6
 MIN_MU_P = 1e-6
@@ -132,23 +129,23 @@ GUESS_MU_S = MU_S_TRUE * GUESS_FACTOR
 GUESS_MU_P = MU_P_TRUE * GUESS_FACTOR
 GUESS_MU_TOT = GUESS_MU_S + GUESS_MU_P
 GUESS_BETA = GUESS_MU_S / GUESS_MU_TOT
-GUESS_EPS = 0.0
-GUESS_ALPHA = 0.0
+GUESS_EPS = 0.25
+GUESS_ALPHA = 0.25
 TRAIN_ALPHA = True
 TRAIN_EPS = True
 
 HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
 
-# Budget Fase 1: Cinematica & Reologia (5k Adam + 1k L-BFGS di rifinitura per abbattere ulteriormente lo stress)
-ADAM_EPOCHS_PHASE1 = 5000
+# Budget Fase 1: Cinematica & Reologia (40k Adam + 10k L-BFGS di raffinamento)
+ADAM_EPOCHS_PHASE1 = 40000
 USE_LBFGS_PHASE1 = True
-LBFGS_MAX_ITERS_PHASE1 = 1000
+LBFGS_MAX_ITERS_PHASE1 = 10000
 
-# Budget Fase 2: Idrodinamica & Pressione (30k Adam + 3k L-BFGS per un totale complessivo di ~34h)
-ADAM_EPOCHS_PHASE2 = 30000
-USE_LBFGS_PHASE2 = True
-LBFGS_MAX_ITERS_PHASE2 = 3000
+# Budget Fase 2: Disattivata (focus su benchmark di convergenza mesh in Fase 1)
+ADAM_EPOCHS_PHASE2 = 0
+USE_LBFGS_PHASE2 = False
+LBFGS_MAX_ITERS_PHASE2 = 0
 
 # Warmup Fase 2 (opzionale, default 0 epoche: mu_tot attivo da subito)
 WARMUP_PHASE2_EPOCHS = 0
@@ -162,10 +159,11 @@ if "--smoke-test" in sys.argv:
     ADAM_EPOCHS_PHASE2 = 2
     LBFGS_MAX_ITERS_PHASE2 = 2
 
-BASE_LR = 1e-3
+BASE_LR = 2.5e-3
+ETA_MIN = 2.5e-6
 ADAM_EPS = 1e-8
 ADAM_EPS_PHYS = 1e-15
-PARAM_LR_FACTOR = 0.1
+PARAM_LR_FACTOR = 1.0
 GRAD_CLIP_NORM = 5.0
 PARAM_CLIP_NORM = 1.0
 
@@ -314,11 +312,60 @@ def main():
     print(f"\nGenerazione diagnostiche e plot in: {OUTPUT_DIR} ...")
     history.plot_losses(str(OUTPUT_DIR / "loss_history.png"))
     history.plot_params(str(OUTPUT_DIR / "params_evolution.png"))
-    history.plot_l2_errors(str(OUTPUT_DIR / "l2_errors_history.png"))
-    generate_all_diagnostics(model, physics, data, str(OUTPUT_DIR))
-    best_p_ckpt = OUTPUT_DIR / "checkpoint_best_p.pth"
-    if best_p_ckpt.exists():
-        print(f"\n[Checkpoint Best p] Modello ottimale al minimo errore di pressione salvato in: {best_p_ckpt}")
+    # 8. Summary Benchmark Tabellare & Salvataggio JSON (Facile consultazione)
+    import json
+    err_lam_pct = 100.0 * (params['lam'] - LAM_TRUE) / (LAM_TRUE + 1e-12)
+    err_mup_pct = 100.0 * (params['mu_p'] - MU_P_TRUE) / (MU_P_TRUE + 1e-12)
+    avg_l2_uv = 0.5 * (errors.get('u', 0.0) + errors.get('v', 0.0))
+    avg_l2_diag = 0.5 * (errors.get('tau_xx', 0.0) + errors.get('tau_yy', 0.0))
+    
+    summary_metrics = {
+        "mesh_tag": MESH_TAG,
+        "param_tag": PARAM_TAG,
+        "n_points": int(len(data['points'])),
+        "lambda_estimated": float(params['lam']),
+        "lambda_true": float(LAM_TRUE),
+        "lambda_error_pct": float(err_lam_pct),
+        "mu_p_estimated": float(params['mu_p']),
+        "mu_p_true": float(MU_P_TRUE),
+        "mu_p_error_pct": float(err_mup_pct),
+        "alpha_estimated": float(params['alpha']),
+        "alpha_true": float(ALPHA_TRUE),
+        "eps_estimated": float(params['eps']),
+        "eps_true": float(EPS_TRUE),
+        "l2_u": float(errors.get('u', 0.0)),
+        "l2_v": float(errors.get('v', 0.0)),
+        "l2_uv_mean": float(avg_l2_uv),
+        "l2_tau_xx": float(errors.get('tau_xx', 0.0)),
+        "l2_tau_xy": float(errors.get('tau_xy', 0.0)),
+        "l2_tau_yy": float(errors.get('tau_yy', 0.0)),
+        "l2_tau_diag_mean": float(avg_l2_diag),
+        "final_loss_total": float(final_losses.get('total_loss', 0.0)),
+        "final_loss_data": float(final_losses.get('data_loss', 0.0)),
+        "final_loss_bc": float(final_losses.get('bc_loss', 0.0)),
+        "final_loss_pde": float(final_losses.get('pde_loss', 0.0))
+    }
+    
+    summary_json_path = OUTPUT_DIR / "metrics_summary.json"
+    with open(summary_json_path, "w", encoding="utf-8") as f_json:
+        json.dump(summary_metrics, f_json, indent=2)
+
+    print(f"\n{'=' * 75}")
+    print(f"  >>> BENCHMARK METRICS SUMMARY [{MESH_TAG}] <<<")
+    print(f"{'=' * 75}")
+    print(f"  Mesh:                  {MESH_TAG} ({len(data['points']):,} nodi)")
+    print(f"  Final Loss Totale:     {final_losses.get('total_loss', 0.0):.6e}")
+    print(f"  Errore L2 (u, v):      {avg_l2_uv*100:.4f}%  (u: {errors.get('u', 0.0)*100:.4f}%, v: {errors.get('v', 0.0)*100:.4f}%)")
+    print(f"  Errore L2 tau_xy:      {errors.get('tau_xy', 0.0)*100:.4f}%")
+    print(f"  Errore L2 tau_diag:    {avg_l2_diag*100:.4f}%  (xx: {errors.get('tau_xx', 0.0)*100:.4f}%, yy: {errors.get('tau_yy', 0.0)*100:.4f}%)")
+    print(f"  ---------------------------------------------------------------------------")
+    print(f"  Parametro lambda:      {params['lam']:.6f} s   [True: {LAM_TRUE:.4f} s | Err: {err_lam_pct:+.2f}%]")
+    print(f"  Parametro mu_p:        {params['mu_p']:.6f} Pa·s [True: {MU_P_TRUE:.4f} Pa·s | Err: {err_mup_pct:+.2f}%]")
+    print(f"  Parametro alpha:       {params['alpha']:.6f}     [True: {ALPHA_TRUE:.4f} | Guess: {GUESS_ALPHA:.2f}]")
+    print(f"  Parametro eps:         {params['eps']:.6f}     [True: {EPS_TRUE:.4f} | Guess: {GUESS_EPS:.2f}]")
+    print(f"{'=' * 75}")
+    print(f"  [JSON Salvato]: {summary_json_path}")
+    print(f"{'=' * 75}\n")
 
     print(f"\n[OK] Run Completa End-to-End conclusa con successo sul PC di Maurizio! Output: {OUTPUT_DIR}")
 

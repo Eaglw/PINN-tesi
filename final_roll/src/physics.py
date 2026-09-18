@@ -1,4 +1,5 @@
 import builtins
+import numpy as np
 import torch
 import torch.nn as nn
 from src.utils import weighted_mse
@@ -82,11 +83,35 @@ class Physics(nn.Module):
         self.register_parameter("_raw_mu_p", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32)))
         self.register_parameter("_raw_mu_s", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32), requires_grad=False))
 
+        # Guess e parametri raw per modelli non-newtoniani non lineari (alpha: Giesekus, eps: PTT)
+        alpha_true_val = getattr(builtins, "ALPHA_TRUE", mod_globals.get("ALPHA_TRUE", 0.0))
+        eps_true_val = getattr(builtins, "EPS_TRUE", mod_globals.get("EPS_TRUE", 0.0))
+
+        guess_alpha = getattr(builtins, "GUESS_ALPHA", 0.25 if alpha_true_val == 0.0 else alpha_true_val * guess_factor)
+        guess_eps = getattr(builtins, "GUESS_EPS", 0.25 if eps_true_val == 0.0 else eps_true_val * guess_factor)
+        if guess_alpha <= 0.0:
+            guess_alpha = 0.25
+        if guess_eps <= 0.0:
+            guess_eps = 0.25
+
+        val_alpha_init = guess_alpha if inverse_mode else alpha_true_val
+        val_alpha_init = float(np.clip(val_alpha_init, 1e-6, 0.499))
+        raw_alpha_init = float(inverse_sigmoid(val_alpha_init / 0.5).item())
+
+        val_eps_init = guess_eps if inverse_mode else eps_true_val
+        val_eps_init = float(max(val_eps_init, 1e-6))
+        raw_eps_init = float(inverse_softplus(val_eps_init).item())
+
+        self.register_parameter("_raw_alpha", nn.Parameter(torch.tensor([raw_alpha_init], device=DEVICE, dtype=torch.float32)))
+        self.register_parameter("_raw_eps", nn.Parameter(torch.tensor([raw_eps_init], device=DEVICE, dtype=torch.float32)))
+
         # Se non siamo in inverse_mode, i parametri sono fissi ai veri valori
         if not inverse_mode:
             self._raw_lam.requires_grad_(False)
             self._raw_mu_p.requires_grad_(False)
             self._raw_mu_s.requires_grad_(False)
+            self._raw_alpha.requires_grad_(False)
+            self._raw_eps.requires_grad_(False)
 
     @property
     def scale_mom(self):
@@ -154,11 +179,18 @@ class Physics(nn.Module):
 
     @property
     def eps(self):
-        return torch.tensor(0.0, device=self._raw_lam.device, dtype=self._raw_lam.dtype)
+        """Parametro di estensibilita' PTT (>= 0): eps = softplus(raw_eps)."""
+        if not self.inverse_mode and getattr(builtins, "EPS_TRUE", 0.0) == 0.0:
+            return torch.tensor(0.0, device=self._raw_lam.device, dtype=self._raw_lam.dtype)
+        return torch.nn.functional.softplus(self._raw_eps).squeeze()
 
     @property
     def alpha(self):
-        return torch.tensor(0.0, device=self._raw_lam.device, dtype=self._raw_lam.dtype)
+        """Parametro di mobilita' di Giesekus in [0, 0.5]: alpha = 0.5 * sigmoid(raw_alpha)."""
+        if not self.inverse_mode and getattr(builtins, "ALPHA_TRUE", 0.0) == 0.0:
+            return torch.tensor(0.0, device=self._raw_lam.device, dtype=self._raw_lam.dtype)
+        factor = torch.tensor(0.5, device=self._raw_alpha.device, dtype=self._raw_alpha.dtype)
+        return (factor * torch.sigmoid(self._raw_alpha)).squeeze()
 
     def enable_phase2_mu_tot(self, guess_mu_tot=None):
         """
@@ -174,6 +206,10 @@ class Physics(nn.Module):
             self._raw_lam.requires_grad_(False)
         if hasattr(self, "_raw_mu_s") and isinstance(self._raw_mu_s, nn.Parameter):
             self._raw_mu_s.requires_grad_(False)
+        if hasattr(self, "_raw_alpha") and isinstance(self._raw_alpha, nn.Parameter):
+            self._raw_alpha.requires_grad_(False)
+        if hasattr(self, "_raw_eps") and isinstance(self._raw_eps, nn.Parameter):
+            self._raw_eps.requires_grad_(False)
 
         dtype = self._raw_mu_p.dtype if hasattr(self, "_raw_mu_p") else torch.float32
         device = self._raw_mu_p.device if hasattr(self, "_raw_mu_p") else DEVICE
