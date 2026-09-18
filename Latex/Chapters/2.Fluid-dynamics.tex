@@ -3,7 +3,7 @@
 
 \providecommand{\mathbb}[1]{\mathbf{#1}}
 
-In this chapter, the continuum mechanics formulation governing incompressible viscoelastic fluid flow is established from a computational fluid dynamics (CFD) perspective. We begin with the general 3D unsteady conservation laws of mass and momentum. Next, we systematically apply the physical assumptions defining our setup to derive the reduced governing equations. The Oldroyd-B differential constitutive equation is then introduced, detailing the upper-convected time derivative required to maintain material frame-indifference. A non-dimensionalization procedure based on viscous stress scaling follows, introducing the fundamental dimensionless numbers ($Re_{\mathrm{scale}}$, $Wi$, $\mu_s^*$, $\mu_p^*$) that govern the flow physics. Finally, we analyze the four-roll mill benchmark, detailing its geometry, planar extensional flow kinematics, boundary conditions, and the mathematical necessity of pressure pinning in enclosed incompressible domains.
+In this chapter, the continuum mechanics framework governing the flow of incompressible viscoelastic fluids is rigorously established. The primary objective is to derive the complete set of differential operators and constitutive equations that define the physical domain and formulate the residuals for the Physics-Informed Neural Network (PINN) architecture. We begin from the universal conservation principles of mass and linear momentum in three dimensions, and subsequently introduce the physical and geometric assumptions characterizing micro-scale polymer flows in enclosed geometries. The Oldroyd-B constitutive model is then formulated in detail, emphasizing the requirement of material frame-indifference via the Upper-Convected Time Derivative (UCTD) and discussing the rheological implications of extensional kinematics. A dedicated non-dimensionalization procedure, based on viscous stress scaling, is presented to ensure well-conditioned gradients within numerical optimization. Finally, we formalize the four-roll mill benchmark, describing its hyperbolic stagnation-point kinematics, boundary conditions, and the mathematical treatment of the pressure gauge freedom.
 
 % ============================================================
 % 2.1 GENERAL CONSERVATION LAWS
@@ -11,106 +11,141 @@ In this chapter, the continuum mechanics formulation governing incompressible vi
 \section{General Conservation Laws}
 \label{sec:general_conservation_laws}
 
-From a continuum mechanics perspective, the motion of any fluid in a three-dimensional domain $\Omega \subset \mathbb{R}^3$ is governed by the fundamental conservation laws of mass and linear momentum \cite{bird1987dynamics}.
+From a continuum mechanics perspective, the spatial and temporal motion of a fluid continuum occupying an open domain $\Omega \subset \mathbb{R}^3$ is governed by the universal conservation laws of mass and linear momentum \cite{bird1987dynamics}.
 
-\subsection{General Continuity Equation}
-The general mass conservation equation for a fluid with local density $\rho(\boldsymbol{x}, t)$ and velocity vector $\boldsymbol{u}(\boldsymbol{x}, t)$ is expressed as:
+\subsection{Principle of Mass Conservation}
+\label{subsec:general_mass}
+The differential statement of mass conservation for a fluid with local density $\rho(\boldsymbol{x}, t)$ and velocity vector $\boldsymbol{u}(\boldsymbol{x}, t)$ is expressed through the continuity equation:
 \begin{equation}
     \frac{\partial \rho}{\partial t} + \nabla \cdot (\rho \boldsymbol{u}) = 0 .
     \label{eq:general_mass}
 \end{equation}
-Physically, Equation~\eqref{eq:general_mass} states that the rate of change of mass within an arbitrary control volume equals the net mass flux through its boundary. When the fluid density is constant (incompressible limit), the volumetric dilation rate of any material parcel vanishes identically.
+Equation~\eqref{eq:general_mass} dictates that the instantaneous rate of mass accumulation within any arbitrary fixed control volume must be strictly balanced by the net convective mass flux through its bounding control surface.
 
-\subsection{General Momentum Equation}
-Applying Newton's second law to a continuous fluid element yields the Cauchy momentum equation in its Eulerian (differential) form:
+\subsection{Conservation of Linear Momentum}
+\label{subsec:general_momentum}
+Applying Newton's second law to an infinitesimal fluid parcel yields the Cauchy momentum equation in Eulerian coordinates:
 \begin{equation}
     \rho \left( \frac{\partial \boldsymbol{u}}{\partial t} + \boldsymbol{u} \cdot \nabla \boldsymbol{u} \right) = \nabla \cdot \boldsymbol{\sigma} + \rho \boldsymbol{g} ,
     \label{eq:general_momentum}
 \end{equation}
-where $\boldsymbol{g}$ is the gravitational acceleration vector and $\boldsymbol{\sigma}$ is the total Cauchy stress tensor. The left-hand side represents the \textit{material} (or \textit{substantial}) \textit{acceleration}, combining the local unsteady term $\partial \boldsymbol{u}/\partial t$ with the convective acceleration $\boldsymbol{u} \cdot \nabla \boldsymbol{u}$, which accounts for spatial velocity variations experienced by a moving fluid parcel.
+where $\boldsymbol{g}$ denotes the acceleration due to external body forces (gravity), and $\boldsymbol{\sigma}$ is the symmetric second-order Cauchy stress tensor. The left-hand side of Equation~\eqref{eq:general_momentum} represents the material (substantial) acceleration $\mathrm{D}\boldsymbol{u}/\mathrm{D}t$, which combines the local unsteady rate of change $\partial \boldsymbol{u}/\partial t$ with the non-linear convective acceleration term $\boldsymbol{u} \cdot \nabla \boldsymbol{u}$ stemming from spatial velocity gradients.
 
-The total stress tensor $\boldsymbol{\sigma}$ can be decomposed into an isotropic thermodynamic pressure contribution $p$ and a non-isotropic extra-stress tensor $\boldsymbol{T}$:
+To distinguish between isotropic pressure forces and internal shear/normal deviatoric stresses, the Cauchy stress tensor is decomposed as:
 \begin{equation}
     \boldsymbol{\sigma} = -p \boldsymbol{I} + \boldsymbol{T} ,
     \label{eq:cauchy_stress_decomp}
 \end{equation}
-where $\boldsymbol{I}$ is the second-order identity tensor. The extra-stress tensor $\boldsymbol{T}$ encapsulates all deviatoric stress contributions—both viscous dissipation and elastic storage—that arise from the internal microstructural response of the fluid to deformation. Substituting Equation~\eqref{eq:cauchy_stress_decomp} into Equation~\eqref{eq:general_momentum} gives:
+where $p$ is the isotropic thermodynamic pressure, $\boldsymbol{I}$ is the identity tensor, and $\boldsymbol{T}$ is the extra-stress (or deviatoric stress) tensor. The extra-stress tensor encapsulates all viscous dissipation and elastic energy storage mechanisms originating from the deformation of the fluid microstructure. Substituting Equation~\eqref{eq:cauchy_stress_decomp} into Equation~\eqref{eq:general_momentum} gives:
 \begin{equation}
     \rho \left( \frac{\partial \boldsymbol{u}}{\partial t} + \boldsymbol{u} \cdot \nabla \boldsymbol{u} \right) = -\nabla p + \nabla \cdot \boldsymbol{T} + \rho \boldsymbol{g} .
     \label{eq:general_momentum_expanded}
 \end{equation}
 
 % ============================================================
-% 2.2 PHYSICAL ASSUMPTIONS AND SYSTEM REDUCTION
+% 2.2 PHYSICAL ASSUMPTIONS AND GOVERNING SYSTEM REDUCTION
 % ============================================================
-\section{Physical Assumptions and System Reduction}
+\section{Physical Assumptions and Governing System Reduction}
 \label{sec:physical_assumptions}
 
-To model the viscoelastic fluid flow inside the four-roll mill, we introduce the following physical assumptions based on the micro-scale characteristics of the experimental setup:
+The full three-dimensional, unsteady equations of motion are intractable without specific constitutive closures and scale-appropriate reductions. For the analysis of polymer solutions within the four-roll mill geometry, we introduce the following physical assumptions:
 
 \begin{enumerate}
-    \item \textbf{Single-phase continuum}: The fluid is a homogeneous, single-phase polymer solution with uniform physical properties.
-    \item \textbf{Incompressibility}: The fluid density is constant ($\rho = \text{const}$). Under this condition, Equation~\eqref{eq:general_mass} simplifies to the solenoidal velocity constraint:
+    \item \textbf{Single-phase continuum}: The polymer solution is treated as an isotropic, single-phase, homogeneous continuum. Individual polymer macromolecules and solvent molecules are not resolved discretely; rather, their collective thermodynamic and rheological effects are captured through effective macroscopic transport properties.
+
+    \item \textbf{Incompressibility and solenoidal velocity field}: Under the operating pressures and low flow velocities characteristic of liquid polymer systems, density variations are negligible ($\rho = \text{const}$). The continuity equation~\eqref{eq:general_mass} reduces to the solenoidal constraint:
     \begin{equation}
         \nabla \cdot \boldsymbol{u} = 0 .
         \label{eq:incompressibility}
     \end{equation}
-    \item \textbf{Isothermal conditions}: Temperature variations across the domain are negligible; hence, the energy equation is decoupled and material parameters (viscosities, relaxation time) remain constant.
-    \item \textbf{Negligible gravity}: The characteristic length scale $L$ of the four-roll mill device is on the order of millimeters, yielding a very low Bond number $Bo = \Delta\rho \, g \, L^2 / \gamma \ll 1$, where $\gamma$ denotes the surface tension. Gravitational body forces are therefore negligible compared to viscous and elastic stresses, and we set $\boldsymbol{g} \approx \boldsymbol{0}$.
-    \item \textbf{Two-dimensional steady flow}: The flow is assumed planar ($w = 0,\; \partial(\cdot)/\partial z = 0$) and steady-state ($\partial(\cdot)/\partial t = 0$).
-    \item \textbf{Polymeric stress decomposition}: Following standard polymer rheology \cite{macosko1994rheology}, the extra-stress tensor $\boldsymbol{T}$ is split into a Newtonian solvent contribution and an elastic polymeric contribution $\boldsymbol{\tau}$:
+    A solenoidal velocity field implies that the velocity vector is divergence-free throughout the entire flow domain. Physically, this means that every material parcel preserves its volume identically during deformation (isochoric motion), and the flow possesses neither volumetric mass sources nor sinks.
+
+    \item \textbf{Isothermal conditions}: Viscous dissipation in the present low-shear regime produces negligible internal temperature rises. Thermal uniformity is maintained, decoupling the energy conservation equation from momentum and allowing fluid properties (viscosities, relaxation time) to be treated as spatially invariant constants.
+
+    \item \textbf{Negligible gravitational body forces}: In micro- and milli-fluidic geometries with characteristic length scales on the order of millimeters to centimeters ($L \sim 10^{-2}\,\mathrm{m}$) and viscous working fluids ($\mu \sim 0.1 - 1\,\mathrm{Pa}\cdot\mathrm{s}$), gravitational body forces are completely overshadowed by viscous and viscoelastic stress gradients. This is confirmed by evaluating the ratio of hydrostatic pressure gradients $\rho g$ to characteristic viscous shear forces $\mu_0 U / L^2$:
+    \begin{equation}
+        \frac{\rho g L^2}{\mu_0 U} \ll 1 .
+    \end{equation}
+    Consequently, body force contributions are neglected by setting $\boldsymbol{g} = \boldsymbol{0}$.
+
+    \item \textbf{Two-dimensional steady-state kinematics}: The geometry of the four-roll mill features rollers with a high aspect ratio along the axial dimension ($z$-axis). In the transverse mid-plane of the device, edge effects from the top and bottom confinement are negligible, rendering the flow strictly planar:
+    \begin{equation}
+        \boldsymbol{u} = \begin{pmatrix} u(x, y) \\ v(x, y) \\ 0 \end{pmatrix}, \qquad \frac{\partial (\cdot)}{\partial z} = 0 .
+    \end{equation}
+    Furthermore, once the boundary roller rotations are brought to constant angular speeds, the fluid reaches an established laminar regime where all local temporal derivatives vanish identically ($\partial(\cdot)/\partial t = \boldsymbol{0}$).
+
+    \item \textbf{Deviatoric stress decomposition}: For dilute and semi-dilute polymer solutions, the total extra-stress tensor $\boldsymbol{T}$ is partitioned into a purely viscous Newtonian solvent contribution and an elastic polymeric contribution $\boldsymbol{\tau}$ \cite{bird1987dynamics, macosko1994rheology}:
     \begin{equation}
         \boldsymbol{T} = 2\mu_s \boldsymbol{D} + \boldsymbol{\tau} ,
         \label{eq:stress_decomposition}
     \end{equation}
-    where $\mu_s$ is the solvent dynamic viscosity and $\boldsymbol{D}$ is the symmetric rate-of-strain tensor:
+    where $\mu_s$ represents the dynamic viscosity of the Newtonian solvent, and $\boldsymbol{D}$ denotes the symmetric rate-of-strain tensor:
     \begin{equation}
         \boldsymbol{D} = \frac{1}{2} \left[ \nabla \boldsymbol{u} + (\nabla \boldsymbol{u})^T \right] .
+        \label{eq:strain_rate_tensor}
     \end{equation}
-    This decomposition reflects the dual nature of viscoelastic media: the solvent responds instantaneously to deformation (Newtonian viscous dissipation, $2\mu_s \boldsymbol{D}$), while the dissolved polymer chains store elastic energy during deformation and relax over a characteristic time $\lambda$, giving rise to the polymeric stress $\boldsymbol{\tau}$.
+    This two-fluid stress split reflects the fundamental rheological physics of polymer solutions: the Newtonian solvent responds instantaneously to shear through viscous dissipation ($2\mu_s \boldsymbol{D}$), whereas the flexible polymer coils experience flow-induced stretching and orientation, giving rise to an elastic restoring stress $\boldsymbol{\tau}$ governed by macromolecular relaxation.
 \end{enumerate}
 
-With these assumptions, the steady 2D momentum equation reduces to:
+Substituting the stress decomposition~\eqref{eq:stress_decomposition} and the physical simplifications into Equation~\eqref{eq:general_momentum_expanded} yields the reduced steady two-dimensional momentum equation:
 \begin{equation}
     \rho (\boldsymbol{u} \cdot \nabla \boldsymbol{u}) = -\nabla p + \mu_s \nabla^2 \boldsymbol{u} + \nabla \cdot \boldsymbol{\tau} .
     \label{eq:momentum_reduced}
 \end{equation}
-Equation~\eqref{eq:momentum_reduced} is the steady-state incompressible Navier--Stokes equation augmented by the divergence of the polymeric extra-stress tensor $\nabla \cdot \boldsymbol{\tau}$, which couples the momentum balance to the viscoelastic constitutive model.
+Here, the Laplacian term $\mu_s \nabla^2 \boldsymbol{u}$ arises directly from $\nabla \cdot (2\mu_s \boldsymbol{D}) = \mu_s \nabla^2 \boldsymbol{u}$ by virtue of incompressibility ($\nabla \cdot \boldsymbol{u} = 0$). Equation~\eqref{eq:momentum_reduced} represents the Navier--Stokes momentum balance coupled directly to the divergence of the polymeric extra-stress tensor, $\nabla \cdot \boldsymbol{\tau}$.
 
 % ============================================================
-% 2.3 VISCOELASTIC CONSTITUTIVE MODEL
+% 2.3 VISCOELASTIC CONSTITUTIVE MODELING: THE OLDROYD-B FLUID
 % ============================================================
-\section{Viscoelastic Model: Oldroyd-B}
+\section{Viscoelastic Constitutive Modeling: The Oldroyd-B Fluid}
 \label{sec:oldroyd_b}
 
-To close Equation~\eqref{eq:momentum_reduced}, a constitutive relation for the polymeric extra-stress tensor $\boldsymbol{\tau}$ is required.
+The momentum equation~\eqref{eq:momentum_reduced} contains six unknown scalar fields in 2D ($u, v, p, \tau_{xx}, \tau_{xy}, \tau_{yy}$), but provides only three equations (continuity and two momentum components). To mathematically close the boundary value problem, a constitutive equation governing the evolution of the polymeric extra-stress tensor $\boldsymbol{\tau}$ is required.
 
-\subsection{Formulation and Frame Indifference}
-The Oldroyd-B constitutive model \cite{oldroyd1950formulation} represents polymer molecules as non-interacting elastic Hookean dumbbells suspended in a Newtonian solvent. Each dumbbell consists of two beads connected by an infinitely extensible entropic spring, where the beads experience hydrodynamic drag from the surrounding solvent while the spring provides an elastic restoring force \cite{bird1987dynamics}. In dimensional form, the constitutive equation is:
+\subsection{Microscopic Formulation and Dimensional Constitutive Law}
+\label{subsec:oldroyd_formulation}
+In this work, we adopt the classical Oldroyd-B constitutive model \cite{oldroyd1950formulation}. From a kinetic theory perspective, the Oldroyd-B model represents polymer molecules as dilute, non-interacting Hookean dumbbells immersed in a Newtonian continuous medium. Each dumbbell comprises two Brownian beads connected by a linear, infinitely extensible entropic spring \cite{bird1987dynamics}. The beads experience viscous drag forces from the solvent, while the internal spring exerts an entropic restoring force proportional to the end-to-end vector of the dumbbell.
+
+Under these microstructural assumptions, the polymeric stress tensor $\boldsymbol{\tau}$ is governed by the differential constitutive equation:
 \begin{equation}
     \lambda \overset{\nabla}{\boldsymbol{\tau}} + \boldsymbol{\tau} = 2\mu_p \boldsymbol{D} ,
     \label{eq:oldroyd_b_dimensional}
 \end{equation}
-where $\lambda$ is the polymer relaxation time (characterizing how quickly the polymer chains return to their equilibrium configuration after deformation) and $\mu_p$ is the polymeric viscosity contribution. The total zero-shear-rate viscosity is $\mu_0 = \mu_s + \mu_p$.
-
-To satisfy the principle of material frame-indifference (objectivity), the time rate of change of the stress tensor must be evaluated using the Upper-Convected Time Derivative (UCTD), $\overset{\nabla}{\boldsymbol{\tau}}$:
+where $\lambda$ is the characteristic polymer relaxation time, $\mu_p$ is the polymeric viscosity contribution, and $\overset{\nabla}{\boldsymbol{\tau}}$ denotes the objective time derivative. The total zero-shear viscosity of the solution is given by the sum of both phases:
 \begin{equation}
-    \overset{\nabla}{\boldsymbol{\tau}} = \frac{\partial \boldsymbol{\tau}}{\partial t} + \boldsymbol{u} \cdot \nabla \boldsymbol{\tau} - (\nabla \boldsymbol{u})^T \cdot \boldsymbol{\tau} - \boldsymbol{\tau} \cdot \nabla \boldsymbol{u} .
+    \mu_0 = \mu_s + \mu_p .
+    \label{eq:zero_shear_viscosity}
+\end{equation}
+
+\subsection{Material Frame-Indifference and the Upper-Convected Time Derivative}
+\label{subsec:uctd}
+In non-Newtonian fluid mechanics, constitutive equations cannot employ the standard partial time derivative $\partial \boldsymbol{\tau}/\partial t$ nor the substantial derivative $\mathrm{D}\boldsymbol{\tau}/\mathrm{D}t$, as these operators are not invariant under time-dependent Euclidean transformations of the observer frame (principle of material frame-indifference or objectivity) \cite{bird1987dynamics, owens2002computational}. 
+
+To account for the continuous translation, rotation, and stretching of fluid elements containing oriented polymer chains, the rate of change of $\boldsymbol{\tau}$ must be evaluated using the \textit{Upper-Convected Time Derivative} (UCTD), denoted by $\overset{\nabla}{\boldsymbol{\tau}}$:
+\begin{equation}
+    \overset{\nabla}{\boldsymbol{\tau}} \equiv \frac{\partial \boldsymbol{\tau}}{\partial t} + \boldsymbol{u} \cdot \nabla \boldsymbol{\tau} - (\nabla \boldsymbol{u}) \cdot \boldsymbol{\tau} - \boldsymbol{\tau} \cdot (\nabla \boldsymbol{u})^T .
     \label{eq:uctd_definition}
 \end{equation}
-Each term in Equation~\eqref{eq:uctd_definition} carries a distinct physical meaning: $\partial \boldsymbol{\tau}/\partial t$ represents the local (unsteady) rate of change at a fixed spatial point; $\boldsymbol{u} \cdot \nabla \boldsymbol{\tau}$ accounts for the convective transport of stress by the mean flow; and the two tensorial terms $(\nabla \boldsymbol{u})^T \cdot \boldsymbol{\tau} + \boldsymbol{\tau} \cdot \nabla \boldsymbol{u}$ capture the rotation and stretching of the stress tensor induced by the local velocity gradient, ensuring that the derivative transforms correctly under arbitrary changes of the observer frame.
-
-In steady state ($\partial \boldsymbol{\tau} / \partial t = \boldsymbol{0}$), Equation~\eqref{eq:uctd_definition} retains only the convective and tensorial stretching contributions, which capture stress advection and flow-induced polymer chain alignment.
-
-\subsection{Limitations and Alternative Models}
-Despite its widespread use as a canonical viscoelastic benchmark, the Oldroyd-B model exhibits two well-known limitations \cite{owens2002computational, bird1987dynamics}. First, the linear Hookean spring assumption yields a constant shear viscosity $\eta = \mu_0$ for all shear rates, failing to capture the shear-thinning behavior observed in most real polymer solutions. Second, the infinite spring extensibility leads to a singular (unbounded) extensional viscosity in steady uniaxial or planar extensional flow at a critical extensional Weissenberg number $Wi_{\mathrm{ext}} = 0.5$, which is both unphysical and numerically problematic.
-
-To address these deficiencies, two regularized constitutive models extend the Oldroyd-B framework by introducing non-linear modifications to the stress tensor evolution:
+In Equation~\eqref{eq:uctd_definition}, each term embodies a clear physical mechanism:
 \begin{itemize}
-    \item \textbf{Phan-Thien--Tanner (PTT) model}: Introduces a stress-dependent relaxation function $f_{\mathrm{PTT}}(\boldsymbol{\tau}) = 1 + (\varepsilon \lambda / \mu_p)\,\mathrm{tr}(\boldsymbol{\tau})$, where the parameter $\varepsilon \geq 0$ controls the degree of shear-thinning and bounds the extensional viscosity. Setting $\varepsilon = 0$ recovers the Oldroyd-B model.
-    \item \textbf{Giesekus model}: Adds a quadratic stress term $\alpha (\lambda / \mu_p) \, \boldsymbol{\tau} \cdot \boldsymbol{\tau}$ to the constitutive equation, where the anisotropic mobility parameter $\alpha \in [0, 1]$ governs inter-chain interactions. This produces realistic shear-thinning and bounded extensional viscosity. Setting $\alpha = 0$ recovers the Oldroyd-B model.
+    \item $\partial \boldsymbol{\tau}/\partial t$ is the local rate of stress change at a fixed spatial coordinate;
+    \item $\boldsymbol{u} \cdot \nabla \boldsymbol{\tau}$ represents the convective advection of stress carried along the flow streamlines;
+    \item $-(\nabla \boldsymbol{u}) \cdot \boldsymbol{\tau} - \boldsymbol{\tau} \cdot (\nabla \boldsymbol{u})^T$ are the non-linear tensorial stretching and rotation terms. They quantify how local velocity gradients deform and rotate the macromolecular dumbbell conformations, aligning the polymer stress with the principal axes of extension.
 \end{itemize}
-The computational framework developed in this thesis supports all three models as special cases of a single generalized constitutive equation parameterized by $(\varepsilon, \alpha)$, enabling data-driven model selection through the PINN inverse problem formulation (see Chapter~\ref{chap:pinn_literature}).
+For the steady-state regime investigated in this research ($\partial \boldsymbol{\tau}/\partial t = \boldsymbol{0}$), the UCTD reduces strictly to the convective and deformation-induced stretching contributions.
+
+\subsection{Rheological Behavior and the High-Weissenberg Challenge}
+\label{subsec:high_weissenberg}
+The Oldroyd-B model is widely recognized as the fundamental benchmark for elastic Boger fluids—polymer solutions formulated to exhibit significant elasticity while maintaining an essentially constant shear viscosity over a broad range of shear rates ($\eta(\dot{\gamma}) = \mu_0$). 
+
+However, in strong extensional kinematics (such as those generated along the axes of a four-roll mill), the Oldroyd-B model reveals an intrinsic mathematical singularity. Because Hookean dumbbells possess an infinitely extensible spring law, the steady extensional viscosity $\eta_E$ predicted in a planar extensional flow field ($u = \dot{\epsilon} x, v = -\dot{\epsilon} y$) takes the analytical form:
+\begin{equation}
+    \eta_E(\dot{\epsilon}) = 4\mu_s + \frac{2\mu_p}{(1 - 2\lambda\dot{\epsilon})(1 + 2\lambda\dot{\epsilon})} .
+    \label{eq:extensional_viscosity}
+\end{equation}
+As the dimensionless extensional rate approaches the critical threshold $2\lambda\dot{\epsilon} \to 1$ (corresponding to an extensional Weissenberg number $Wi \to 0.5$), the polymeric stress diverges asymptotically to infinity ($\eta_E \to \infty$). 
+
+In numerical computations and machine learning architectures alike, this steep stress amplification produces extremely sharp spatial boundary layers along outflow streams, giving rise to the classical \textit{High-Weissenberg Number Problem} (HWNP). Capturing these localized, steep stress gradients without inducing numerical instabilities or gradient explosion is one of the primary motivations for adopting physics-informed neural network approaches.
 
 % ============================================================
 % 2.4 NONDIMENSIONALIZATION AND FINAL MODEL EQUATIONS

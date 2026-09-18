@@ -1,0 +1,91 @@
+\documentclass[12pt, twoside]{report}
+\usepackage[a4paper, inner=3.5cm, outer=3cm, top=3cm]{geometry}
+\usepackage{fancyhdr}
+\usepackage{cite}
+\usepackage{csquotes}
+\usepackage{xurl} %serve a spezzare gli url troppo lunghi nella biblio
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\graphicspath{ {./images/} }
+\usepackage{setspace}
+\usepackage{amsmath,amssymb}
+\setlength{\headheight}{27.1pt}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+%\addbibresource{references.bib}
+\fancyhead[LE, RO]{\thepage}
+\fancyhead[RE]{\leftmark}
+\fancyhead[LO]{\rightmark}
+%\fancyfoot[LE, RO]{\thepage}
+\fancyfoot[CO, CE]{}
+
+% STEP 1: include the package
+%\usepackage{uninafrontespizio}
+% STEP 2: Front-page configuration
+%\Universita{Università degli Studi di Napoli Federico II}
+%\Facolta{Scuola Politecnica e delle Scienze di Base}
+%\Dipartimento{Dipartimento di Ingegneria Chimica, dei Materiali e della Produzione Industriale}
+%\CorsoDiLaurea{Corso di Laurea Magistrale in Ingegneria Chimica}
+%\Materia{Tesi sperimentale in Cat Girls} % optional
+%\AnnoAccademico{Anno Accademico 2026--2027}
+%\Titolo{Titolo tesi pazz}
+%\Relatore{Prof. Massimiliano Maria \textsc{Villone}}
+%\RelatoreLabel{Relatore} %optional, default: Relatore
+%\relandcorrelsep{2em} %optional, vertical space between relatori and correlatori default: 1.5ex
+%\Correlatore{Maurizio \textsc{De Micco}}
+%\Correlatore{Dott.Foo \textsc{Bar}} % can add as many "Correlatori" as you wish
+%\CorrelatoreLabel{Controrelatore} %optional, default: Correlatore
+%\Candidato{Daniele \textsc{Infante}} %only one candidate is currently supported
+%\CandidatoLabel{Candidata} %optional, default: Candidato
+%\Matricola{M55/1408}
+%\Logo{logo-federico-II.pdf} %path to logo image
+%\LogoWidth{4cm} %optional, default: 3cm
+%\LogoPosition{below-uni} % or top, or below-title, or above-title, or no-logo
+
+
+
+
+\begin{document}
+ %   \input{frontespizio}
+    \nocite{*}
+    %\input{capitoli/dedica}
+    \pagestyle{empty}
+    \tableofcontents
+    \doublespacing
+    %\setcounter{chapter}{-1}
+    \pagestyle{fancy}
+    ciaooo
+%    \input{Chapters/1.Introduction.tex}
+    \input{Chapters/2.Fluid-dynamics.tex}
+    \input{Chapters/3.PINNs.tex}
+ %   \input{Chapters/4.Results.tex}
+    %\chapter*{Appendice}
+    \bibliographystyle{unsrt}
+    \bibliography{references}
+\end{document}
