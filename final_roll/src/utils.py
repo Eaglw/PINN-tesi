@@ -103,6 +103,79 @@ def weighted_mse(pred, target, var):
     return torch.mean(((pred - target) ** 2) / var)
 
 
+def build_dataset_tag(lam, mu_p, mu_s, alpha=0.0, eps=0.0, mesh="125k"):
+    """
+    Costruisce il tag canonico standardizzato:
+    L{lambda}-P{eta_p}-S{eta_s}-A{alpha}-E{eps}_M{mesh}
+    es. L0.05-P0.5-S0.5-A0-E0_M125k
+    """
+    return f"L{lam:g}-P{mu_p:g}-S{mu_s:g}-A{alpha:g}-E{eps:g}_M{mesh}"
+
+
+def parse_dataset_metadata(path_or_filename):
+    """
+    Estrae rigorosamente i metadati fisici e la risoluzione di mesh dal nome file.
+    Formato atteso obbligatorio: 4_roll_mill_L{lambda}-P{eta_p}-S{eta_s}-A{alpha}-E{eps}_M{mesh}.csv
+    (o senza prefisso '4_roll_mill_' / estensione se passato come tag puro).
+
+    SOLLEVA ERRORI BLOCCANTI SE NON CONFORME (nessun fallback silenzioso).
+    """
+    import re
+    name = Path(path_or_filename).name
+
+    pattern = r"^(?:4_roll_mill_)?L([0-9.]+)-P([0-9.]+)-S([0-9.]+)-A([0-9.]+)-E([0-9.]+)[_-]M([0-9a-zA-Z]+)(?:\.csv)?$"
+    m = re.match(pattern, name)
+    if not m:
+        raise ValueError(
+            f"[STRICT DATASET ERROR] Il nome file o tag '{name}' non rispetta la convenzione obbligatoria:\n"
+            f"  Formato atteso: 4_roll_mill_L{{lambda}}-P{{eta_p}}-S{{eta_s}}-A{{alpha}}-E{{eps}}_M{{mesh}}.csv\n"
+            f"  Esempio valido: 4_roll_mill_L0.05-P0.5-S0.5-A0-E0_M125k.csv\n"
+            f"  Nessun fallback consentito: rinomina il dataset o correggi il parametro."
+        )
+    return {
+        "lam_true": float(m.group(1)),
+        "mu_p_true": float(m.group(2)),
+        "mu_s_true": float(m.group(3)),
+        "alpha_true": float(m.group(4)),
+        "eps_true": float(m.group(5)),
+        "mesh_tag": m.group(6),
+    }
+
+
+def resolve_dataset_path(directory, param_tag):
+    """
+    Risolve rigorosamente il percorso del dataset in base al tag standard.
+    Supporta sia directory base 'COMSOL/4roll' sia 'COMSOL/4roll/Datasets'.
+    Supporta entrambe le varianti di separatore mesh (_M e -M).
+    Solleva FileNotFoundError bloccante se il file non esiste (nessun fallback).
+    """
+    dir_path = Path(directory)
+    # Se passata la directory radice di 4roll, controlla la sottocartella Datasets
+    if (dir_path / "Datasets").is_dir():
+        dir_path = dir_path / "Datasets"
+    elif (dir_path / "Dataset").is_dir():
+        dir_path = dir_path / "Dataset"
+
+    expected_file = dir_path / f"4_roll_mill_{param_tag}.csv"
+    if not expected_file.exists():
+        # Controlla variante con trattino -M invece di _M (o viceversa)
+        alt_tag = param_tag.replace("_M", "-M") if "_M" in param_tag else param_tag.replace("-M", "_M")
+        alt_file = dir_path / f"4_roll_mill_{alt_tag}.csv"
+        if alt_file.exists():
+            return alt_file
+
+        existing_csvs = list(dir_path.glob("*.csv"))
+        file_list_str = "\n".join(f"    - {f.name}" for f in existing_csvs) if existing_csvs else "    (nessun file .csv trovato)"
+        raise FileNotFoundError(
+            f"\n[STRICT DATASET ERROR] Dataset COMSOL non trovato: '{expected_file}'\n"
+            f"  PARAM_TAG richiesto: '{param_tag}'\n"
+            f"  Directory: '{dir_path.resolve()}'\n"
+            f"  File .csv disponibili:\n{file_list_str}\n"
+            f"  Nessun fallback consentito: assicurati che il file sia presente e nominato correttamente."
+        )
+    return expected_file
+
+
 def load_data(filepath=None, use_fp64=False, eta_0=None):
     """Carica il dataset COMSOL, adimensionalizza, estrae boundary groups e prepara i tensori."""
     mod_globals = globals()
@@ -194,7 +267,7 @@ def load_data(filepath=None, use_fp64=False, eta_0=None):
 
     # --- 7. Boundary Groups ---
     boundary_groups = _extract_boundary_groups(
-        coords, x_raw, y_raw, x_min, y_min, H_coord, tensors
+        coords, x_raw, y_raw, x_min, y_min, H_coord, tensors, dataset_path=target_path
     )
 
     # [Proposta AB] Estrazione coordinate e pressione di riferimento dal punto di ancoraggio
@@ -233,26 +306,42 @@ def load_data(filepath=None, use_fp64=False, eta_0=None):
 
 
 def _extract_boundary_groups(
-    coords, x_raw, y_raw, x_min, y_min, H_coord, fields, pt_dtype=torch.float32
+    coords, x_raw, y_raw, x_min, y_min, H_coord, fields, pt_dtype=torch.float32, dataset_path=None
 ):
     """
     Estrae i boundary groups e calcola le normali analizzando la topologia della mesh COMSOL.
     Non applica le BC, ma prepara i tensori per la Loss Function.
     """
-    mphtxt_path = str(DATASET_PATH).replace(".csv", "_geom.mphtxt")
-    if not os.path.isfile(mphtxt_path):
-        mphtxt_path = str(DATASET_PATH).replace(".csv", ".mphtxt")
-    if not os.path.isfile(mphtxt_path):
-        # Fallback alla mesh comune della geometria 4-roll mill
-        common_mesh = Path(DATASET_PATH).parent / "4_roll_mill_geom.mphtxt"
-        if common_mesh.is_file():
-            mphtxt_path = str(common_mesh)
-        else:
-            common_mesh_alt = Path(DATASET_PATH).parent / "4_roll_mill.mphtxt"
-            if common_mesh_alt.is_file():
-                mphtxt_path = str(common_mesh_alt)
-            else:
-                raise FileNotFoundError(f"File mesh .mphtxt non trovato per {DATASET_PATH}")
+    raw_ds = dataset_path or getattr(builtins, "DATASET_PATH", globals().get("DATASET_PATH", "COMSOL/4roll/Datasets/4_roll_mill.csv"))
+    ds_path = Path(raw_ds)
+    try:
+        meta = parse_dataset_metadata(ds_path)
+        mesh_tag = meta.get("mesh_tag")
+    except Exception:
+        mesh_tag = None
+
+    candidates = []
+    if mesh_tag:
+        candidates.append(ds_path.parent / "Geom" / f"4_roll_mill_geom_{mesh_tag}.mphtxt")
+        candidates.append(ds_path.parent.parent / "Geom" / f"4_roll_mill_geom_{mesh_tag}.mphtxt")
+        candidates.append(ds_path.parent / f"4_roll_mill_geom_{mesh_tag}.mphtxt")
+    candidates.append(ds_path.parent / "Geom" / "4_roll_mill_geom_125k.mphtxt")
+    candidates.append(ds_path.parent.parent / "Geom" / "4_roll_mill_geom_125k.mphtxt")
+    candidates.append(ds_path.parent / "4_roll_mill_geom.mphtxt")
+    candidates.append(ds_path.parent.parent / "4_roll_mill_geom.mphtxt")
+    candidates.append(ds_path.with_suffix(".mphtxt"))
+
+    mphtxt_path = None
+    for cand in candidates:
+        if cand.is_file():
+            mphtxt_path = str(cand)
+            break
+
+    if mphtxt_path is None:
+        raise FileNotFoundError(
+            f"\n[STRICT MESH ERROR] File mesh .mphtxt non trovato per {DATASET_PATH} (mesh_tag: {mesh_tag})\n"
+            f"  Percorsi verificati:\n" + "\n".join(f"    - {c}" for c in candidates)
+        )
 
     with open(mphtxt_path, "r") as f:
         lines = [line.strip() for line in f]
@@ -316,6 +405,17 @@ def _extract_boundary_groups(
             selections[label] = [
                 int(lines[i]) for i in range(ent_start, ent_start + num_ent)
             ]
+
+    # Se le selezioni esplicite non sono state esportate nel file mphtxt da COMSOL,
+    # usiamo la mappatura canonica verificata geometricamente per il 4-roll mill
+    if not selections:
+        selections = {
+            "Walls": [0, 1, 2, 3],
+            "Roll1": [14, 15, 18, 19],
+            "Roll2": [6, 7, 10, 11],
+            "Roll3": [4, 5, 8, 9],
+            "Roll4": [12, 13, 16, 17],
+        }
 
     # --- 3. Topologia (Nodo -> Triangoli adiacenti) ---
     node_to_tri = {}

@@ -42,6 +42,8 @@ from src.utils import (
     plot_high_stress_regions,
     launch_tensorboard_server,
     generate_all_diagnostics,
+    build_dataset_tag,
+    resolve_dataset_path,
 )
 
 import src.debug
@@ -103,14 +105,14 @@ BETA_TRUE = 0.500
 LAM_TRUE = 0.200
 EPS_TRUE = 0.0
 ALPHA_TRUE = 0.0
+MESH_TAG = "125k"
 RHO = 1000.0
 
-# Tag identificativo standard della configurazione reologica (L-P-S)
-PARAM_TAG = f"L{LAM_TRUE:g}-P{MU_P_TRUE:g}-S{MU_S_TRUE:g}"
+# Tag identificativo standard della configurazione reologica (L-P-S-A-E_M)
+PARAM_TAG = build_dataset_tag(LAM_TRUE, MU_P_TRUE, MU_S_TRUE, ALPHA_TRUE, EPS_TRUE, MESH_TAG)
 
 BASE_DIR = Path(__file__).resolve().parent
-_ds_candidate = BASE_DIR.parent / "COMSOL" / "4roll" / f"4_roll_mill_{PARAM_TAG}.csv"
-DATASET_PATH = _ds_candidate if _ds_candidate.exists() else (BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv")
+DATASET_PATH = resolve_dataset_path(BASE_DIR.parent / "COMSOL" / "4roll" / "Datasets", PARAM_TAG)
 
 # Checkpoint di partenza: ripresa dal consolidato/transfer di Fase 1
 _default_f1_ckpt = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_transfer.pth"

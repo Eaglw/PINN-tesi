@@ -17,8 +17,15 @@ from tqdm import tqdm
 from src.debug import test_random_points, debug_physics_magnitudes
 from src.physics import Physics, evaluate_final_losses, compute_l2_errors
 from src.train import CombinedModel, initialize_last_layer_zero, init_weights_xavier, train
-from src.utils import load_data, plot_fields, plot_high_stress_regions, launch_tensorboard_server
-from src.utils import get_optimal_chunk_size
+from src.utils import (
+    load_data,
+    plot_fields,
+    plot_high_stress_regions,
+    launch_tensorboard_server,
+    get_optimal_chunk_size,
+    build_dataset_tag,
+    resolve_dataset_path,
+)
 
 import src.debug
 import src.physics
@@ -86,19 +93,19 @@ BETA_TRUE = MU_S_TRUE / MU_TOT_TRUE  # Rapporto di viscosità (0.10)
 LAM_TRUE = 0.05  # Tempo di rilassamento [s]
 EPS_TRUE = 0.0  # Parametro PTT (bloccato a 0)
 ALPHA_TRUE = 0.0  # Parametro Giesekus (bloccato a 0)
+MESH_TAG = "125k"  # Risoluzione mesh COMSOL (es. '12k', '52k', '88k', '125k')
 RHO = 1000.0  # Densità [kg/m³]
 
-# Tag identificativo standard della configurazione reologica (L-P-S)
-PARAM_TAG = f"L{LAM_TRUE:g}-P{MU_P_TRUE:g}-S{MU_S_TRUE:g}"
+# Tag identificativo standard della configurazione reologica (L-P-S-A-E_M)
+PARAM_TAG = build_dataset_tag(LAM_TRUE, MU_P_TRUE, MU_S_TRUE, ALPHA_TRUE, EPS_TRUE, MESH_TAG)
 
-# --- Percorsi Base & Dataset ---
+# --- Percorsi Base & Dataset (Strict: errore bloccante se non trovato) ---
 BASE_DIR = Path(__file__).resolve().parent
-_ds_candidate = BASE_DIR.parent / "COMSOL" / "4roll" / f"4_roll_mill_{PARAM_TAG}.csv"
-DATASET_PATH = _ds_candidate if _ds_candidate.exists() else (BASE_DIR.parent / "COMSOL" / "4roll" / "4_roll_mill.csv")
+DATASET_PATH = resolve_dataset_path(BASE_DIR.parent / "COMSOL" / "4roll" / "Datasets", PARAM_TAG)
 
-# --- Checkpointing (con risoluzione automatica L-P-S) ---
+# --- Checkpointing (con risoluzione automatica L-P-S-A-E_M) ---
 _ckpt_candidate = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_40k+10k.pth"
-RESUME_CHECKPOINT = _ckpt_candidate if _ckpt_candidate.exists() else (BASE_DIR / "checkpoints" / "checkpoint_inverso_fase1_40k+10k.pth")
+RESUME_CHECKPOINT = _ckpt_candidate
 
 # --- Costanti e Calcolo Dinamico dei Guess Iniziali (Log-Space Parametrization) ---
 MIN_MU_S = 1e-6

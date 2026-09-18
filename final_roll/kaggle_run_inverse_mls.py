@@ -666,13 +666,15 @@ def parse_args():
     
     # Automatic detection for Kaggle input or local COMSOL folder
     import glob
-    kaggle_csv = glob.glob("/kaggle/input/**/4_roll_mill_L0.2-P0.5-S0.5.csv", recursive=True)
+    kaggle_csv = glob.glob("/kaggle/input/**/4_roll_mill_L0.2-P0.5-S0.5-A0-E0_M125k.csv", recursive=True)
     if kaggle_csv:
         default_dataset = Path(kaggle_csv[0])
-    elif (repo_root / "COMSOL" / "4roll" / "4_roll_mill_L0.2-P0.5-S0.5.csv").exists():
-        default_dataset = repo_root / "COMSOL" / "4roll" / "4_roll_mill_L0.2-P0.5-S0.5.csv"
+    elif (repo_root / "COMSOL" / "4roll" / "4_roll_mill_L0.2-P0.5-S0.5-A0-E0_M125k.csv").exists():
+        default_dataset = repo_root / "COMSOL" / "4roll" / "4_roll_mill_L0.2-P0.5-S0.5-A0-E0_M125k.csv"
     else:
-        default_dataset = repo_root / "COMSOL" / "4roll" / "4_roll_mill.csv"
+        raise FileNotFoundError(
+            "[STRICT ERROR] Dataset 4_roll_mill_L0.2-P0.5-S0.5-A0-E0_M125k.csv non trovato né in /kaggle/input né in COMSOL/4roll!"
+        )
 
     default_cache = default_dataset.parent / "comsol_derivatives_mls_L0.2-P0.5-S0.5.pt"
     default_output = script_dir / "output_kaggle_inverse_mls_L0.2-P0.5-S0.5"
