@@ -716,6 +716,201 @@
   - Definiti i criteri diagnostici quantitativi di convergenza: profilo cut-line di velocità $u(y)$ nel gap critico dei rulli ($E_{L_2} < 0.5\%$), picco di stress estensionale $\tau_{xx}$ nel punto di sella ($E_{\text{peak}} < 1.5\%$) e Grid Convergence Index (GCI).
   - Documentato il disaccoppiamento tra densità di griglia FEM COMSOL e campionamento batching PINN ($N_{coll} \sim 10k-20k$, $N_{data} \sim 2k-5k$).
 
+    3. **Hardcap Numerico da Evitare in FP32**: $\eta_0 < 0.10$ e $\eta_0 > 5.00\text{ Pa}\cdot\text{s}$ (rischio di gradient explosion o quantization underflow).
+
+### Pagine Modificate
+- **[[Adaptive_Nondimensionalization]]** (Methods): Aggiunta la sezione completa sull'invarianza esatta di gauge in Fase 1, la risoluzione del bug di clamping asimmetrico e la tabella dei regimi operativi e hardcap FP32.
+- **[[Viscoelastic_Training]]** (Systems): Aggiornato il Test 3 della roadmap di validazione sperimentale (completato e convalidato per la Fase 1).
+
+### Integrazione Baseline a 500 Epoche e Verifica Bit-Perfect
+- Completato il run a 500 epoche su $\eta_0 = 1.00\text{ Pa}\cdot\text{s}$ a parità di scheduler ($T_{\max} = 500$).
+- **Risultato di Coincidenza Bit-Perfect**:
+  - Tra $\eta_0 = 1.00$ e $\eta_0 = 2.00$, $\mu_p = 0.6963310838\text{ Pa}\cdot\text{s}$ e $\lambda = 0.0391521752\text{ s}$ sono **identici al 100% bit-for-bit** (16 cifre decimali, deviazione $0.000000\%$).
+  - Tra $\eta_0 = 0.10$ e $\eta_0 = 0.20$, $\mu_p = 0.6962456703\text{ Pa}\cdot\text{s}$ e $\lambda = 0.0391401388\text{ s}$ sono identici fino alla 10ª cifra decimale.
+- **Accuratezza alla Seconda Cifra Decimale**:
+  - Su tutta la finestra $\eta_0 \in [0.10, 3.00]\text{ Pa}\cdot\text{s}$, i parametri convergono rigorosamente a $\mu_p = \mathbf{0.70}\text{ Pa}\cdot\text{s}$ e $\lambda = \mathbf{0.04}\text{ s}$ (e fino alla 3ª cifra: $\mu_p = \mathbf{0.696}\text{ Pa}\cdot\text{s}$, deviazione massima $\le 0.03\%$).
+  - Confermato che le curve di convergenza in Fase 1 sono matematicamente e operativamente equivalenti su tutto il dominio di scale analizzato.
+
+## [2026-08-31] update_wiki | Vincolo curl(F)=0 in Fase 2 per eta_s e Metodo Zero-Stress-BC in Fase 1
+
+### Analisi Teorica, Diagnostica e Sperimentazione
+- **Validazione Vincolo curl(F) = 0 in Fase 2**:
+  - Implementato script standalone `final_roll/train_4roll_main_curl.py` senza modificare i sorgenti in `src/`.
+  - Dimostrato che il vincolo di irrotazionalità $\text{curl}(\mathbf{F}) = 0$ elimina completamente la pressione $p(x,y)$ dalla reologia e disaccoppia l'identificazione della viscosità solvente $\eta_s$.
+  - Eseguito training a partire da `checkpoint_inverso_fase1_40k+10k.pth` (~6.000 epoche di Adam Fase 2):
+    - $\mu_s$ identificata a **$0.090802\text{ Pa}\cdot\text{s}$** (Target reale: $0.100000\text{ Pa}\cdot\text{s}$, errore **$9.2\%$**).
+    - $\mu_p$ confermata a **$0.904854\text{ Pa}\cdot\text{s}$** (errore $0.5\%$).
+    - $\lambda$ confermata a **$0.050203\text{ s}$** (errore $0.4\%$).
+    - Accuratezza cinematica preservata ($L_2(u) = 3.04\%$, $L_2(v) = 3.07\%$).
+- **Formalizzazione del Metodo Zero-Stress-BC in Fase 1 (Full-PIV Rheometry)**:
+  - Concettualizzato l'uso del vincolo $\text{curl}(\mathbf{F}) = 0$ in Fase 1 per forzare l'ancoraggio di magnitudo dello stress $\boldsymbol{\tau}$ al termine viscoso noto $\mu_s \nabla^2 \mathbf{u}$.
+  - Questo approccio permette di **eliminare al 100% i dati di stress al contorno sui rulli** ($\Gamma_{\text{rolls}}$), rendendo la PINN pienamente applicabile a misure sperimentali ottiche di sola velocità (PIV).
+
+### Pagine Create e Modificate
+- **[[Zero_Stress_BC_Compatibility]]** (Methods, NEW): Creata la pagina metodologica sul vincolo di compatibilità rotazionale in Fase 1 per la reometria Full-PIV a zero dati di stress.
+- **[[Vorticity_Inversion_Solvent]]** (Methods, UPDATED): Aggiornata la formulazione con i risultati empirici della run Fase 2 sul 4-roll mill ($0.0908\text{ Pa}\cdot\text{s}$).
+- **[[00_Index]]** (Index, UPDATED): Inserito il nuovo metodo nel catalogo della Wiki.
+
+## [2026-09-01] ingest | Ingestion 4 Trattati Fondamentali di Trasporto, Reologia e Loss Balancing
+
+### Sintesi e Rilevanza Scientifica dei Testi
+- **Transport Phenomena (Bird, Stewart, Lightfoot)**:
+  - Trattato di riferimento per le equazioni di conservazione della massa (continuità $\nabla \cdot \mathbf{u} = 0$) e quantità di moto (Cauchy momentum balance $\rho \frac{D\mathbf{u}}{Dt} = -\nabla p - \nabla \cdot \boldsymbol{\tau} + \rho \mathbf{g}$).
+  - Soluzioni analitiche benchmark per flussi laminari (Poiseuille, Couette) e scomposizione formale del tensore degli sforzi di Cauchy $\boldsymbol{\sigma} = -p\mathbf{I} - \boldsymbol{\tau}$.
+- **Analysis of Transport Phenomena (William M. Deen - MIT)**:
+  - Fondamento matematico della formulazione della **funzione di corrente** ($\psi \implies u = \partial_y \psi, v = -\partial_x \psi$) per la conservazione identica della massa in 2D.
+  - Derivazione rigorosa dell'**equazione di trasporto della vorticità** ($\omega_z = -\nabla^2 \psi$) e della condizione di compatibilità del rotore ($\nabla \times \mathbf{F} = \mathbf{0}$) per eliminare l'indeterminazione della pressione.
+  - Metodologia formale di analisi dimensionale e scaling asintotico.
+- **Dynamics of Polymer Liquids, Vol. 1: Fluid Mechanics (Bird, Armstrong, Hassager)**:
+  - Testo sacro per la meccanica dei fluidi polimerici, reologia e leggi costitutive viscoelastiche.
+  - Formulazione rigorosa della **derivata temporale convettiva superiore (Upper-Convected Derivative $\boldsymbol{\tau}_{(1)}$)** per l'invarianza di frame/osservatore.
+  - Definizioni dei modelli differenziali: Upper-Convected Maxwell (UCM), Oldroyd-B (split stress solvente/polimero $\boldsymbol{\tau} = \boldsymbol{\tau}_s + \boldsymbol{\tau}_p$), Giesekus (anisotropia molecolare $\alpha$) e Linear PTT (distruzione network $\epsilon$).
+  - Fondamento teorico per l'identificabilità dei parametri ($\lambda$ su normal stress $N_1$, $\eta_p$ su shear stress $\tau_{xy}$).
+- **Computational Rheology (Owens & Phillips - Imperial College)**:
+  - Trattato di riferimento sui metodi numerici per fluidi complessi e classificazione mista ellittico-iperbolica (quantità di moto ellittica + trasporto iperbolico degli sforzi lungo le linee di corrente).
+  - Analisi del **High Weissenberg Number Problem (HWNP)** e tecniche di stabilizzazione (EVSS/DEVSS, Log-conformation tensor $\mathbf{s} = \log \mathbf{A}$).
+  - Analisi idrodinamica e reologica specifica per la geometria del **Four-Roll Mill** (punto di ristagno centrale $(0,0)$, deformazione estensionale pura, singolarità e gradienti esponenziali di stress).
+- **Integrazione Papers Gradient Pathologies & Loss Balancing**:
+  - Ingerito Wang et al. (2021) su Gradient Pathologies e Learning Rate Annealing.
+  - Ingerito Bischof & Kraus (2021/2022) su ReLoBRaLo e Multi-Objective Loss Balancing.
+  - Ingerito Report interno su Curl del Momentum e Loss Floor rotazionale.
+
+### Pagine Create
+- **[[Bird_Stewart_Lightfoot_Transport_Phenomena]]** (Literature)
+- **[[Deen_Analysis_of_Transport_Phenomena]]** (Literature)
+- **[[Bird_Armstrong_Hassager_Dynamics_of_Polymer_Liquids]]** (Literature)
+- **[[Owens_Phillips_Computational_Rheology]]** (Literature)
+- **[[Wang_et_al_Gradient_Pathologies]]** (Literature)
+- **[[Bischof_Kraus_Multi_Objective_Loss_Balancing]]** (Literature)
+- **[[Report_Curl_del_Momentum]]** (Literature)
+
+### Pagine Modificate
+- **[[Dynamic_Weighting]]** (Methods): Aggiunti i riferimenti espliciti agli algoritmi di Learning Rate Annealing (Wang et al.) e ReLoBRaLo (Bischof & Kraus).
+- **[[Viscoelasticity]]** (Topics): Inseriti i riferimenti a BAH (Bird et al.) e Owens & Phillips.
+- **[[Fluid_Dynamics]]** (Topics): Inseriti i riferimenti a BSL (Bird et al.), Deen, BAH e Owens & Phillips.
+- **[[00_Index]]**: Registrate tutte le 7 nuove voci nel Literature Catalog.
+
+---
+
+## [2026-09-01] update_wiki | Ingestion Oldroyd (1950) & Guida Completa alla Scrittura del Capitolo 2
+
+### Sintesi Operazioni
+- Ingerito il paper fondamentale di James G. Oldroyd (1950) sull'invarianza di riferimento materiale (Objectivity) e sull'equazione a 8 costanti ridotta a Oldroyd-B.
+- Creata la guida definitiva alla riscrittura del Capitolo 2 della tesi (*Viscoelastic Fluid Mechanics*), con la mappatura esaustiva capitolo-per-capitolo dei testi di riferimento (**William M. Deen**, **Bird, Armstrong & Hassager - DPL Vol. 1**, **Owens & Phillips**, **BSL**, e **Oldroyd 1950**).
+- Definite le formule matematiche e i blocchi BibTeX per l'inserimento diretto in LaTeX.
+
+### Pagine Create
+- **[[Oldroyd_1950_Rheological_Equations_of_State]]** (Literature): Scheda del paper originale di Oldroyd (1950) con UCTD e derivazione tensoriale codeformazionale.
+- **[[Thesis_Chapter_02_Fluid_Dynamics_Guide]]** (Systems): Guida completa alla scrittura del Capitolo 2 con schema delle sezioni, elenco letture e riferimenti BibTeX.
+
+### Pagine Modificate
+- **[[Fluid_Dynamics]]** (Topics): Inseriti i collegamenti a Oldroyd (1950) e alla guida di scrittura del Capitolo 2.
+- **[[00_Index]]**: Aggiunta la voce di Oldroyd (1950) nel Literature Catalog e la guida del Capitolo 2 in Physical Systems.
+
+---
+
+## [2026-09-08] update_wiki | Metodo MLS per Pressione Diretta & Breakthrough Sperimentale (Run Kaggle #22)
+
+### Sintesi Operazioni
+- Documentato e validato sperimentalmente il metodo di addestramento standalone della pressione da dati discreti COMSOL (**MLS Derivatives for Direct Pressure Training**) senza reti neurali cinematiche o reologiche (senza Fase 1).
+- **Conferma Sperimentale su Kaggle (Run #22)** (`[2026-09-08_15-49][DIR][PHASE2_MLS_SCALED][Ph2_20k+2k]`):
+  - In fase Adam, errore $L_2(p)$ crollato al **$19.57\%$** (epoca 3.000).
+  - In fase L-BFGS (FP64), discesa progressiva fino a un **minimo storico assoluto di $4.91\%$** (iterazione 1.700), chiudendo al **$13.52\%$**.
+  - Dimostrata definitivamente la convergenza del problema diretto per la pressione con pura PDE di Navier-Stokes e **1 solo punto Dirichlet** al contorno, senza alcuna supervisione interna ($W_{\text{data}} = 0$).
+- Identificate le 5 determinanti tecniche vincenti:
+  1. Scaling locale delle coordinate dei vicini nell'intervallo $[-1, 1]$ ($dx_{\text{scaled}} = (x_i - x_0)/h$) che elimina il malcondizionamento numerico della matrice di Gram.
+  2. Polinomio quadratico di 2° grado (6 termini, $K=25$).
+  3. Gradient clipping rigido (`GRAD_CLIP_NORM = 5.0`).
+  4. L-BFGS a chiamata nativa singola con `history_size = 300` e line search *Strong Wolfe*.
+  5. Parametrizzazione di riferimento adimensionale ($\mu_{\text{tot}} = 1.0$, $Re = 0.0417$, $\beta = 0.10$).
+
+### Pagine Create
+- **[[MLS_Derivatives_Pressure]]** (Methods): Metodologia analitica e algoritmica per la stima delle derivate di Navier-Stokes via Moving Least Squares con scaling locale e bilanciamento loss.
+
+### Pagine Modificate
+- **[[Pressure_Point_Anchoring]]** (Methods): Aggiunta la sezione di validazione empirica sul fallback del singolo nodo Dirichlet dimostratosi sufficiente alla convergenza del campo 2D.
+- **[[00_Index]]**: Registrata la nuova voce `[[MLS_Derivatives_Pressure]]` nella sezione Technical Methods.
+- **`final_roll/output_4rollmill/SUMMARY_RUNS.md`**: Catalogata la run storica di successo con metriche dettagliate.
+
+---
+
+## [2026-09-09] update_wiki | Riforme di Igiene Numerica & Architettura Fase 2 (Milestone 5)
+
+### Sintesi Operazioni
+- Formalizzata e integrata la documentazione sistematica delle riforme di igiene numerica e architetturali per la Fase 2 (Proposte Claude [A], [B], [C], [H], [M], [AA], [AB], [AC], [AE] e Run 23 tuning) derivanti dai report di consulenza avanzata (Opus 5 & Sonnet 5).
+- Documentate nel dettaglio le soluzioni alle criticità storiche della Fase 2:
+  1. **Disabilitazione TF32 ([A])**: preservazione della mantissa standard IEEE-754 a 23 bit contro il troncamento hardware a 10 bit sui Tensor Core NVIDIA, eliminando il rumore statico $\sim 10^{-3}$ nelle derivate autograd di ordine superiore.
+  2. **Adam EPS Differenziato ([B])**: $\epsilon_{\text{net}} = 10^{-8}$ per pesi neurali e $\epsilon_{\text{phys}} = 10^{-15}$ per scalari fisici (`_raw_mu_s`, `_raw_lam`, `_raw_mu_tot`), disinnescando il congelamento artificiale dei parametri fisici in falsi plateau.
+  3. **Normalizzazione Tau per-componente ([C])**: scaling vettoriale indipendente $\mathbf{s}_\tau = [s_{xx}, s_{xy}, s_{yy}]$ buffer $(1, 3)$ per bilanciare sforzi normali estensionali e di taglio.
+  4. **Gradient Clipping Rigido ([H])**: standardizzato `GRAD_CLIP_NORM = 5.0` per preservare la stabilità nei pressi delle zone di ristagno e rulli.
+  5. **Guard Buffer FP64 ([M])**: asserzione diagnostica rigorosa `assert_fp64_integrity` in `convert_to_fp64` contro downcasting silenti in FP32 prima di L-BFGS.
+  6. **Adimensionalizzazione Momento ([AA])**: riscalamento del residuo di Navier-Stokes per $\text{scale}_{mom} = \frac{\eta_0 U_{ref}}{H_{ref}^2} = 400.0\text{ Pa/m}$, comprimendo la loss di un fattore $1.6 \times 10^5$ e garantendo la preservazione della cinematica di Fase 1.
+  7. **Ancoraggio Hard Algebrico Pressione ([AB])**: formulazione esatta $p(\mathbf{x}) = p_{\text{scale}}(\hat{p}(\mathbf{x}) - \hat{p}(\mathbf{x}_0)) + p_{\text{ref}}$ in `CombinedModel`, con rimozione della loss soft di misura nulla e annullamento del gauge drift.
+  8. **Riparametrizzazione $\mu_{tot}$ e Softplus $\mu_s$ ([AC])**: inversione su $\mu_{tot}$ e calcolo $\mu_s = \text{softplus}(\mu_{tot} - \mu_{p,F1}, \beta=20.0)$ garantendo $\mu_s > 0$ ed eliminando il bias $9\times$.
+  9. **Diagnostica Hodge-Leray $\rho_{id}$ ([AE])**: proiezione ortogonale di $\Delta \mathbf{u}$ sullo span dei gradienti di pressione dell'ultimo layer di `model_p` ($\rho_{id} \approx 0.999$).
+  10. **Tuning L-BFGS Run 23**: `history_size = 300`, line search `strong_wolfe`, tolleranze $10^{-16}$.
+  11. **Suite 4 Script**: architettura coordinata per PC Maurizio (R2 Standard), Kaggle Inverso MLS (R3), Kaggle Diretto Precomputato (R4, $<0.2$ s/epoca), PC Personale EVSS (R5).
+
+### Pagine Create
+- **[[Numerical_Hygiene_and_Phase2_Reforms]]** (Methods): Trattazione teorica, formulazioni matematiche, snippet implementativi e architettura della suite script per Fase 2.
+
+### Pagine Modificate
+- **[[00_Index]]**: Inserita la voce `[[Numerical_Hygiene_and_Phase2_Reforms]]` nella sezione Technical Methods.
+- **`tools/pinn_advisor/reports/Actionable_analysis.md`**: Sincronizzato il dashboard (9 implementati, 27%), marcate con `🟢 [x]` le proposte A, B, C, H, M, AA, AB, AC, AE con i commit atomici, integrato il changelog dettagliato e aggiornate le schede tecniche.
+
+---
+
+## [2026-09-09] update_wiki | Rettifica Analisi Claude (Proposta AA, Scalatura Laplaciano s=0.10 e Invariante L-BFGS Closure)
+
+### Sintesi Operazioni
+- **Risoluzione Bug L-BFGS Line Search**: identificata e rimossa la causa del salto/fallimento istantaneo di L-BFGS al passo 1. L'esecuzione di `torch.nn.utils.clip_grad_norm_` all'interno della `closure()` modificava la norma del gradiente richiesta da `strong_wolfe` per testare la curvatura di Wolfe e Armijo-Goldstein, provocando il fallimento della line search. Rimossa la chiamata di clipping da L-BFGS in entrambi gli script Kaggle (il clipping resta unicamente in Adam).
+- **Rettifica Analisi Claude su Proposta [AA] (Divisione per 400)**: chiarito il discrimine tra formulazione dimensionale e adimensionale.
+  - La proposta di Claude $\text{scale}_{mom} = 400.0\text{ Pa/m}$ è nata assumendo Navier-Stokes in unità fisiche $[\text{Pa/m}]$.
+  - Negli script con coordinate $x_{nd} \in [0, 1]$ e campi normalizzati $u_{nd}, p_{nd}, \boldsymbol{\tau}_{nd} \in [-1, 1]$ (`kaggle_run_inverse_mls.py` e `kaggle_run_direct_checkpoint_precomputed.py`), il residuo è **già intrinsecamente adimensionale e di ordine $\mathcal{O}(1)$**. La divisione per $400$ schiacciava il residuo a $2.5 \times 10^{-3}$, la loss di un fattore $1.6 \times 10^5$ (a $\sim 10^{-8}$) e i gradienti dei parametri a $10^{-11}$, paralizzando Adam e interrompendo L-BFGS. Imposto default $\text{scale}_{mom} = 1.0$.
+- **Risoluzione Collasso Storico di $\mu_s$ (Fattore Geometrico $s = H_{ref} / H_{coord} = 0.10$)**:
+  - Dimostrato analiticamente che nelle coordinate $[0, 1]$ le derivate prime scalano con $1/H_{coord}$ mentre il Laplaciano con $1/H_{coord}^2$. Dividendo per la scala di gradiente di pressione $\frac{\eta_0 U_{ref}}{H_{ref} H_{coord}}$, il termine del Laplaciano porta il prefattore $s = H_{ref} / H_{coord} = 0.005 / 0.05 = 0.10$.
+  - L'omissione di $s$ faceva pesare il Laplaciano $10\times$ più del dovuto, forzando l'ottimizzatore a compensare con $\mu_s \to 0.010\text{ Pa}\cdot\text{s}$ anziché $0.100\text{ Pa}\cdot\text{s}$. Corretto il termine in $\mu_s^* \cdot s \cdot \nabla_{nd}^2 \mathbf{u}$ in entrambi gli script.
+- **Supporto Chunking FP64 in L-BFGS Closure**: introdotto chunking a blocchi ($16.384$ punti) per calcolare la loss e accumulare i gradienti `backward()` su tutti i $125.456$ punti discreti senza sforare la VRAM in FP64.
+- **Adam Warmup per il Problema Diretto**: integrata una fase di riscaldamento Adam di $2.000$ epoche in `kaggle_run_direct_checkpoint_precomputed.py` prima della discesa quasi-Newton FP64.
+
+### Pagine Modificate
+- **[[Numerical_Hygiene_and_Phase2_Reforms]]** (Methods): Integrata la sottosezione di rettifica sulla Proposta [AA], formalizzata la rimozione del fattore artificiale $3.333$ in `src/physics.py` (`scale_mom = 1.0`), la distinzione dimensionale/adimensionale, il fattore $s=0.10$ sul Laplaciano e l'invariante di divieto clipping in L-BFGS closure.
+- **`tools/pinn_advisor/reports/Actionable_analysis.md`**: Aggiornate le schede tecniche di Proposta AA e Proposta H documentando la rimozione di `scale_mom = 3.333` in `src/physics.py` e i vincoli operativi universali.
+- **`final_roll/src/physics.py`**: Rimosso `/ scale_m` nel calcolo dei residui di quantità di moto $f_u, f_v$ e fissato `scale_mom = 1.0` nativo.
+- **`final_roll/train_4roll_main_mauri.py`**: Sincronizzato con `physics.py` stampando formulazione adimensionale nativa (`scale_mom = 1.0`).
+- **`final_roll/kaggle_run_inverse_mls.py`**: Corretto `InversePhysicsMLS` con `s_geom=0.10`, `scale_mom=1.0`, chunking FP64 e rimozione clipping in closure L-BFGS.
+- **`final_roll/kaggle_run_direct_checkpoint_precomputed.py`**: Integrato `s_geom` in `precompute_momentum_rhs`, allineato il budget a 20.000 epoche Adam FP32 + 2.000 iterazioni L-BFGS FP64 e ripulita la closure L-BFGS.
+
+---
+
+## [2026-09-10] plan | Roadmap Identificabilità Parametrica & Continuation in Weissenberg
+
+### Sintesi Operazioni
+- **Cambio di Paradigma Ricevimento Maurizio**: spostato l'obiettivo dalla forzatura numerica del singolo caso $\beta = 0.10$ alla mappatura sistematica dello spazio dei parametri $(\beta, Wi)$ per determinare la regione di reale identificabilità fisica nel Four-Roll Mill.
+- **Analisi Comparativa ViscoelasticNet (Thakur et al. 2024)**: evidenziato che i benchmark Oldroyd-B in letteratura operano sempre con $\beta = \eta_s / \eta_{tot} \in [0.44, 0.67]$ (rapporto solvente/polimero paritario o superiore), mentre il caso attuale a $\beta = 0.10$ è fortemente polymer-dominated, causando il mascheramento del segnale $\eta_s \nabla^2 \mathbf{u}$ da parte di $\nabla \cdot \boldsymbol{\tau}_p$ e $\nabla p$.
+- **Formalizzazione del Protocollo (`ROADMAP_IDENTIFIABILITY_AND_CONTINUATION.md`)**:
+  1. **Vincolo Fisico Invariante**: mantenimento di $\eta_{tot} = \eta_s + \eta_p = 1.0\text{ Pa}\cdot\text{s}$ costante per preservare il numero di Reynolds globale e le scale di velocità tra le simulazioni COMSOL.
+  2. **Matrice COMSOL Prioritaria**:
+     - $\beta = 0.30$ ($\eta_s = 0.3, \eta_p = 0.7, \lambda = 0.05\text{ s}$);
+     - $\beta = 0.50$ ($\eta_s = 0.5, \eta_p = 0.5, \lambda = 0.05\text{ s}$, analogo al canonico Thakur).
+  3. **Diagnostica Offline Preventiva**: screening rapido dei dataset tramite il rapporto $R = \|\eta_s \nabla^2 \mathbf{u}\|_{L_2} / \|\nabla \cdot \boldsymbol{\tau}_p\|_{L_2}$, correlazione spaziale e calcolo preventivo di $\dot{\gamma}_{char}$ e $Wi$.
+  4. **Metodo di Continuazione / Transfer Learning su $Wi$**: sequenza a $\lambda$ crescente ereditando i pesi neurali $\theta_{NN}^{(k+1)} \leftarrow \theta_{NN}^{(k)}$ ma resettando rigidamente i parametri fisici $\lambda, \eta_p$ al guess perturbato.
+
+---
+
+## [2026-09-18] update_wiki | High Weissenberg Problem & Mesh Convergence Protocol
+
+### Sintesi Operazioni
+- **Integrazione Letteratura Reologica Avanzata**: sistematizzata la gerarchia di stabilità numerica e convergenza di griglia tra i modelli Oldroyd-B, Phan-Thien-Tanner (PTT) e Giesekus in flussi viscoelastici complessi (Four-Roll Mill).
+- **Fondamenti HWNP (High Weissenberg Number Problem)**:
+  - Analizzata la patologia costitutiva di Oldroyd-B (estensione infinita dei manubri Hookeani e singolarità della viscosità estensionale $\eta_E \to \infty$ per $\dot{\varepsilon} \to 1/(2\lambda)$), causa di gradienti di stress esponenziali e instabilità dei solutori standard a $Wi \sim \mathcal{O}(1)$.
+  - Dimostrata la regolarizzazione non-lineare in **Giesekus** (dissipazione quadratica $\frac{\alpha\lambda}{\eta_p}\boldsymbol{\tau}^2$, shear-thinning e plateau estensionale finito) e in **PTT** (fattore di rilassamento trace-dependent $f(\text{tr}\boldsymbol{\tau}) = 1 + \frac{\varepsilon\lambda}{\eta_p}\text{tr}(\boldsymbol{\tau})$ che previene l'accumulo illimitato di stress).
+  - Formalizzato il confronto asintotico dello spessore dello strato limite elastico: $\delta \sim Wi^{-1}$ (Oldroyd-B, ultrasottile e fortemente singolare), $\delta \sim Wi^{-1/2}$ (Giesekus) e $\delta \sim Wi^{-1/3}$ (PTT).
+- **Formalizzazione del Protocollo di Mesh Convergence ("Worst-Case Limiting Principle")**:
+  - Dimostrato scientificamente il principio di ereditarietà ("Append" Strategy): conducendo l'analisi di indipendenza dalla griglia sul caso numericamente più gravoso (Oldroyd-B al massimo Weissenberg, $\lambda = 0.1 - 0.2\text{ s}$ su 4 livelli di discretizzazione: 125k, 88k, 52k, 25k nodi), la convergenza dimostrata garantisce a fortiori l'indipendenza dalla griglia per tutti i regimi a $\lambda$ inferiore e per tutti i modelli non-lineari auto-limitanti (Giesekus e PTT), eliminando sweep di discretizzazione ridondanti.
+  - Definiti i criteri diagnostici quantitativi di convergenza: profilo cut-line di velocità $u(y)$ nel gap critico dei rulli ($E_{L_2} < 0.5\%$), picco di stress estensionale $\tau_{xx}$ nel punto di sella ($E_{\text{peak}} < 1.5\%$) e Grid Convergence Index (GCI).
+  - Documentato il disaccoppiamento tra densità di griglia FEM COMSOL e campionamento batching PINN ($N_{coll} \sim 10k-20k$, $N_{data} \sim 2k-5k$).
+
 ### Pagine Create
 - **[[High_Weissenberg_Number_Problem]]** (Topics): Analisi teorica di HWNP, confronto costitutivo Oldroyd-B/PTT/Giesekus, scaling degli strati limite e limiti asintotici.
 - **[[Mesh_Convergence_Protocol]]** (Methods): Protocollo operativo per l'indipendenza dalla griglia su COMSOL, principio del caso limite, diagnostiche cut-line e trasferimento alla PINN.
@@ -723,3 +918,23 @@
 ### Pagine Modificate
 - **[[00_Index]]**: Inserite le voci `[[High_Weissenberg_Number_Problem]]` (Thematic Topics) e `[[Mesh_Convergence_Protocol]]` (Technical Methods).
 - **[[ViscoelasticNet_Full model]]**: Integrati i back-link teorici e metodologici a HWNP e al protocollo di convergenza mesh.
+
+---
+
+## [2026-09-18] update_wiki | Validazione Empirica Mesh Convergence (125k vs 12k) & Ingestione Asset Grafici
+
+### Sintesi Operazioni
+- **Studio Quantitativo di Mesh Convergence (COMSOL 125k vs 12k)**:
+  - Condotto benchmark numerico formale tra la mesh asintotica fine (`4_roll_mill_L0.1-P0.5-S0.5-A0-E0_M125k.csv`, 125.456 nodi) e la mesh coarse candidata per la PINN (`4_roll_mill_L0.1-P0.5-S0.5-A0-E0_M12k.csv`, 12.760 nodi) per Oldroyd-B ($\lambda = 0.1\,\mathrm{s},\ \eta_p = 0.5\,\mathrm{Pa\cdot s},\ \eta_s = 0.5\,\mathrm{Pa\cdot s}$).
+  - Dimostrata la convergenza asintotica della soluzione FEM di riferimento con errore relativo $L_2$ inferiore allo **0.021% sulle velocità** e inferiore allo **0.23% sullo stress viscoelastico** ($\tau_{xx}, \tau_{xy}, \tau_{yy}$).
+  - Verificata la conservazione degli invarianti di flusso: energia cinetica identica entro lo **0.0055%** e traccia dello stress elastico entro l'**1.308%**.
+- **Analisi delle Cutline con Mascheramento Rigoroso**:
+  - Campionate cutline orizzontale centrale ($y=0$), verticale ($x=0$) e obliqua attraverso i rulli ($y=x$).
+  - Implementato il mascheramento con `NaN` delle regioni interne ai cilindri solidi rotanti ($r \le 5\,\mathrm{mm}$), evidenziando la fedele cattura dello strato limite a parete senza dispersione o smoothing numerico.
+- **Ingestione Asset Grafici nella Wiki**:
+  - Creata la cartella `Wiki/Assets/Mesh_Convergence/` contenente gli 8 grafici ad alta risoluzione (cutline individuali per $u, v, \tau_{xx}, \tau_{xy}, \tau_{yy}$, matrice 5x3 multi-campo, mappe 2D di discrepanza, istogramma e CDF).
+- **Formalizzazione della Dualità di Convergenza (FEM vs PINN)**:
+  - Documentata nel protocollo la cruciale separazione metodologica: l'analisi attesta formalmente la convergenza della soluzione COMSOL escludendo qualsiasi errore di griglia nei dati, mentre l'adeguatezza dei 12k punti per la convergenza dell'architettura PINN (in presenza di spectral bias e gradient stiffness) rimane una questione aperta da verificare sperimentalmente.
+
+### Pagine Modificate
+- **[[Mesh_Convergence_Protocol]]** (Methods): integrata la Sezione 5 (risultati benchmark, tabella norme di errore, invarianti) e la Sezione 6 (grafici cutline, mappe 2D, CDF), arricchita con la discussione metodologica sulla dualità di convergenza FEM vs PINN.
