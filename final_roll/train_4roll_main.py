@@ -86,14 +86,14 @@ USE_ROLL_STRESS_BC = True
 W_ROLL_STRESS = 1.0  # Peso dello stress BC rispetto al velocity BC sui rulli (pesato 1:1 per componente)
 
 # --- Parametri Fisici REALI (Ground Truth) ---
-MU_S_TRUE = 0.1  # Viscosità solvente [Pa·s]
-MU_P_TRUE = 0.9  # Viscosità polimerica [Pa·s]
+MU_S_TRUE = 0.5  # Viscosità solvente [Pa·s]
+MU_P_TRUE = 0.5  # Viscosità polimerica [Pa·s]
 MU_TOT_TRUE = MU_S_TRUE + MU_P_TRUE  # Viscosità totale [Pa·s] (1.0)
-BETA_TRUE = MU_S_TRUE / MU_TOT_TRUE  # Rapporto di viscosità (0.10)
-LAM_TRUE = 0.05  # Tempo di rilassamento [s]
+BETA_TRUE = MU_S_TRUE / MU_TOT_TRUE  # Rapporto di viscosità (0.50)
+LAM_TRUE = 0.1  # Tempo di rilassamento [s]
 EPS_TRUE = 0.0  # Parametro PTT (bloccato a 0)
 ALPHA_TRUE = 0.0  # Parametro Giesekus (bloccato a 0)
-MESH_TAG = "125k"  # Risoluzione mesh COMSOL (es. '12k', '52k', '88k', '125k')
+MESH_TAG = "12k"  # Risoluzione mesh COMSOL (es. '12k', '52k', '88k', '125k')
 RHO = 1000.0  # Densità [kg/m³]
 
 # Tag identificativo standard della configurazione reologica (L-P-S-A-E_M)
@@ -103,9 +103,9 @@ PARAM_TAG = build_dataset_tag(LAM_TRUE, MU_P_TRUE, MU_S_TRUE, ALPHA_TRUE, EPS_TR
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = resolve_dataset_path(BASE_DIR.parent / "COMSOL" / "4roll" / "Datasets", PARAM_TAG)
 
-# --- Checkpointing (con risoluzione automatica L-P-S-A-E_M) ---
-_ckpt_candidate = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_40k+10k.pth"
-RESUME_CHECKPOINT = _ckpt_candidate
+# --- Checkpointing (Ripresa in-flight da checkpoint epoca 5000) ---
+_existing_ckpt = BASE_DIR / "output_4rollmill" / f"[2026-09-18_20-18][INV][{PARAM_TAG}][Ph1_40k+10k]" / "checkpoint.pth"
+RESUME_CHECKPOINT = _existing_ckpt if _existing_ckpt.exists() else None
 
 # --- Costanti e Calcolo Dinamico dei Guess Iniziali (Log-Space Parametrization) ---
 MIN_MU_S = 1e-6
@@ -118,28 +118,30 @@ ETA_0 = 2.0
 # Fattore di perturbazione per i parametri del problema inverso (es. 0.80 = 80% del valore reale)
 GUESS_FACTOR = 0.80
 
-GUESS_LAM = LAM_TRUE * GUESS_FACTOR                      # 0.05 * 0.80 = 0.0400 s
-GUESS_MU_S = MU_S_TRUE * GUESS_FACTOR                    # 0.10 * 0.80 = 0.0800 Pa·s
-GUESS_MU_P = MU_P_TRUE * GUESS_FACTOR                    # 0.90 * 0.80 = 0.7200 Pa·s
+GUESS_LAM = LAM_TRUE * GUESS_FACTOR                      # 0.10 * 0.80 = 0.0800 s
+GUESS_MU_S = MU_S_TRUE * GUESS_FACTOR                    # 0.50 * 0.80 = 0.4000 Pa·s
+GUESS_MU_P = MU_P_TRUE * GUESS_FACTOR                    # 0.50 * 0.80 = 0.4000 Pa·s
 GUESS_MU_TOT = GUESS_MU_S + GUESS_MU_P                  # 0.8000 Pa·s
-GUESS_BETA = GUESS_MU_S / GUESS_MU_TOT                  # 0.1000
-GUESS_EPS = 0.0
-GUESS_ALPHA = 0.0
+GUESS_BETA = GUESS_MU_S / GUESS_MU_TOT                  # 0.5000
+GUESS_EPS = 0.05
+GUESS_ALPHA = 0.05
+TRAIN_ALPHA = True
+TRAIN_EPS = True
 
 # --- Architettura Neural Network ---
 HIDDEN_LAYERS = [128] * 8  # 8 hidden layers da 128 neuroni
 ACTIVATION = nn.SiLU
 
 # --- Iperparametri di Training a 2 Fasi Disaccoppiate ---
-# Fase 1: Cinematica & Reologia (model_psi, model_tau -> lam, mu_p)
+# Fase 1: Cinematica & Reologia (model_psi, model_tau -> lam, mu_p, alpha, eps)
 ADAM_EPOCHS_PHASE1 = 40000
 USE_LBFGS_PHASE1 = True
 LBFGS_MAX_ITERS_PHASE1 = 10000
 
-# Fase 2: Idrodinamica & Pressione (model_p, model_psi con mu_s sbloccato dopo warmup)
-ADAM_EPOCHS_PHASE2 = 10000
-USE_LBFGS_PHASE2 = True
-LBFGS_MAX_ITERS_PHASE2 = 500
+# Fase 2: Disattivata (solo Fase 1 ex-novo)
+ADAM_EPOCHS_PHASE2 = 0
+USE_LBFGS_PHASE2 = False
+LBFGS_MAX_ITERS_PHASE2 = 0
 
 BASE_LR = 1e-3
 ADAM_EPS = 1e-8
@@ -174,7 +176,6 @@ layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
 
 # Generazione dinamica dei tag di nomenclatura in base ai parametri effettivi
 mode_tag = "INV" if INVERSE_PROBLEM else "DIR"
-strategy_tag = "STAGED" if STAGED_TRAINING else "MONO"
 
 def _format_iters(n):
     if n == 0:
@@ -183,13 +184,19 @@ def _format_iters(n):
         return f"{n // 1000}k"
     return f"{n / 1000:.1f}k"
 
-budget_tag = f"Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}_Warmup{_format_iters(WARMUP_PHASE2_EPOCHS)}"
-run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
+if ADAM_EPOCHS_PHASE2 > 0 or USE_LBFGS_PHASE2:
+    budget_tag = f"Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}_Warmup{_format_iters(WARMUP_PHASE2_EPOCHS)}"
+else:
+    budget_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}"
 
-config_name = f"[{run_timestamp}][{mode_tag}][{strategy_tag}][{PARAM_TAG}][{budget_tag}]"
-
-OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+if RESUME_CHECKPOINT is not None and RESUME_CHECKPOINT.exists():
+    OUTPUT_DIR = RESUME_CHECKPOINT.parent
+    config_name = OUTPUT_DIR.name
+else:
+    run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
+    config_name = f"[{run_timestamp}][{mode_tag}][{PARAM_TAG}][{budget_tag}]"
+    OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 global_log_path = OUTPUT_DIR / "train_log.txt"
 
@@ -242,9 +249,9 @@ if __name__ == "__main__":
     print(f"\nModello: {total_params:,} parametri totali")
     if INVERSE_PROBLEM:
         print("Modalità: PROBLEMA INVERSO (FASE 1 ONLY - Estensione Cinematica & Reologia)")
-        print(f"  - Obiettivo: Raffinamento intensivo dei campi (psi, tau) e parametri (lam, mu_p)")
+        print(f"  - Obiettivo: Raffinamento intensivo dei campi (psi, tau) e parametri (lam, mu_p, alpha, eps)")
         print(f"  - Scala di Riferimento: eta_0={physics.eta_0.item():.2f} Pa·s")
-        print(f"  - Valori Attuali Caricati: lam={physics.lam.item():.4f} s (true: {LAM_TRUE}), mu_p={physics.mu_p.item():.4f} Pa·s (true: {MU_P_TRUE})")
+        print(f"  - Valori Attuali Caricati: lam={physics.lam.item():.4f} s (true: {LAM_TRUE}), mu_p={physics.mu_p.item():.4f} Pa·s (true: {MU_P_TRUE}), alpha={physics.alpha.item():.4f} (true: {ALPHA_TRUE}), eps={physics.eps.item():.4f} (true: {EPS_TRUE})")
         print(f"  - Budget di Training: {ADAM_EPOCHS_PHASE1} Adam (FP32) + {LBFGS_MAX_ITERS_PHASE1} L-BFGS (FP64)")
     else:
         print("Modalità: PROBLEMA DIRETTO")

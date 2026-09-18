@@ -134,6 +134,8 @@ GUESS_MU_TOT = GUESS_MU_S + GUESS_MU_P
 GUESS_BETA = GUESS_MU_S / GUESS_MU_TOT
 GUESS_EPS = 0.0
 GUESS_ALPHA = 0.0
+TRAIN_ALPHA = True
+TRAIN_EPS = True
 
 HIDDEN_LAYERS = [128] * 8
 ACTIVATION = nn.SiLU
@@ -183,7 +185,6 @@ VARIANCE_EPS = 1e-4
 # ============================================================================
 layers_str = f"{len(HIDDEN_LAYERS)}x{HIDDEN_LAYERS[0]}"
 mode_tag = "INV" if INVERSE_PROBLEM else "DIR"
-strategy_tag = "STAGED" if STAGED_TRAINING else "MONO"
 
 def _format_iters(n):
     if n == 0:
@@ -194,7 +195,7 @@ def _format_iters(n):
 
 budget_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}_Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}"
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
-config_name = f"[{run_timestamp}][{mode_tag}][{strategy_tag}][{PARAM_TAG}][{budget_tag}][mauri]"
+config_name = f"[{run_timestamp}][{mode_tag}][{PARAM_TAG}][{budget_tag}][mauri]"
 
 OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
