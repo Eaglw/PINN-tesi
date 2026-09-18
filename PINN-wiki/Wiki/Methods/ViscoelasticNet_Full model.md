@@ -143,6 +143,8 @@ To track parameter values across grid search iterations, the learned values are 
 - [[ViscoelasticNet]]
 - [[Oldroyd_B_Model]]
 - [[Giesekus_Viscosity_Model]]
+- [[High_Weissenberg_Number_Problem]]
+- [[Mesh_Convergence_Protocol]]
 - [[Loss_History_Tracking]]
 - [[Staged_Training_Procedure]]
 - [[Inverse_Problems]]

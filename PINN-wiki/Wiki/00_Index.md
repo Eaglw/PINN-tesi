@@ -57,6 +57,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Pressure_Scaling_Issues]]: Analysis of pressure gradient singularities and why global pressure scaling destroys momentum training
 - [[Viscoelastic_Parameter_Identifiability]]: Parameter sensitivity and ill-conditioned inversion in non-dimensional Oldroyd-B models
 - [[Upper-convected time derivative]]: Analytical tensor expansion of the frame-invariant convective rate of stress
+- [[High_Weissenberg_Number_Problem]]: Extensional singularities, boundary layer scaling (Oldroyd-B vs Giesekus vs PTT), and numerical stiffness
 
 
 
@@ -76,6 +77,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[ViscoelasticNet]]: PINN framework for stress discovery
 - [[ViscoelasticNet_Full model]]: Unified constitutive relation model (Oldroyd-B / Giesekus / Linear PTT)
 - [[Log_Conformation_Tensor]]: Variable transformation for high Weissenberg numbers
+- [[Mesh_Convergence_Protocol]]: Viscoelastic grid independence verification, worst-case limiting principle, and PINN dataset transfer
 - [[Viscoelastic_Metrics]]: Multi-field error aggregation
 - [[Loss_History_Tracking]]: Convergence and gradient visualization
 - [[GPU_Optimization]]: Eliminating CPU/GPU synchronization overhead

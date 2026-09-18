@@ -701,4 +701,25 @@
   3. **Diagnostica Offline Preventiva**: screening rapido dei dataset tramite il rapporto $R = \|\eta_s \nabla^2 \mathbf{u}\|_{L_2} / \|\nabla \cdot \boldsymbol{\tau}_p\|_{L_2}$, correlazione spaziale e calcolo preventivo di $\dot{\gamma}_{char}$ e $Wi$.
   4. **Metodo di Continuazione / Transfer Learning su $Wi$**: sequenza a $\lambda$ crescente ereditando i pesi neurali $\theta_{NN}^{(k+1)} \leftarrow \theta_{NN}^{(k)}$ ma resettando rigidamente i parametri fisici $\lambda, \eta_p$ al guess perturbato.
 
+---
 
+## [2026-09-18] update_wiki | High Weissenberg Problem & Mesh Convergence Protocol
+
+### Sintesi Operazioni
+- **Integrazione Letteratura Reologica Avanzata**: sistematizzata la gerarchia di stabilità numerica e convergenza di griglia tra i modelli Oldroyd-B, Phan-Thien-Tanner (PTT) e Giesekus in flussi viscoelastici complessi (Four-Roll Mill).
+- **Fondamenti HWNP (High Weissenberg Number Problem)**:
+  - Analizzata la patologia costitutiva di Oldroyd-B (estensione infinita dei manubri Hookeani e singolarità della viscosità estensionale $\eta_E \to \infty$ per $\dot{\varepsilon} \to 1/(2\lambda)$), causa di gradienti di stress esponenziali e instabilità dei solutori standard a $Wi \sim \mathcal{O}(1)$.
+  - Dimostrata la regolarizzazione non-lineare in **Giesekus** (dissipazione quadratica $\frac{\alpha\lambda}{\eta_p}\boldsymbol{\tau}^2$, shear-thinning e plateau estensionale finito) e in **PTT** (fattore di rilassamento trace-dependent $f(\text{tr}\boldsymbol{\tau}) = 1 + \frac{\varepsilon\lambda}{\eta_p}\text{tr}(\boldsymbol{\tau})$ che previene l'accumulo illimitato di stress).
+  - Formalizzato il confronto asintotico dello spessore dello strato limite elastico: $\delta \sim Wi^{-1}$ (Oldroyd-B, ultrasottile e fortemente singolare), $\delta \sim Wi^{-1/2}$ (Giesekus) e $\delta \sim Wi^{-1/3}$ (PTT).
+- **Formalizzazione del Protocollo di Mesh Convergence ("Worst-Case Limiting Principle")**:
+  - Dimostrato scientificamente il principio di ereditarietà ("Append" Strategy): conducendo l'analisi di indipendenza dalla griglia sul caso numericamente più gravoso (Oldroyd-B al massimo Weissenberg, $\lambda = 0.1 - 0.2\text{ s}$ su 4 livelli di discretizzazione: 125k, 88k, 52k, 25k nodi), la convergenza dimostrata garantisce a fortiori l'indipendenza dalla griglia per tutti i regimi a $\lambda$ inferiore e per tutti i modelli non-lineari auto-limitanti (Giesekus e PTT), eliminando sweep di discretizzazione ridondanti.
+  - Definiti i criteri diagnostici quantitativi di convergenza: profilo cut-line di velocità $u(y)$ nel gap critico dei rulli ($E_{L_2} < 0.5\%$), picco di stress estensionale $\tau_{xx}$ nel punto di sella ($E_{\text{peak}} < 1.5\%$) e Grid Convergence Index (GCI).
+  - Documentato il disaccoppiamento tra densità di griglia FEM COMSOL e campionamento batching PINN ($N_{coll} \sim 10k-20k$, $N_{data} \sim 2k-5k$).
+
+### Pagine Create
+- **[[High_Weissenberg_Number_Problem]]** (Topics): Analisi teorica di HWNP, confronto costitutivo Oldroyd-B/PTT/Giesekus, scaling degli strati limite e limiti asintotici.
+- **[[Mesh_Convergence_Protocol]]** (Methods): Protocollo operativo per l'indipendenza dalla griglia su COMSOL, principio del caso limite, diagnostiche cut-line e trasferimento alla PINN.
+
+### Pagine Modificate
+- **[[00_Index]]**: Inserite le voci `[[High_Weissenberg_Number_Problem]]` (Thematic Topics) e `[[Mesh_Convergence_Protocol]]` (Technical Methods).
+- **[[ViscoelasticNet_Full model]]**: Integrati i back-link teorici e metodologici a HWNP e al protocollo di convergenza mesh.
