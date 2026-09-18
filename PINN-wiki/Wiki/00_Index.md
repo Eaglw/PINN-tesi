@@ -4,12 +4,16 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 
 ## Core Navigation
 - [[01_Log|Activity Log]]
+- [Daily Logs](#daily-logs)
 - [Literature Catalog](#literature-catalog)
 - [Thematic Topics](#thematic-topics)
 - [Technical Methods](#technical-methods)
 - [Physical Systems](#physical-systems)
 
 ---
+
+## Daily Logs
+- [[2026-09-18]]: Studio di Convergenza Mesh (COMSOL vs PINN), Inclusione Modelli Giesekus/PTT e Setup Batch Runner
 
 ## Literature Catalog
 - [[Bird_Stewart_Lightfoot_Transport_Phenomena]]: Foundational treatise on momentum and transport phenomena

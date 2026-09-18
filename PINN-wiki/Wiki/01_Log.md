@@ -960,3 +960,21 @@
 ### Pagine Modificate
 - **[[Mesh_Convergence_Protocol]]** (Methods): revisionate le Sezioni 2, 4 e integrata la Sezione 6.4.
 
+---
+
+## [2026-09-18] daily_recap | Studio di Convergenza Mesh, Modelli Giesekus/PTT e Creazione Skill di Tracciamento
+
+### Sintesi Operazioni
+- **Generazione e Archiviazione Daily Log**:
+  - Compilato il resoconto organico completo di tutte le 7 sessioni odierne nel file dedicato **[[2026-09-18]]** in `Wiki/Daily_Logs/`.
+  - Formalizzata la sintesi esecutiva, la dualità di convergenza FEM vs PINN, l'origine rigorosa dell'errore relativo $L_2$ in $L^2(\Omega)$, la dinamica tensoriale e la roadmap operativa.
+- **Creazione Skill Autonoma `daily_recap`**:
+  - Implementata la nuova skill in `.agents/skills/daily_recap/SKILL.md` dotata dell'helper script `extract_daily_digest.py` per l'estrazione automatizzata dei log Antigravity, commit Git e metriche numeriche a fine giornata.
+- **Aggiornamento Vault**:
+  - Creata la directory `Wiki/Daily_Logs/` e indicizzata la nuova sezione in **[[00_Index]]**.
+
+### Pagine Modificate / Create
+- **[[2026-09-18]]** (`Daily_Logs/`): Nuova pagina di resoconto giornaliero completo.
+- **[[00_Index]]**: Inserita la sezione `Daily Logs`.
+- **[[01_Log]]**: Registrata l'operazione.
+
