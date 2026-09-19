@@ -61,6 +61,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[EMA_Smoothing]]: Noise reduction in loss tracking
 - [[Pressure_Scaling_Issues]]: Analysis of pressure gradient singularities and why global pressure scaling destroys momentum training
 - [[Viscoelastic_Parameter_Identifiability]]: Parameter sensitivity and ill-conditioned inversion in non-dimensional Oldroyd-B models
+- [[Solvent_Viscosity_Non_Identifiability]]: Structural non-identifiability of solvent viscosity (eta_s) in the Four-Roll Mill geometry
 - [[Upper-convected time derivative]]: Analytical tensor expansion of the frame-invariant convective rate of stress
 - [[High_Weissenberg_Number_Problem]]: Extensional singularities, boundary layer scaling (Oldroyd-B vs Giesekus vs PTT), and numerical stiffness
 

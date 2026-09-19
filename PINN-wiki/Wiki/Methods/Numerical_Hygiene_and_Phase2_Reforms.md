@@ -214,7 +214,12 @@ $$\mathcal{I}_{\text{eff}}(\mu_s) = \frac{\|\mathbf{a}_\perp\|^2}{\sigma^2}, \qq
 | $0.02 \le \rho_{id} < 0.20$ | **Marginale / Mal Condizionato** | Richiede FP64, `history_size=300`, e parametrizzazione $\mu_{tot}$ softplus. |
 | $\rho_{id} < 0.02$ | **Non Identificabile Strutturalmente** | $\mu_s$ assorbito dal gauge di pressione; necessario vincolo di coppia/trazione sui rulli. |
 
-Nel four-roll mill analizzato a inizio Fase 2, la diagnostica restituisce $\rho_{id} \approx 0.999$, confermando l'eccellente separabilità fisica del campo di velocità rispetto allo span dei gradienti di pressione.
+Nel four-roll mill analizzato a inizio Fase 2, la diagnostica su base finita restituisce $\rho_{id} \approx 0.999$, poiché la rete neurale `model_p` non addestrata non ha ancora appreso la direzione di $\Delta \mathbf{u}$.
+
+> [!WARNING]
+> **Limite della Diagnostica a Base Finita e Scoperta dell'Invarianza Fisica**:
+> Sebbene $\rho_{id}$ appaia elevato su un trunk neurale non addestrato, lo studio parametrico ad alta risoluzione su cutline (si veda **[[Solvent_Viscosity_Non_Identifiability]]**) ha dimostrato che nel continuo fisico $\Delta \mathbf{u}$ è irrotazionale nel bulk ($\nabla \times \Delta \mathbf{u} \approx 0$).
+> Quando `model_p` acquisisce capacità espressiva durante l'ottimizzazione, assorbe al $100\%$ qualsiasi variazione di $\mu_s$ come traslazione di pressione $\Delta p = \Delta \mu_s \phi$. Poiché i campi osservabili $\mathbf{u}$ e $\boldsymbol{\tau}$ non subiscono alcuna variazione, **$\mu_s$ è strutturalmente non identificabile nel Four-Roll Mill** senza misure di forza superficiale o pressione differenziale.
 
 ---
 
@@ -245,17 +250,17 @@ Per validare e confrontare in parallelo le differenti formulazioni su cluster et
 
 ```mermaid
 graph TD
-    CP["Checkpoint Inverso Fase 1<br>(checkpoint_inverso_fase1_40k+10k.pth)"]
+    CP["Checkpoint Inverso Fase 1<br>(checkpoint_inverso_fase1_L{lam}-P{mup}-S{mus}-A{alpha}-E{eps}_M{mesh}_40k+10k.pth)"]
     CP --> R2["[R2] train_4roll_main_mauri.py<br>PC Maurizio (Standard GPU)<br>Fase 2 Completa (20k + 2k)"]
     CP --> R4["[R4] kaggle_run_direct_checkpoint_precomputed.py<br>Kaggle GPU Diretto<br>Precomputo Statico RHS (<45 min)"]
     CP --> R5["[R5] train_phase2_evss_ab.py<br>PC Personale EVSS<br>Confronto Diretto A/B con R2"]
-    CMS["COMSOL CSV Mesh Dataset<br>(4_roll_mill.csv)"] --> R3["[R3] kaggle_run_inverse_mls.py<br>Kaggle Inverso MLS Standalone<br>Derivate Spaziali MLS (<30 min)"]
+    CMS["COMSOL CSV Mesh Dataset<br>(4_roll_mill_L..._M...csv)"] --> R3["[R3] kaggle_run_inverse_mls.py<br>Kaggle Inverso MLS Standalone<br>Derivate Spaziali MLS (<30 min)"]
 ```
 
 ### [R2] Script Standard per PC Maurizio (`final_roll/train_4roll_main_mauri.py`)
 - **Ruolo**: Script primario di produzione per validazione remota su workstation con GPU CUDA.
 - **Flusso**:
-  1. Caricamento pesi dal checkpoint di Fase 1 `checkpoint_inverso_fase1_40k+10k.pth`.
+  1. Caricamento pesi dal checkpoint di Fase 1 `checkpoint_inverso_fase1_L{lam}-P{mup}-S{mus}-A{alpha}-E{eps}_M{mesh}_40k+10k.pth`.
   2. Inizializzazione `CombinedModel` con `tau_scale` vettoriale `(1, 3)` e ancoraggio hard $p(\mathbf{x}_0) = p_{ref}$.
   3. Diagnostica preventiva di identificabilità di Hodge-Leray $\rho_{id}$.
   4. Fase 2 Adam (20.000 epoche): `model_psi` mobile controllato (`lr = 1e-4`), `model_p` mobile (`lr = 1e-3`), `_raw_mu_tot` mobile (`lr = 1e-4`, `eps = 1e-15`), `model_tau` rigidamente congelato.
@@ -292,6 +297,7 @@ graph TD
 ## References & Back-links
 
 - **Topics Correlati**:
+  - [[Solvent_Viscosity_Non_Identifiability]] — Teorema di non-identificabilità strutturale di eta_s nel Four-Roll Mill.
   - [[Pressure_Stress_Decoupling]] — Fondamenti analitici del disaccoppiamento pressione-stress.
   - [[Viscoelasticity]] — Equazioni costitutive di Oldroyd-B e numeri adimensionali ($Re, Wi$).
   - [[Viscoelastic_Parameter_Identifiability]] — Analisi di sensitività e limiti di identificabilità inversa.

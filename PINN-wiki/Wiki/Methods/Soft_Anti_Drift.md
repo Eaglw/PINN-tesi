@@ -46,14 +46,16 @@ The network is penalized if it alters macroscopic flow streamlines, but possesse
 ## Training Hyperparameters & Scheduling
 
 During Phase 2 (Dynamics & Solvent Viscosity identification):
-- `model_p`: Active ($LR_p = 10^{-3}$)
+- `model_p`: Active ($LR_p = 10^{-3}$) with algebraic [[Pressure_Point_Anchoring]] inside `CombinedModel.pressure(x)`
 - `model_psi`: Active with Soft Anti-Drift ($LR_\psi = 10^{-4}$)
 - `model_tau`: Rigidly Frozen
-- Trainable Parameter $\eta_s$: Active ($LR_{\eta_s} = 10^{-4}$ in log-space)
-- Frozen Parameters: $\lambda, \eta_p$
+- Trainable Parameter $\mu_s$ (or $\mu_{\text{tot}}$): Active ($LR_{\mu_s} = 10^{-4}$)
+- Frozen Parameters: $\lambda, \mu_p, \alpha, \varepsilon$ (frozen from Phase 1 checkpoint)
 
 The total Phase 2 optimization loss is:
-$$\mathcal{L}_{\text{Phase 2}} = \mathcal{L}_{\text{momentum}} + \lambda_u \mathcal{L}_u + \lambda_{\text{anchor}} \mathcal{L}_{p,\text{anchor}} + \lambda_{\text{drift}} \mathcal{L}_{\text{drift}}$$
+$$\mathcal{L}_{\text{Phase 2}} = \mathcal{L}_{\text{momentum}} + \lambda_u \mathcal{L}_u + \lambda_{\text{drift}} \mathcal{L}_{\text{drift}}$$
+
+*(Note: Algebraic hard pressure anchoring enforces $p(\mathbf{x}_0) \equiv p_{\text{ref}}$ by construction, completely eliminating the legacy soft penalty loss $\lambda_{\text{anchor}} \mathcal{L}_{p,\text{anchor}}$).*
 
 ---
 

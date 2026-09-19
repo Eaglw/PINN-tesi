@@ -31,7 +31,7 @@ Training is strictly divided into two distinct physical phases. Joint coupled tr
 
 ```mermaid
 graph TD
-    A[Phase 1: Rheology & Kinematics<br>Adam FP32: 20k ep + L-BFGS FP64: 5k st<br>Active: psi, tau, r_lambda, r_p | Frozen: p, r_s<br>Loss: Constitutive + BCs u, tau_roll<br>eta_0 = 2.0 Pa s fixed] --> B[Phase 2: Hydrodynamics & Solvent Viscosity<br>Adam FP32: 15k ep + L-BFGS FP64: 5k st<br>Active: p, r_s, psi low-LR | Frozen: tau, r_lambda, r_p<br>Loss: Momentum + Drift + BCs u, p_anchor<br>Adaptive eta_0 update every 2000 ep]
+    A[Phase 1: Rheology & Kinematics<br>Adam FP32: 20k ep + L-BFGS FP64: 5k st<br>Active: psi, tau, r_lambda, r_p, r_alpha, r_eps | Frozen: p, r_s<br>Loss: Constitutive + BCs u, tau_roll<br>eta_0 = 2.0 Pa s fixed] --> B[Phase 2: Hydrodynamics & Solvent Viscosity<br>Adam FP32: 15k ep + L-BFGS FP64: 5k st<br>Active: p, r_s, psi low-LR | Frozen: tau, r_lambda, r_p, r_alpha, r_eps<br>Loss: Momentum + Drift + BCs u<br>Hard Pressure Anchoring]
     B --> C[Post-Training Evaluation & Reconstruction<br>Compute a posteriori: eta_tot, beta, Re_phys<br>Compare with Ground Truth solely for benchmark metrics]
 ```
 
@@ -47,18 +47,18 @@ graph TD
   1. **Adam @ FP32** with synchronized [[Cosine_Annealing_LR]] ($LR_{\max} = 2.5 \times 10^{-3} \to LR_{\min} = 2.5 \times 10^{-6}$) over all epochs, coupling neural networks and physical parameters ($PARAM\_LR\_FACTOR = 1.0$).
   2. **L-BFGS @ FP64** (~5,000 steps) for high-precision convergence of physical parameters and stress field topology.
 
-### Phase 2: Hydrodynamics & Solvent Viscosity
-- **Active Networks**: `model_p` ($LR_p = 10^{-3}$), `model_psi` ($LR_\psi = 10^{-4}$ with soft anti-drift)
+### Phase 2: Hydrodynamics & Pressure Field Reconstruction
+- **Active Networks**: `model_p` ($LR_p = 10^{-3}$ with algebraic [[Pressure_Point_Anchoring]]), `model_psi` ($LR_\psi = 10^{-4}$ with soft anti-drift)
 - **Frozen Networks**: `model_tau` (rigidly frozen)
-- **Trainable Parameters**: $r_s$ ($LR_{\eta_s} = 10^{-4}$)
-- **Frozen Parameters**: $r_\lambda, r_p$ (frozen to prevent constitutive corruption)
+- **Parameters**: $\eta_s$ (fissata al valore nominale a causa del teorema di non-identificabilità in **[[Solvent_Viscosity_Non_Identifiability]]**, o vincolata se sono disponibili misure esterne di coppia/pressione)
+- **Frozen Parameters**: $r_\lambda, r_p, r_\alpha, r_\varepsilon$ (frozen to prevent constitutive corruption)
 - **Active Loss**:
-  $$\mathcal{L}_{\text{Phase 2}} = \mathcal{L}_{\text{momentum}} + \lambda_u \mathcal{L}_{u} + \lambda_{\text{anchor}} \mathcal{L}_{p,\text{anchor}} + \lambda_{\text{drift}} \mathcal{L}_{\text{drift}}$$
-  where [[Soft_Anti_Drift]] loss $\mathcal{L}_{\text{drift}} = \frac{\|\mathbf{u} - \mathbf{u}_{\text{ckpt}}\|^2}{\|\mathbf{u}_{\text{ckpt}}\|^2 + \epsilon}$ overcomes the [[Pressure_Stress_Decoupling#The Helmholtz-Hodge Pressure Inference Limit|Helmholtz-Hodge limit]].
+  $$\mathcal{L}_{\text{Phase 2}} = \mathcal{L}_{\text{momentum}} + \lambda_u \mathcal{L}_{u} + \lambda_{\text{drift}} \mathcal{L}_{\text{drift}}$$
+  where [[Soft_Anti_Drift]] loss $\mathcal{L}_{\text{drift}} = \frac{\|\mathbf{u} - \mathbf{u}_{\text{ckpt}}\|^2}{\|\mathbf{u}_{\text{ckpt}}\|^2 + \epsilon}$ overcomes the [[Pressure_Stress_Decoupling#The Helmholtz-Hodge Pressure Inference Limit|Helmholtz-Hodge limit]], and exact algebraic [[Pressure_Point_Anchoring]] in `CombinedModel.pressure(x)` enforces the gauge $p(\mathbf{x}_0) \equiv p_{\text{ref}}$ eliminating soft anchor penalties.
 - **Adaptive Nondimensionalization**: Every $K = 2000$ epochs, $\eta_0$ is updated via detached EMA ($\alpha=0.1$, clamping $[0.5, 2.0]$) via [[Adaptive_Nondimensionalization]].
 - **Optimization Strategy**:
   1. **Adam @ FP32** (15,000 epochs).
-  2. **L-BFGS @ FP64** (~5,000 steps) for definitive scientific-grade convergence.
+  2. **L-BFGS @ FP64** (~5,000 steps) for definitive scientific-grade convergence of the pressure field.
 
 ---
 
@@ -112,5 +112,5 @@ To rigorously substantiate the claim of full-blind parameter discovery, the foll
 ---
 
 ## Related Wiki Links
-- **Theory & Physics**: [[Viscoelastic_Fluids]], [[Viscoelastic_Parameter_Identifiability]], [[Pressure_Stress_Decoupling]], [[Nondimensionalization]]
+- **Theory & Physics**: [[Solvent_Viscosity_Non_Identifiability]], [[Viscoelastic_Fluids]], [[Viscoelastic_Parameter_Identifiability]], [[Pressure_Stress_Decoupling]], [[Nondimensionalization]]
 - **Methods**: [[Soft_Anti_Drift]], [[Adaptive_Nondimensionalization]], [[Staged_Training_Procedure]], [[Staged_Precision_Strategy]], [[ViscoelasticNet]]

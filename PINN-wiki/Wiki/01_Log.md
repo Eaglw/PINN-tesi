@@ -1002,4 +1002,65 @@
 - **[[00_Index]]**: indicizzato il daily log del 2026-09-19.
 - **[[01_Log]]**: registrata l'attività di curation.
 
+---
+
+## [2026-09-19] update_wiki | Bonifica Globale e Allineamento Scientifico del Vault
+
+### Sintesi Operazioni
+- **Audit e Bonifica Sistematica dell'Intero Vault**:
+  - Eseguita una scansione rigorosa di tutte le 84 pagine markdown della Wiki alla ricerca di incongruenze concettuali, residui storici pre-riforme ed errori di formulazione fisica/architetturale.
+  - Verificata l'integrità al 100% degli 870 wikilink interni (zero link orfani verso pagine concettuali).
+- **Rettifiche Fisiche ed Architetturali di Rilievo**:
+  1. **Stream Function $\psi$ Mobile in Fase 2**: Eliminata categoricamente ogni residua menzione di congelamento di $\psi$ in Fase 2. Sancito che solo $\boldsymbol{\tau}$ viene congelato rigidamente, mentre `model_psi` deve rimanere mobile con micro-learning rate ($10^{-4}$) e regolarizzazione [[Soft_Anti_Drift]] per compensare la componente irrotazionale ed eliminare il limite di Helmholtz-Hodge sul gradiente di pressione $\nabla p$.
+  2. **Disattivazione Globale TF32**: Rettificata la documentazione per ribadire il bando assoluto di TF32 (`allow_tf32 = False`) anche in FP32, a causa del rumore numerico di fondo $\sim 10^{-3}$ indotto dal troncamento della mantissa a 10 bit sui Tensor Core.
+  3. **Scala Naturale di Navier-Stokes**: Eliminata la vecchia euristica $\text{scale}_{mom} = \tau_{\text{scale}} \dot{\gamma}_{\max}$, formalizzando l'intrinseca natura adimensionale unitaria $\text{scale}_{mom} = 1.0$.
+  4. **Ancoraggio Hard Algebrico della Pressione**: Sostituita la formulazione a penalizzazione morbida $\mathcal{L}_{p,\text{anchor}}$ con l'ancoraggio esatto nella forward pass $p(\mathbf{x}) = p_{\text{scale}}(p_{\text{raw}}(\mathbf{x}) - p_{\text{raw}}(\mathbf{x}_0)) + p_{\text{ref}}$, garantito per costruzione architetturale in `CombinedModel.pressure(x)`.
+  5. **Topologia Neurale FCN Costante**: Aggiornata la descrizione delle reti del Four-Roll Mill: architettura a larghezza costante $[128] \times 8$ con attivazioni `SiLU` e zero-inizializzazione dell'ultimo layer per $p$ e $\boldsymbol{\tau}$.
+  6. **Discovery Modelli Non-Lineari e Cosine Annealing Sincronizzato**: Allineata la Fase 1 per comprendere la scoperta simultanea di $\alpha$ ed $\varepsilon$ (guess $0.25$, sigmoid e softplus) con decadimento Cosine Annealing sincronizzato ($2.5\cdot 10^{-3} \to 2.5\cdot 10^{-6}$).
+  7. **Four-Roll Mill come Benchmark di Produzione**: Ricollocato il canale 1D a mero test storico non identificabile, confermando il Four-Roll Mill 2D come unico benchmark di produzione.
+  8. **Convenzione Rigorosa Checkpoint `L-P-S-A-E_M`**: Aggiornate tutte le occorrenze di checkpoint verso lo standard vincolante `checkpoint_inverso_fase1_L{lambda}-P{eta_p}-S{eta_s}-A{alpha}-E{eps}_M{mesh}_40k+10k.pth`.
+
+### Pagine Modificate
+- **[[ViscoelasticNet]]** (Methods): rettificata mobilità di $\psi$ in Fase 2 e chunking deterministico 12k–125k.
+- **[[GPU_Optimization]]** (Methods): precomputazione di $\nabla \cdot \boldsymbol{\tau}$ subordinata solo al congelamento di `model_tau`, confermando $\psi$ mobile.
+- **[[Staged_Precision_Strategy]]** (Methods): divieto globale di TF32 anche in FP32 Adam.
+- **[[Viscoelastic_Residual_Scaling]]** (Methods): formalizzazione di $\text{scale}_{mom} = 1.0$ e scaling vettoriale di $\boldsymbol{\tau}$.
+- **[[Pressure_Scaling_Issues]]** (Topics): documentata la scala naturale $\mathcal{O}(1)$ del momento e hard anchoring.
+- **[[Pressure_Point_Anchoring]]** (Methods): hard anchoring algebrico come standard primario rispetto alla soft penalty.
+- **[[FCN]]** (Methods): architettura moderna costante a 8 layer $\times$ 128 nodi SiLU.
+- **[[Staged_Training_Procedure]]** (Methods): parametri Fase 1 estesi a $\alpha, \varepsilon$, Cosine Annealing sincronizzato, $\psi$ mobile e hard anchoring.
+- **[[Viscoelastic_Fluids]]** (Systems): Four-Roll Mill come benchmark di produzione.
+- **[[Numerical_Hygiene_and_Phase2_Reforms]]** (Methods): checkpoint naming rigoroso `L-P-S-A-E_M`.
+- **[[Soft_Anti_Drift]]** (Methods): lista parametri Fase 2 allineata ed eliminazione soft penalty.
+- **[[Viscoelastic_Training]]** (Systems): diagramma e loss di Fase 2 allineati ad hard anchoring e congelamento $\alpha, \varepsilon$.
+- **[[01_Log]]**: registrata l'operazione.
+
+---
+
+## [2026-09-19] update_wiki | Teorema di Non-Identificabilità di eta_s e Revisione Sistemica del Vault
+
+### Sintesi Operazioni
+- **Formalizzazione del Teorema di Non-Identificabilità di $\eta_s$**:
+  - Dallo studio parametrico su cutline ad alta risoluzione (COMSOL 125k), al variare di $\eta_s$ mantenendo costanti gli altri parametri, i profili di velocità $\mathbf{u}$ e stress polimerico $\boldsymbol{\tau}$ risultano **esattamente identici e sovrapposti**.
+  - Dimostrato che nel Four-Roll Mill (regime di creeping flow guidato da rulli), l'equazione costitutiva di Oldroyd-B è cieca rispetto a $\eta_s$, e qualsiasi variazione $\Delta \eta_s$ viene assorbita al $100\%$ da una traslazione irrotazionale del gradiente di pressione $\Delta p = \Delta \eta_s \phi$.
+  - Poiché la pressione interna non è osservabile sperimentalmente (PIV), l'informazione di Fisher $\mathcal{I}(\eta_s)$ nei dati è identicamente nulla: $\eta_s$ è **strutturalmente non identificabile** attraverso il problema inverso.
+- **Riconciliazione Storica & Cambio di Paradigma**:
+  - Chiarito che il drift storico e le esplosioni in L-BFGS di $\eta_s$ in Fase 2 erano dovute alla navigazione lungo un fondovalle di loss piatto a costo zero (*flat manifold*).
+  - Ridefinita la Fase 2 primariamente come solutore idrodinamico differenziale per il campo di pressione $p(x,y)$ a $\eta_s$ noto/fissato.
+
+### Pagine Create / Modificate
+- **[[Solvent_Viscosity_Non_Identifiability]]** (Topics, NEW): pagina tematica cardine con evidenze numeriche su cutline, dimostrazione matematica analitica, limite di Cramér-Rao ed epistemologia storica.
+- **[[Viscoelastic_Parameter_Identifiability]]** (Topics): integrato il caveat sul fatto che il test offline richiedeva la vera pressione COMSOL e formalizzata la non-identificabilità strutturale di $\eta_s$.
+- **[[Vorticity_Inversion_Solvent]]** (Methods): inserito box di revisione metodologica (la formulazione a rotore non risolve la non-identificabilità geometrica poiché $\nabla^2 \omega_z \approx 0$ nel bulk).
+- **[[Staged_Training_Procedure]]** (Methods): aggiornata la finalità di Fase 2 verso la ricostruzione del campo di pressione $p$ per solvente nominale.
+- **[[Numerical_Hygiene_and_Phase2_Reforms]]** (Methods): chiarito il limite dell'indice a base finita $\rho_{id}$ rispetto all'invarianza del continuo fisico.
+- **[[Viscoelastic_Training]]** (Systems): aggiornata la descrizione dei parametri di Fase 2 e collegamenti tematici.
+- **[[Viscoelastic_Fluids]]** (Systems): documentata l'invarianza del solvente nel Four-Roll Mill benchmark.
+- **[[Nondimensionalization]]** (Topics): aggiunto collegamento alla non-identificabilità di $\eta_s$.
+- **[[00_Index]]**: indicizzata la nuova voce in *Thematic Topics*.
+- **[[2026-09-19]]** (`Daily_Logs/`): integrata la sezione 5 nel diario giornaliero.
+- **[[01_Log]]**: registrata l'attività.
+
+
+
 

@@ -3,51 +3,43 @@
 Modeling of complex fluids that exhibit both viscous and elastic characteristics.
 
 ## Governing Equations
-The current implementation focuses on **Channel Flow** for an Oldroyd-B fluid:
-1. **Conservation of Mass**: Automatically satisfied via [[ViscoelasticNet]].
+The primary production system is the **2D Four-Roll Mill** (`final_roll/`), while **1D Channel Flow** serves as a historical toy model (whose identifiability limitations are proven in [[Analisi geometria in tubo semplice]]).
+1. **Conservation of Mass**: Automatically satisfied via the stream function formulation ($\nabla \cdot \mathbf{u} = 0$).
 2. **Conservation of Momentum**: 
-   $$ \rho (\mathbf{u} \cdot \nabla \mathbf{u}) = -\nabla p + \mu_s \nabla^2 \mathbf{u} + \nabla \cdot \boldsymbol{\tau} $$
-3. **Oldroyd-B Constitutive Equation**:
-   $$ \boldsymbol{\tau} + \lambda \left( \mathbf{u} \cdot \nabla \boldsymbol{\tau} - (\nabla \mathbf{u}) \cdot \boldsymbol{\tau} - \boldsymbol{\tau} \cdot (\nabla \mathbf{u})^T \right) = \mu_p \left( \nabla \mathbf{u} + (\nabla \mathbf{u})^T \right) $$
-   where $\lambda$ is the relaxation time.
+   $$ Re_{\text{scale}} (\mathbf{u} \cdot \nabla \mathbf{u}) + \nabla p = \tilde{\eta}_s \nabla^2 \mathbf{u} + \nabla \cdot \boldsymbol{\tau} $$
+3. **Unified Constitutive Equations (Oldroyd-B / PTT / Giesekus)**:
+   $$ f_{\text{PTT}}(\boldsymbol{\tau}) \boldsymbol{\tau} + Wi \overset{\triangledown}{\boldsymbol{\tau}} + \frac{\alpha Wi}{\tilde{\eta}_p} \boldsymbol{\tau}^2 = 2 \tilde{\eta}_p \mathbf{D} $$
+   where $\lambda$ is the relaxation time, $\alpha \in [0, 0.5]$ is Giesekus mobility, and $\varepsilon \ge 0$ is PTT extensibility.
 
 ### Component-wise Residuals (2D PINN)
 For a 2D flow field $(u, v)$ and stress components $(\tau_{xx}, \tau_{xy}, \tau_{yy})$, the residuals $f_{\tau}$ used in the PINN loss function are derived as follows (assuming stationary state $\partial_t = 0$):
 
 #### 1. Normal Stress $f_{\tau_{xx}}$:
-$$ f_{\tau_{xx}} = \tau_{xx} + \lambda ( u \partial_x \tau_{xx} + v \partial_y \tau_{xx} - 2 \partial_x u \tau_{xx} - 2 \partial_y u \tau_{xy} ) - 2 \mu_p \partial_x u $$
+$$ f_{\tau_{xx}} = f_{\text{PTT}} \tau_{xx} + Wi ( u \partial_x \tau_{xx} + v \partial_y \tau_{xx} - 2 \partial_x u \tau_{xx} - 2 \partial_y u \tau_{xy} ) + \frac{\alpha Wi}{\tilde{\eta}_p}(\tau_{xx}^2 + \tau_{xy}^2) - 2 \tilde{\eta}_p \partial_x u $$
 
 #### 2. Shear Stress $f_{\tau_{xy}}$:
-$$ f_{\tau_{xy}} = \tau_{xy} + \lambda ( u \partial_x \tau_{xy} + v \partial_y \tau_{xy} - \partial_x u \tau_{xy} - \partial_y u \tau_{yy} - \partial_x v \tau_{xx} - \partial_y v \tau_{xy} ) - \mu_p ( \partial_y u + \partial_x v ) $$
+$$ f_{\tau_{xy}} = f_{\text{PTT}} \tau_{xy} + Wi ( u \partial_x \tau_{xy} + v \partial_y \tau_{xy} - \partial_x u \tau_{xy} - \partial_y u \tau_{yy} - \partial_x v \tau_{xx} - \partial_y v \tau_{xy} ) + \frac{\alpha Wi}{\tilde{\eta}_p}\tau_{xy}(\tau_{xx} + \tau_{yy}) - \tilde{\eta}_p ( \partial_y u + \partial_x v ) $$
 
 #### 3. Normal Stress $f_{\tau_{yy}}$:
-$$ f_{\tau_{yy}} = \tau_{yy} + \lambda ( u \partial_x \tau_{yy} + v \partial_y \tau_{yy} - 2 \partial_x v \tau_{xy} - 2 \partial_y v \tau_{yy} ) - 2 \mu_p \partial_y v $$
+$$ f_{\tau_{yy}} = f_{\text{PTT}} \tau_{yy} + Wi ( u \partial_x \tau_{yy} + v \partial_y \tau_{yy} - 2 \partial_x v \tau_{xy} - 2 \partial_y v \tau_{yy} ) + \frac{\alpha Wi}{\tilde{\eta}_p}(\tau_{xy}^2 + \tau_{yy}^2) - 2 \tilde{\eta}_p \partial_y v $$
 
-> [!IMPORTANT]
-> **Bug Fix (May 2026)**: A critical bug was identified and resolved in the `tau_xy` residual implementation. Previously, the terms involving $\text{tau}_{xx}$ and $\text{tau}_{yy}$ were swapped (using $\text{tau}_{xx} \partial_y u$ instead of $\text{tau}_{yy} \partial_y u$), causing non-physical residuals for stationary Poiseuille flow where $\text{tau}_{yy}=0$ but $\text{tau}_{xx} \neq 0$.
+## PINN Approach (ViscoelasticNet Framework)
+As proposed in [[Thakur_et_al_ViscoelasticNet]] and substantially evolved in the repository (`final_roll/`):
+- **Staged Inversion**: Kinematics and rheological parameters ($\lambda, \mu_p, \alpha, \varepsilon$) are discovered in Phase 1 without momentum interference; hydrodynamic pressure $p(x, y)$ is reconstructed in Phase 2 with mobile $\psi$ ([[Soft_Anti_Drift]]) and algebraic [[Pressure_Point_Anchoring]], while solvent viscosity $\mu_s$ is structurally non-identifiable from velocity/stress measurements in this geometry (see [[Solvent_Viscosity_Non_Identifiability]]).
+- **Autonomous Model Discovery**: Initializing $\alpha_{\text{guess}} = 0.25$ and $\varepsilon_{\text{guess}} = 0.25$ allows the PINN to autonomously collapse or confirm non-linear constitutive terms.
 
-## PINN Approach (ViscoelasticNet)
-As proposed in [[Thakur_et_al_ViscoelasticNet]], a multi-network architecture is used to decouple the discovery of velocity, stress, and pressure fields, exploiting [[Pressure_Stress_Decoupling]].
-- **Model Discovery**: Treating extensibility ($\epsilon$) and mobility ($\alpha$) as trainable parameters allows the PINN to select the most appropriate constitutive model for a given dataset.
-- **Backward Euler PINN**: Using temporal discretization within the loss residue to handle transient non-linear dynamics.
+## Primary Benchmark: Four-Roll Mill
+The core experimental geometry is the Taylor Four-Roll Mill ($L \times H = 50\text{ mm} \times 50\text{ mm}$, roll radii $R = 5\text{ mm}$):
+- **Flow Physics**: Creates a central hyperbolic stagnation point with pure extensional strain surrounded by rotational shear regions near the four counter-rotating cylinders.
+- **Identifiability Advantage in Phase 1**: Unlike 1D channel flow (where $\lambda$ and $\eta_p$ decouple degenerately due to lack of longitudinal strain), the mixed shear/extensional kinematics provide an SVD condition number $\kappa \approx 1.34$, enabling full-blind recovery of constitutive parameters (see [[Viscoelastic_Parameter_Identifiability]]).
+- **Solvent Viscosity Invariance**: Parametric cutline sweeps prove that varying $\eta_s$ leaves $\mathbf{u}$ and $\boldsymbol{\tau}$ completely invariant, establishing that $\eta_s$ cannot be identified without external torque or pressure measurements (see [[Solvent_Viscosity_Non_Identifiability]]).
+- **Grid Independence**: High-fidelity COMSOL FEM datasets (12k, 29k, 52k, 125k nodes) validated via the [[Mesh_Convergence_Protocol]].
 
-## Monitoring & Visualization
-During the training process, the velocity field ($u$) and the stress components ($\tau_{xx}, \tau_{xy}, \tau_{yy}$) are plotted periodically to monitor convergence.
+## Historical Note: Oldroyd-B Channel Flow
+In earlier exploratory stages, stationary Poiseuille flow was evaluated. As proven in [[Analisi geometria in tubo semplice]], fully developed 1D channel flow makes the upper-convected stress derivative independent of $\lambda$, making pure velocity-driven inversion ill-posed. This led directly to the adoption of the Four-Roll Mill as the definitive scientific benchmark.
 
-The **pressure field ($p$)** is omitted from periodic visualization by design. In incompressible flows, the pressure is determined by its gradient ($\nabla p$) and is typically the slowest variable to stabilize. Visualizing it in the early or intermediate stages of training provides limited physical insight until the kinematics (velocity) and constitutive (stress) fields have reached a stable state. A comprehensive validation of the pressure field is performed only at the end of the training process (post L-BFGS refinement) to ensure final physical consistency.
-
-## Benchmark: Oldroyd-B Channel Flow
-The project includes a synthetic dataset generator (`generate_dataset.py`) for stationary Poiseuille flow in a 2D channel.
-- **Velocity Profile**: $u(y) = 4 u_{max} \frac{y(H-y)}{H^2}$
-- **Pressure Profile**: Linear gradient $\frac{dp}{dx} = \text{const}$
-- **Polymeric Stresses**:
-    - $\tau_{xy} = \mu_p \dot{\gamma}$ (Linear with shear rate)
-    - $\tau_{xx} = 2 \lambda \mu_p \dot{\gamma}^2$ (Quadratic with shear rate, capturing the "elastic" normal stress)
-    - $\tau_{yy} = 0$
-- **Purpose**: Used to validate the PINN's ability to reconstruct the stress field from sparse velocity measurements (Inverse Problem).
-
-## Training Implementation & Debugging
-For the complete technical specification of the neural network architectures, staged training orchestration, and boundary condition deduplication (geometric slicing), refer to the dedicated experiment guide: [[Viscoelastic_Training]].
+## Training Implementation & Architecture
+For the complete technical specification of the neural network architectures, staged training orchestration, and boundary conditions, refer to the dedicated experiment guide: [[Viscoelastic_Training]].
 
 ## Challenges
 - **Numerical Instability**: High Weissenberg numbers and sharp stress gradients near corners are difficult for global networks to capture.
@@ -55,5 +47,5 @@ For the complete technical specification of the neural network architectures, st
 
 ## Related
 - **Literature**: [[Thakur_et_al_ViscoelasticNet]], [[Oldroyd_B_Model]], [[Viscoelasticity_Theory]], [[Note_05_Academic_Context]], [[Generazione_Dataset_Poiseuille]]
-- **Topics**: [[Viscoelasticity]], [[Fluid_Dynamics]], [[Inverse_Problems]], [[Pressure_Stress_Decoupling]]
+- **Topics**: [[Solvent_Viscosity_Non_Identifiability]], [[Viscoelasticity]], [[Fluid_Dynamics]], [[Inverse_Problems]], [[Pressure_Stress_Decoupling]]
 - **Systems/Experiments**: [[Viscoelastic_Training]]

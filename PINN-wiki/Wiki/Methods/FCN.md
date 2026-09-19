@@ -8,9 +8,9 @@ For 2D physical problems, an FCN typically maps spatial coordinates $(x, y)$ (an
 ## Technical Implementation
 Within the PINN-tesi project, FCNs are deployed across multiple physical systems with tailored architectural configurations:
 
-- **Viscoelastic Flow ([[Viscoelastic_Training]])**: The multi-network architecture (`ViscoelasticCombinedModel`) decouples the physical fields into distinct FCN sub-networks: `model_psi` (scalar stream function $\psi$), `model_p` (scalar pressure $p$), and `model_tau` (stress tensor components $\tau_{xx}, \tau_{xy}, \tau_{yy}$). These FCNs leverage [[Tapered_Architectures]] (funnel-style configurations such as `[2, 120, 100, 80, 60, 40, 20, 1]`) and `nn.SiLU` ([[Activation_Functions]]) to guarantee smooth, continuous second-order derivatives required for the Navier-Stokes momentum equations [[Thakur_et_al_ViscoelasticNet]].
+- **Viscoelastic Flow ([[Viscoelastic_Training]])**: The multi-network architecture (`CombinedModel`) decouples the physical fields into distinct FCN sub-networks: `model_psi` (scalar stream function $\psi$), `model_p` (scalar pressure $p$), and `model_tau` (stress tensor components $\tau_{xx}, \tau_{xy}, \tau_{yy}$). Rather than legacy tapered funnels, the production solver employs a deep constant-width architecture: **8 hidden layers of 128 neurons each** (`[128] * 8`), Xavier initialization with `nn.SiLU` activations ([[Activation_Functions]]) for smooth higher-order derivatives, and explicit zero-initialization on the output layers of $p$ and $\boldsymbol{\tau}$ to protect early kinematic learning [[Viscoelastic_Training]].
 - **Harmonic Oscillator ([[Harmonic_Oscillator]])**: An FCN maps time $t$ to displacement $u(t)$ using `nn.GELU` activations and L-BFGS optimization to solve both direct and inverse vibration problems [[Maurizio_Harmonic_Oscillator]].
-- **2D Heat Transfer ([[Heat2D_Analysis]])**: An FCN maps $(x,y)$ to temperature $T(x,y)$ to solve the steady-state Laplace equation across the spatial domain [[Note_03_Heat2D]].
+- **2D Heat Transfer ([[Heat2D_Analysis]])**: An FCN maps $(x,y)$ to temperature $T(x,y)$ using early exploratory [[Tapered_Architectures]] (`[120, 100, 80, ...]`) to solve the steady-state Laplace equation across the spatial domain [[Note_03_Heat2D]].
 
 ## References
 - [[Note_01_Framework]]

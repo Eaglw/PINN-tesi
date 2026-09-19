@@ -73,6 +73,7 @@ To keep neural network inputs bounded in $[0, 1]^2$ while evaluating dimensionle
 ---
 
 ## References & Back-links
+- [[Solvent_Viscosity_Non_Identifiability]] (Non-identifiability of eta_s and post-hoc evaluation of Re_phys)
 - [[Adaptive_Nondimensionalization]] (Block-wise adaptive scaling protocol)
 - [[Viscoelastic_Parameter_Identifiability]] (Parameter sensitivity and Run 010 autopsy)
 - [[ViscoelasticNet_Full model]] (Unified rheological implementation)

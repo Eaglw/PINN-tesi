@@ -62,8 +62,8 @@ The sensitivity matrix $J_{\text{con}}$ evaluated across all spatial collocation
 
 ---
 
-### 2. Solvent Viscosity Identification: Direct Momentum vs. Curl-Momentum
-Two distinct formulations for isolating solvent viscosity $\eta_s$ were tested on the momentum balance:
+### 2. Solvent Viscosity Identification: Direct Momentum vs. Curl-Momentum (Offline Diagnostic)
+Two distinct formulations for isolating solvent viscosity $\eta_s$ were historically tested on the momentum balance using exact numerical simulation fields:
 
 #### A. Curl-Momentum Formulation ($\nabla \times \nabla p \equiv 0$)
 Eliminating pressure by taking the curl of the momentum equation:
@@ -71,15 +71,20 @@ $$\nabla \times \left[ Re_{\text{scale}} (\mathbf{u} \cdot \nabla \mathbf{u}) - 
 - Result: $\eta_s \approx 0.0051\ \text{Pa}\cdot\text{s} \quad (\mathbf{95\%} \text{ relative error})$.
 - **Root Cause**: High-order finite differences amplify discretization noise. For grid spacing $\Delta x \approx 0.028$, the 2nd derivative operator scales as $\frac{1}{\Delta x^2} \approx 1250$, and the 3rd/4th order derivatives in the curl operator scale as $\frac{1}{\Delta x^3} \approx 45000$, destroying the signal.
 
-#### B. Direct Momentum Formulation
-Directly fitting the momentum balance with pressure gradients:
-$$\nabla p + Re_{\text{scale}} (\mathbf{u} \cdot \nabla \mathbf{u}) - \nabla \cdot \boldsymbol{\tau} = \tilde{\eta}_s \nabla^2 \mathbf{u}$$
+#### B. Direct Momentum Formulation (A-Priori Pressure Dependent)
+Directly fitting the momentum balance with exact simulation pressure gradients:
+$$\nabla p_{\text{COMSOL}} + Re_{\text{scale}} (\mathbf{u} \cdot \nabla \mathbf{u}) - \nabla \cdot \boldsymbol{\tau} = \tilde{\eta}_s \nabla^2 \mathbf{u}$$
 - Spatial correlation: **$0.8929$**
 - Result: $\eta_s = 0.098971\ \text{Pa}\cdot\text{s} \quad (\mathbf{1.03\%} \text{ relative error})$.
 
-**Full Noise-Free System Reconstruction**:
-- $\eta_{\text{tot}} = 0.999033\ \text{Pa}\cdot\text{s} \quad (\mathbf{0.10\%} \text{ error})$
-- $\beta = 0.099067 \quad (\mathbf{0.93\%} \text{ error})$
+> [!CAUTION]
+> **Fondamentale Caveat Fisico — Non-Identificabilità di $\eta_s$ nel Vero Problema Inverso**:
+> L'apparente recupero di $\eta_s$ al $1.03\%$ nel test Direct Momentum dipende **esclusivamente dal fatto che il vero gradiente di pressione COMSOL $\nabla p$ era fornito come dato noto a priori**.
+> In un problema inverso reale (o benchmark PIV), **la pressione interna $p(x,y)$ non è misurabile**. Come dimostrato dallo studio parametrico su cutline (si veda **[[Solvent_Viscosity_Non_Identifiability]]**):
+> 1. I campi di velocità $\mathbf{u}$ e di extra-stress $\boldsymbol{\tau}$ sono **esattamente invarianti rispetto a variazioni di $\eta_s$**.
+> 2. Qualsiasi variazione $\Delta \eta_s$ viene assorbita al $100\%$ da una traslazione irrotazionale del campo di pressione ignoto ($\Delta p = \Delta \eta_s \phi$).
+> 3. L'informazione di Fisher contenuta nei dati osservabili $(\mathbf{u}, \boldsymbol{\tau})$ è identicamente nulla: $\mathcal{I}(\eta_s) \equiv 0$.
+> Pertanto, **$\eta_s$ è strutturalmente e geometricamente non identificabile** nel Four-Roll Mill senza misure esterne di pressione o di coppia sui rulli.
 
 ---
 
@@ -110,12 +115,13 @@ $$\eta_{\text{tot}} \downarrow \quad \implies \quad Re \uparrow \quad \implies \
 
 ### Structural Countermeasures:
 1. **Scale Decoupling**: Scale Reynolds $Re_{\text{scale}} = \frac{\rho U H}{\eta_0}$ is fixed/frozen per training block via [[Adaptive_Nondimensionalization]].
-2. **Decoupled Two-Phase Optimization**: Phase 1 identifies $(\lambda, \eta_p)$ with frozen pressure; Phase 2 identifies $\eta_s$ with frozen stress and soft velocity micro-adjustments via [[Soft_Anti_Drift]].
+2. **Decoupled Two-Phase Optimization**: Phase 1 robustly identifies constitutive parameters $(\lambda, \eta_p, \alpha, \varepsilon)$ with frozen pressure; Phase 2 solves for the hydrodynamic pressure field $p$ (see [[Solvent_Viscosity_Non_Identifiability]] for why $\eta_s$ cannot be independently discovered from kinematics).
 3. **Multi-Start Verification**: Testing across multiple random initializations spanning orders of magnitude to confirm global basin of attraction.
 
 ---
 
 ## References & Back-links
+- [[Solvent_Viscosity_Non_Identifiability]] (Structural non-identifiability theorem of solvent viscosity in the 4-roll mill)
 - [[Adaptive_Nondimensionalization]] (Block-wise scaling protocol)
 - [[Soft_Anti_Drift]] (Kinematic stabilization during momentum training)
 - [[Staged_Training_Procedure]] (Multi-stage training workflow)

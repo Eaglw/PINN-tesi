@@ -1,5 +1,10 @@
 # Method: Vorticity Inversion for Solvent Viscosity ($\eta_s$)
 
+> [!WARNING]
+> **Revisione Metodologica — Non-Identificabilità Strutturale di $\eta_s$**:
+> Le analisi parametriche su cutline ad alta risoluzione (si veda **[[Solvent_Viscosity_Non_Identifiability]]**) hanno dimostrato che nel Four-Roll Mill per fluidi di Oldroyd-B i campi di velocità $\mathbf{u}$ e di extra-stress $\boldsymbol{\tau}$ sono **esattamente invarianti rispetto a $\eta_s$**.
+> Nel bulk del dominio, il laplaciano della vorticità $\nabla^2 \omega_z$ è numericamente trascurabile / irrotazionale. Di conseguenza, l'eliminazione di $\nabla p$ tramite il rotore non conferisce una reale identificabilità fisica al parametro: il valore di convergenza osservato storicamente nelle run con formulazione a rotore ($\mu_s \approx 0.098\text{ Pa}\cdot\text{s}$) è dipeso fortemente dal guess iniziale ($0.080\text{ Pa}\cdot\text{s}$) e dall'epoca di arresto, muovendosi lungo una varietà quasi-degenere. Questa pagina conserva il valore documentale dell'esperimento, ma l'identificazione di $\eta_s$ senza dati di pressione o coppia sui rulli è formalmente non risolubile.
+
 ## Overview
 
 In the staged inverse PINN framework for viscoelastic flows (e.g., the Oldroyd-B four-roll mill), identifying the solvent viscosity $\eta_s$ (or non-dimensional $\mu_s^*$) in Phase 2 typically relies on the linear momentum balance:
@@ -68,6 +73,7 @@ Because evaluating 4th-order autograd derivatives during continuous training car
 ---
 
 ## References & Back-links
+- [[Solvent_Viscosity_Non_Identifiability]] (Structural non-identifiability of eta_s in the Four-Roll Mill)
 - [[Zero_Stress_BC_Compatibility]] (Zero-stress BCs and curl compatibility in Phase 1)
 - [[Viscoelastic_Parameter_Identifiability]] (Full-blind parameter identification in Oldroyd-B)
 - [[Vorticity_Regularization]] (Vorticity transport as forward regularization in Phase 1)
