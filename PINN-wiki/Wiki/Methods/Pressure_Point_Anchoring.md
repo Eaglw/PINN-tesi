@@ -9,25 +9,28 @@ Per rendere il problema ben posto dal punto di vista numerico ed evitare che il 
 
 Nel framework del progetto, il caricamento e la definizione del `PressurePoint` avvengono all'interno della pipeline di pre-processing dei dati (in particolare nella funzione `_extract_boundary_groups` di `utils.py`). Il codice segue due strategie in cascata:
 
-### 1. Selezione Esplicita da COMSOL (Principale)
-Se nel file della mesh COMSOL (`.mphtxt`) è stata definita una selezione geometrica esplicita per il punto di pressione (es. rinominata in COMSOL come `PressurePoint`):
-* Il codice ne effettua il parsing identificando gli ID dei nodi associati.
-* Tramite un algoritmo KD-Tree (`cKDTree`), mappa questi nodi ai corrispondenti punti nel dataset CSV della mesh.
-* La loss associata a questa condizione al contorno viene calcolata come:
-  $$ \mathcal{L}_{BC, p} = \frac{1}{N_{BC}} \sum_{i=1}^{N_{BC}} \frac{\left(p_{\theta}(x_i) - p_{COMSOL}(x_i)\right)^2}{\sigma^2_p} $$
-  dove $p_{\theta}$ è la pressione predetta dal modello, $p_{COMSOL}$ è il valore di riferimento, e $\sigma^2_p$ è la varianza della pressione usata come peso di normalizzazione.
+### 2. Meccanismo di Ancoraggio Algebrico Rigoroso (Hard Anchor)
+Nel modello in produzione (`CombinedModel` in `final_roll/src/train.py`), la condizione di ancoraggio al punto $\mathbf{x}_0$ **non è imposta come penalizzazione debole (soft loss)**, ma è implementata algebricamente per costruzione nella forward pass della rete:
 
-### 2. Meccanismo di Fallback Automatico
-Qualora nel file mesh non sia presente alcuna selezione etichettata con `"pressure"` (case-insensitive), il codice attiva un fallback per evitare divergenze:
-* Preleva il primo gruppo di contorno disponibile (di solito la parete esterna, `Walls`).
-* Estrae il **primo nodo** di questo gruppo e lo definisce come `PressurePoint` per l'ancoraggio.
+$$ p(\mathbf{x}) = p_{\text{scale}} \left( p_{\text{raw}}(\mathbf{x}) - p_{\text{raw}}(\mathbf{x}_0) \right) + p_{\text{ref}} $$
 
-#### Esempio di Fallback (Caso Four-Roll Mill)
-Nel dataset standard `4_roll_mill.csv`, in assenza di un `PressurePoint` esplicito da COMSOL, il fallback seleziona il seguente punto:
-* **Indice nel dataset**: `111092`
-* **Coordinate adimensionali** ($x_{nd}, y_{nd}$): `(1.0000, 0.1348)`
-* **Coordinate fisiche (raw)** ($x, y$ in metri): `(0.025, -0.01826)`
-### 3. Validazione Sperimentale dell'Ancoraggio Singolo
+dove:
+* $\mathbf{x}_0 = \text{x\_anchor}$ è il buffer registrato con le coordinate del punto di gauge.
+* $p_{\text{raw}}(\mathbf{x})$ è l'output non scalato di `model_p`.
+* $p_{\text{ref}}$ è il valore di pressione prescritto al punto di riferimento (default $0.0\,\mathrm{Pa}$).
+* $p_{\text{scale}}$ è il fattore di scala globale della pressione.
+
+#### Vantaggi Rispetto alla Soft Loss:
+1. **Soddisfazione Esatta $\forall \boldsymbol{\theta}$**: $p(\mathbf{x}_0) \equiv p_{\text{ref}}$ vale identicamente a qualsiasi iterazione e per qualsiasi configurazione dei pesi, azzerando la varianza di gauge.
+2. **Eliminazione di Pesi Iperparametrici**: Rimuove la necessità di bilanciare un peso addizionale $W_{BC, p}$ nella loss, evitando gradient conflicts tra l'ancoraggio puntuale e il campo gradiente di Navier-Stokes $\nabla p$.
+
+### 3. Selezione del Punto di Ancoraggio (COMSOL vs Fallback)
+Il punto $\mathbf{x}_0$ viene estratto in `load_data()` (`final_roll/src/utils.py`):
+1. **Da Selezione Esplicita**: se nel file mesh `.mphtxt` è presente un'etichetta `"PressurePoint"`, ne viene mappato il nodo esatto via `cKDTree`.
+2. **Meccanismo di Fallback Automatico**: qualora non sia presente una selezione etichettata, il codice seleziona il primo nodo della parete esterna (`Walls`):
+   * Indice nel Four-Roll Mill ($12\text{k}$): nodo sul bordo esterno con coordinate fisiche note.
+
+### 4. Validazione Sperimentale dell'Ancoraggio Singolo
 La run `[2026-09-08_15-49][DIR][PHASE2_MLS_SCALED][Ph2_20k+2k]` (Run Kaggle #22) ha dimostrato empiricamente che **1 solo PressurePoint è pienamente sufficiente a vincolare la costante di gauge e a far convergere l'intero campo di pressione 2D** fino a un errore minimo $L_2(p) = 4.91\%$, a patto che il membro destro di Navier-Stokes sia calcolato con regolarità numerica appropriata (vedi **[[MLS_Derivatives_Pressure]]**).
 
 ## References & Back-links

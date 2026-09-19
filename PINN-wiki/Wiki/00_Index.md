@@ -13,6 +13,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 ---
 
 ## Daily Logs
+- [[2026-09-19]]: Parametrizzazione Vincolata e Guess Ottimali (alpha=0.25, eps=0.25) e Cosine Annealing Sincronizzato
 - [[2026-09-18]]: Studio di Convergenza Mesh (COMSOL vs PINN), Inclusione Modelli Giesekus/PTT e Setup Batch Runner
 
 ## Literature Catalog

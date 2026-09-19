@@ -26,8 +26,16 @@ where $r_\lambda, r_p, r_s$ are the unconstrained trainable weights.
 3. **Avoids Saturation**: Eliminates the gradient flattening observed with `softplus` activation near zero.
 4. **Decoupled Formulation**: Eliminates the artificial algebraic coupling $\beta + (1 - \beta) = 1$ as a primary constraint.
 
+### Non-Linear Parameters & Unbiased Model Discovery ($\alpha, \varepsilon$)
+Per i modelli reologici estesi (Giesekus e PTT), la formulazione unificata include parametri addizionali vincolati:
+$$\alpha = 0.5 \cdot \sigma(r_\alpha) \in [0, 0.5], \qquad \varepsilon = \operatorname{softplus}(r_\varepsilon) \ge 0$$
+
 > [!IMPORTANT]
-> **Full-Blind Requirement**: The numerical references ($\lambda_{\text{ref}}, \eta_{p,\text{ref}}, \eta_{s,\text{ref}}$) must be chosen purely as arbitrary numerical scale factors (e.g., $1.0, 1.0, 1.0$) and must **never** encode ground-truth material priors.
+> **Unbiased Model Selection Principle**:
+> Quando si valuta l'identificabilità su dataset sintetici generati da un modello target (ad esempio Oldroyd-B puro, dove $\alpha_{\text{true}} = 0$ ed $\varepsilon_{\text{true}} = 0$), i guess iniziali non devono essere scelti arbitrariamente prossimi a zero (che faciliterebbe artificialmente la convergenza).
+> Impostando **$\alpha_{\text{guess}} = 0.25$** ed **$\varepsilon_{\text{guess}} = 0.25$** (il centro esatto dei rispettivi domini fisici $[0, 0.5]$):
+> 1. $\alpha_{\text{guess}} = 0.25 \implies r_\alpha = 0$, massimizzando la derivata $\sigma'(0) = 0.25$ della sigmoide ed eliminando la saturazione iniziale.
+> 2. Si impone un test di selezione del modello rigoroso e "cieco", verificando se la PINN è in grado di annullare spontaneamente i contributi non lineari senza assunzioni a priori.
 
 ---
 

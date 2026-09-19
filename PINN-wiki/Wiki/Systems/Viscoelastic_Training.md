@@ -38,13 +38,14 @@ graph TD
 ### Phase 1: Kinematics & Rheology
 - **Active Networks**: `model_psi`, `model_tau`
 - **Frozen Networks**: `model_p` (frozen at zero)
-- **Trainable Parameters**: $r_\lambda, r_p$ (recovering relaxation time $\lambda$ and polymeric viscosity $\eta_p$)
-- **Frozen Parameters**: $r_s$ (solvent viscosity $\eta_s$)
+- **Trainable Parameters**: $r_\lambda, r_p$ (recovering relaxation time $\lambda$ and polymeric viscosity $\eta_p$), plus non-linear constitutive parameters $r_\alpha$ (Giesekus mobility in $[0, 0.5]$) and $r_\varepsilon$ (PTT extensibility $\ge 0$).
+  - **Initial Guesses**: $\alpha_{\text{guess}} = 0.25$ (inflection point of sigmoid), $\varepsilon_{\text{guess}} = 0.25$ (canonical benchmark value).
+- **Frozen Parameters**: $r_s$ (solvent viscosity $\eta_s$, deferred to Phase 2)
 - **Active Loss**:
   $$\mathcal{L}_{\text{Phase 1}} = \mathcal{L}_{\text{constitutive}} + \lambda_u \mathcal{L}_{u,\text{data}} + \lambda_{\text{roll}} \mathcal{L}_{\boldsymbol{\tau},\text{roll}}$$
 - **Optimization Strategy**:
-  1. **Adam @ FP32** (20,000 epochs, $LR = 10^{-3}$) for broad convex basin discovery.
-  2. **L-BFGS @ FP64** (~5,000 steps) for high-precision convergence of $(\lambda, \eta_p)$ and stress field topology.
+  1. **Adam @ FP32** with synchronized [[Cosine_Annealing_LR]] ($LR_{\max} = 2.5 \times 10^{-3} \to LR_{\min} = 2.5 \times 10^{-6}$) over all epochs, coupling neural networks and physical parameters ($PARAM\_LR\_FACTOR = 1.0$).
+  2. **L-BFGS @ FP64** (~5,000 steps) for high-precision convergence of physical parameters and stress field topology.
 
 ### Phase 2: Hydrodynamics & Solvent Viscosity
 - **Active Networks**: `model_p` ($LR_p = 10^{-3}$), `model_psi` ($LR_\psi = 10^{-4}$ with soft anti-drift)

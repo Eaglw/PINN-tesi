@@ -46,7 +46,7 @@ By training the parameters $\epsilon$ and $\alpha$, we can classify the flow beh
 The implementation spans across the main physics script, optimization pipeline, and plotting helpers.
 
 ### 1. Physics Model & Log-Space Parameterization
-In the production framework (`final_roll/src/physics.py`), physical parameters are strictly mapped via an **unconstrained log-space parameterization** rather than ad-hoc in-place clipping:
+In the production framework (`final_roll/src/physics.py`), physical parameters are strictly mapped via **unconstrained log-space and bounded parameterizations** rather than ad-hoc in-place clipping:
 $$
 \lambda = \lambda_{\text{guess}} \exp(r_\lambda), \quad \eta_p = \eta_{p,\text{guess}} \exp(r_{\eta_p}), \quad \eta_s = \eta_{s,\text{guess}} \exp(r_{\eta_s})
 $$
@@ -55,7 +55,29 @@ where $r_\lambda, r_{\eta_p}, r_{\eta_s} \in \mathbb{R}$ are unconstrained PyTor
 2. Smooth gradients across orders of magnitude during both Adam and L-BFGS optimization.
 3. Elimination of non-differentiable `torch.abs()` gradient kinks at zero.
 
-For multi-model discovery with $\epsilon$ and $\alpha$, non-negativity can similarly be enforced via exponential or softplus mappings.
+#### Parameterization of Non-Linear Rheological Parameters ($\alpha, \varepsilon$)
+Per i parametri non lineari dei modelli costitutivi estesi (Giesekus e PTT), sono state introdotte trasformazioni continue atte a rispettare rigorosamente i domini fisici e termodinamici:
+* **Mobilità di Giesekus ($\alpha$)**:
+  Vincolato termodinamicamente in $[0, 0.5]$ per prevenire instabilità di sforzo di taglio non monotone:
+  $$\alpha = 0.5 \cdot \sigma(r_\alpha)$$
+  dove $\sigma(x) = \frac{1}{1 + e^{-x}}$ è la funzione sigmoide e $r_\alpha \in \mathbb{R}$.
+* **Estensibilità di Phan-Thien–Tanner ($\varepsilon$)**:
+  Vincolato strettamente non-negativo ($\varepsilon \ge 0$):
+  $$\varepsilon = \operatorname{softplus}(r_\varepsilon) = \ln(1 + e^{r_\varepsilon})$$
+
+#### Selezione dei Guess Iniziali Ottimali ($\alpha_{\text{guess}} = 0.25, \varepsilon_{\text{guess}} = 0.25$)
+La scelta di fissare $\alpha_{\text{guess}} = 0.25$ ed $\varepsilon_{\text{guess}} = 0.25$ risponde a precisi criteri fisici e numerici:
+1. **Massima Mobilità del Gradiente per $\alpha$**:
+   Poiché $\alpha = 0.5 \cdot \sigma(r_\alpha)$, impostare $\alpha_{\text{guess}} = 0.25$ implica $\sigma(r_\alpha) = 0.5 \implies r_\alpha = 0.0$. Il punto $r_\alpha = 0$ è il flesso della sigmoide, dove la derivata prima $\sigma'(0) = 0.25$ è massima. L'ottimizzatore possiede la massima reattività ed evita completamente la saturazione esponenziale ai bordi ($0$ o $0.5$).
+2. **Valore Canonico di Benchmark per $\varepsilon$**:
+   In letteratura reologica e nei moduli CFD (COMSOL, ANSYS Polyflow) per soluzioni polimeriche concentrate e fusi (es. IUPAC LDPE), $\varepsilon$ risiede tipicamente in $[0.01, 0.25]$ (con limite superiore fisico intorno a $0.5$). $\varepsilon_{\text{guess}} = 0.25$ costituisce il valore archetipico e bilanciato, con $\operatorname{softplus}'(r_\varepsilon) \approx 0.22$, assicurando gradienti attivi.
+3. **Test Cieco di Scoperta del Modello (Model Discovery)**:
+   Partire da $0.25$ per entrambi i parametri rappresenta un test di validazione rigoroso e neutrale: se il fluido target è un Oldroyd-B puro ($\alpha = 0, \varepsilon = 0$), la PINN deve dimostrare la capacità di spingere autonomamente $\alpha \to 0$ ed $\varepsilon \to 0$ da uno stato iniziale fortemente non lineare.
+
+#### Schema di Ottimizzazione Sincronizzato in Fase 1
+In Fase 1, le reti neurali (`model_psi`, `model_tau`) e tutti i parametri reologici ($\lambda, \mu_p, \alpha, \varepsilon$) condividono lo stesso protocollo [[Cosine_Annealing_LR]] sincrono:
+* $\eta_{\max} = 2.5 \times 10^{-3} \quad (\text{BASE\_LR} = 2.5\cdot 10^{-3}, \text{PARAM\_LR\_FACTOR} = 1.0)$
+* $\eta_{\min} = 2.5 \times 10^{-6} \quad (\text{ETA\_MIN} = 2.5\cdot 10^{-6})$
 
 #### Tensor Components for $\boldsymbol{\tau} \cdot \boldsymbol{\tau}$
 In two dimensions:

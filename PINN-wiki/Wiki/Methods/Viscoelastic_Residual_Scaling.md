@@ -17,48 +17,34 @@ For small or moderate Weissenberg numbers ($Wi$), the algebraic term $\boldsymbo
 $$ \text{Scale}_{\text{constitutive}} \sim \tau_{scale} $$
 Dividing the constitutive residuals ($f_{\tau_{xx}}$, $f_{\tau_{xy}}$, $f_{\tau_{yy}}$) by $\tau_{scale}$ brings the residual to $O(1)$.
 
-### 2. Momentum Equation Scale
-The momentum equation (in creeping flows) balances only spatial derivatives:
-$$ Re (\mathbf{v} \cdot \nabla \mathbf{v}) + \nabla p - \beta \nabla^2 \mathbf{v} - \nabla \cdot \boldsymbol{\tau} = 0 $$
-Here, the dominant force term is $\nabla \cdot \boldsymbol{\tau}$. Every term is a spatial gradient. In a dimensionless system, gradients are scaled by the inverse of the characteristic length $L_{char}$, which is equivalent to the maximum shear rate $\dot{\gamma}^*_{max} = \max |\nabla \mathbf{v}|$:
-$$ \text{Scale}_{\text{momentum}} \sim \tau_{scale} \cdot \dot{\gamma}^*_{max} $$
-In confined geometries like the 4-roll mill, local spatial gradients are extremely high ($\dot{\gamma}^*_{max} \approx 10 - 50$ near boundaries). Consequently:
-- Dividing the momentum residual by `tau_scale` leaves a leftover factor of $\dot{\gamma}^*_{max}$ (resulting in MSE residuals of $O(10^2) - O(10^3)$).
-- Not dividing it at all leads to $O(10^4)$ loss.
-To bring the momentum residual to $O(1)$, it must be normalized by its own scale: $\tau_{scale} \cdot \dot{\gamma}^*_{max}$.
+### 2. Modern Rigorous Nondimensionalization vs Legacy Momentum Scaling
+Historically, dividing the momentum residual by a heuristic factor ($\text{Scale}_{\text{momentum}} \sim \tau_{scale} \cdot \dot{\gamma}^*_{max}$) was tested to balance initial residual magnitudes.
+However, as established in [[Pressure_Scaling_Issues]] and [[Nondimensionalization]]:
+1. **Intrinsically Dimensionless Momentum Balance**:
+   Under the global viscous scaling with $\tau_0 = \frac{\eta_0 U_{\text{ref}}}{H_{\text{ref}}}$ and $H_{\text{ref}} = R$:
+   $$ Re_{\text{scale}} (\mathbf{u} \cdot \nabla \mathbf{u}) + \nabla p - \tilde{\eta}_s \nabla^2 \mathbf{u} - \nabla \cdot \boldsymbol{\tau} = \mathbf{0} $$
+   All physical terms in the momentum equation are already dimensionless and balanced at $\mathcal{O}(1)$.
+2. **Current Production State (`scale_mom = 1.0`)**:
+   In `final_roll/src/physics.py`:
+   ```python
+   @property
+   def scale_mom(self):
+       """[Proposta AA - Rettificata] Il residuo di Navier-Stokes è già intrinsecamente adimensionale (scala = 1.0)."""
+       return torch.tensor(1.0, device=self.eta_0.device, dtype=self.eta_0.dtype)
+   ```
+   No artificial divisor is applied to $f_u$ or $f_v$, preserving the true force balance.
 
----
-
-## Velocity-Only Heuristic for Scale Estimation
-In inverse problems or configurations where only the velocity field $\mathbf{v}$ is known (no pressure or stress data is available), the scales can be estimated using the following heuristic:
-
-1. **Calculate Maximum Strain Rate**:
-   Use numerical differentiation on the velocity field to compute the maximum shear rate:
-   $$ \dot{\gamma}^*_{max} = \max \sqrt{2 \text{tr}(\mathbf{D}^2)} $$
-2. **Estimate Stress Scale**:
-   For low-Wi viscoelastic flows, stress is roughly Newtonian:
-   $$ \tau_{scale} \approx 2 \beta_p \dot{\gamma}^*_{max} $$
-3. **Define Normalization Factors**:
-   - Constitutive Residuals: $\text{norm}_{\text{const}} = \tau_{scale}$
-   - Momentum Residuals: $\text{norm}_{\text{mom}} = \tau_{scale} \cdot \dot{\gamma}^*_{max}$
-
-This allows direct $O(1)$ scaling of all PDE residuals using only velocity datasets.
-
----
-
-## Technical Implementation
-In `src/physics.py`, the residuals are updated:
+### 3. Per-Component Vector Stress Normalization
+For the constitutive equations, the extra-stress tensor components can differ significantly in magnitude (e.g., normal extensional stresses $\tau_{xx}, \tau_{yy}$ vs shear stress $\tau_{xy}$).
+The production framework implements per-component normalization:
 ```python
-# Momentum (derivative terms)
-f_u = f_u / self.momentum_scale   # = tau_scale * gamma_max
-f_v = f_v / self.momentum_scale
-
-# Constitutive (algebraic dominant)
-f_txx = f_txx / self.tau_scale
-f_tyy = f_tyy / self.tau_scale
-f_txy = f_txy / self.tau_scale
+# Bilanciamento Loss PDE per-componente [Proposta C]
+s_xx, s_xy, s_yy = self.tau_scale[0, 0], self.tau_scale[0, 1], self.tau_scale[0, 2]
+f_txx = f_txx / s_xx
+f_tyy = f_tyy / s_yy
+f_txy = f_txy / s_xy
 ```
-Where `self.momentum_scale` is computed in `load_data()` from the maximum strain rate of the input velocity field and injected into the `Physics` class.
+This ensures that shear and normal stress equations contribute equally to the backpropagation loss without one component overwhelming the others.
 
 ---
 

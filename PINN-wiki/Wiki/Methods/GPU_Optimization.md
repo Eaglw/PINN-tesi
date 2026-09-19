@@ -48,8 +48,8 @@ Attualmente, `torch.autograd.grad(..., create_graph=True)` usa il classico *Reve
 - **Implementazione**: Richiede una riscrittura profonda dei layer fisici per utilizzare il dual tensor system invece del tradizionale backward tracking, ma per PDE complesse è lo "stato dell'arte".
 
 ### 8. Precomputazione della Divergenza dello Stress (`precompute_stress_divergence`) — [ATTIVA IN FASE 2]
-Durante la **Fase 2** (Hydrodynamics & Pressure), le reti cinematiche (`model_psi`) e reologiche (`model_tau`) sono congelate. 
-- **Problema**: Valutare $\nabla \cdot \boldsymbol{\tau} = (\partial_x \tau_{xx} + \partial_y \tau_{xy}, \partial_x \tau_{xy} + \partial_y \tau_{yy})$ tramite `torch.autograd.grad` ad ogni iterazione di Adam o L-BFGS costringerebbe PyTorch a rieseguire il forward pass su `model_tau` e ricostruire rami di grafo non necessari.
+Durante la **Fase 2** (Hydrodynamics & Pressure), la rete reologica (`model_tau`) è rigidamente congelata dal checkpoint di Fase 1 (mentre `model_psi` rimane mobile con micro-learning rate e Soft Anti-Drift).
+- **Problema**: Valutare $\nabla \cdot \boldsymbol{\tau} = (\partial_x \tau_{xx} + \partial_y \tau_{xy}, \partial_x \tau_{xy} + \partial_y \tau_{yy})$ tramite `torch.autograd.grad` ad ogni iterazione di Adam o L-BFGS costringerebbe PyTorch a rieseguire il forward pass su `model_tau` e ricostruire rami di grafo non necessari per uno sforzo già consolidato.
 - **Soluzione**: La funzione `precompute_stress_divergence` calcola la divergenza dello stress tensoriale una sola volta all'ingresso della Fase 2 (eseguita a blocchi per minimizzare la memoria di picco) e la memorizza come tensore statico `div_tau_int` scollegato dal grafo autograd.
 - **Impatto**: Dimezza i tempi di calcolo per epoca della Fase 2 ed elimina completamente l'overhead di calcolo delle derivate parziali dello stress durante l'ottimizzazione della pressione.
 

@@ -29,29 +29,42 @@ Questa scelta di design ingegneristico permette all'oggetto scheduler di non dov
 Nonostante il riferimento al paper SGDR, la classe `CosineAnnealingLR` **non effettua i restart**. Esegue un'unica discesa continua lungo l'intero intervallo di $T_{max}$ epoche. Se si desiderano riavvii periodici (in cui il learning rate "salta" nuovamente a $\eta_{\max}$ per sfuggire a minimi locali sub-ottimali), è necessario utilizzare `CosineAnnealingWarmRestarts`.
 
 ## Technical Implementation & Physical Details
-Nello schema di addestramento del progetto PINN viscoelastico (specialmente in modalità `semi_inverse` e staged training), il Cosine Annealing viene utilizzato durante le fasi di esplorazione con Adam (Fase 1 per $\psi, \boldsymbol{\tau}$ e Fase 2 per $p$) per regolare in modo continuo il learning rate prima delle rispettive transizioni alle fasi di raffinamento fisico con L-BFGS a doppia precisione (FP64).
+Nello schema di addestramento del progetto PINN viscoelastico (specialmente in modalità `semi_inverse` e staged training), il Cosine Annealing viene utilizzato durante le fasi di esplorazione con Adam per regolare in modo continuo il learning rate prima delle rispettive transizioni alle fasi di raffinamento fisico con L-BFGS a doppia precisione (FP64).
 
-### PyTorch Example
+### 1. Protocollo Cosine Annealing Sincronizzato (Fase 1)
+In **Fase 1** (Cinematica & Reologia: `model_psi`, `model_tau`, e parametri inversi $\lambda, \mu_p, \alpha, \varepsilon$), il framework adotta uno schedule coordinato su due gruppi di parametri:
+- **Gruppo Reti Neurali** (`model_psi`, `model_tau`):
+  - $\eta_{\max} = \text{BASE\_LR} = 2.5 \times 10^{-3}$
+  - $\eta_{\min} = \text{ETA\_MIN} = 2.5 \times 10^{-6}$
+- **Gruppo Parametri Fisici Reologici** ($\lambda, \mu_p, \alpha, \varepsilon$):
+  - Con $\text{PARAM\_LR\_FACTOR} = 1.0$, il tasso iniziale dei parametri fisici coincide esattamente con quello delle reti:
+    $$\eta_{\text{phys, max}} = \text{BASE\_LR} \times \text{PARAM\_LR\_FACTOR} = 2.5 \times 10^{-3}$$
+  - $\eta_{\text{phys, min}} = \text{ETA\_MIN} = 2.5 \times 10^{-6}$
+
+#### Vantaggio Fisico della Sincronizzazione
+Sincronizzare l'intervallo $[2.5 \times 10^{-3}, 2.5 \times 10^{-6}]$ per entrambi i gruppi impedisce che l'apprendimento delle strutture cinematiche veloci distacchi l'adattamento dei parametri reologici o viceversa. Lungo l'intero orizzonte di $T_{\max}$ epoche Adam, le reti e i parametri scalari viaggiano all'unisono:
+
+$$ \eta_t = 2.5 \times 10^{-6} + \frac{1}{2}(2.5 \times 10^{-3} - 2.5 \times 10^{-6}) \left( 1 + \cos\left(\frac{t \pi}{T_{\max}}\right) \right) $$
+
+### 2. Implementazione PyTorch nel Framework
+In `final_roll/src/train.py`:
 ```python
-import torch
-import torch.nn as nn
-from torch.optim.lr_scheduler import CosineAnnealingLR
+# Setup param groups dedicati con Adam epsilon differenziato
+groups = [
+    {"params": net_params, "lr": BASE_LR, "eps": ADAM_EPS},
+    {"params": phys_params_ph1, "lr": BASE_LR * PARAM_LR_FACTOR, "eps": ADAM_EPS_PHYS}
+]
+optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
 
-model = nn.Linear(10, 2)
-# lr iniziale (eta_max) impostato a 0.1
-optimizer = torch.optim.SGD(model.parameters(), lr=0.1) 
-
-# Vogliamo scendere fino a 0.001 in 100 epoche
-scheduler = CosineAnnealingLR(optimizer, T_max=100, eta_min=0.001)
-
-for epoch in range(100):
-    # optimizer.step()
-    
-    # Aggiorna il LR seguendo la curva coseno
-    scheduler.step() 
+eta_min_ph1 = getattr(builtins, "ETA_MIN", 2.5e-6)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer, T_max=max(steps_rem, 1), eta_min=eta_min_ph1
+)
 ```
 
 ## References & Back-links
 - [[Staged_Training_Procedure]]
+- [[ViscoelasticNet_Full model]]
+- [[Viscoelastic_Training]]
 - [[Dynamic_Weighting]]
 - [[01_Log]]

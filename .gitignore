@@ -240,3 +240,14 @@ __marimo__/
 final_roll/output_4rollmill/
 nul
 PINN-wiki/Reference/**/*.pdf
+
+# LaTeX auxiliary files & folder
+.aux/
+Latex/.aux/
+*.aux
+*.bbl
+*.blg
+*.toc
+*.log
+*.out
+*.synctex.gz

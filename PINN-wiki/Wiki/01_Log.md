@@ -978,3 +978,28 @@
 - **[[00_Index]]**: Inserita la sezione `Daily Logs`.
 - **[[01_Log]]**: Registrata l'operazione.
 
+---
+
+## [2026-09-19] update_wiki | Parametrizzazione Vincolata, Guess Ottimali (alpha=0.25, eps=0.25) e Cosine Annealing Sincronizzato
+
+### Sintesi Operazioni
+- **Formalizzazione Parametrizzazione Vincolata e Selezione Guess Iniziali**:
+  - Parametro di mobilità di Giesekus: vincolato in $[0, 0.5]$ via sigmoid $\alpha = 0.5 \cdot \sigma(r_\alpha)$. Con $\alpha_{\text{guess}} = 0.25$ si ha $r_\alpha = 0$, garantendo la massima derivata prima $\sigma'(0) = 0.25$ ed eliminando la saturazione iniziale.
+  - Parametro di estensibilità PTT: vincolato positivo via softplus $\varepsilon = \operatorname{softplus}(r_\varepsilon)$. Con $\varepsilon_{\text{guess}} = 0.25$ si ancora il guess al valore canonico di letteratura per fusi e soluzioni concentrate ($0.01 \div 0.25$).
+  - Stabilito il principio di "Unbiased Model Discovery": testare su Oldroyd-B partendo da $\alpha = 0.25, \varepsilon = 0.25$ obbliga la PINN a dimostrare se la fisica del flusso è capace di annullare spontaneamente i termini non lineari senza bias verso lo zero.
+- **Sincronizzazione del Learning Rate Schedule in Fase 1**:
+  - Implementato il Cosine Annealing simultaneo sia per le reti (`model_psi`, `model_tau`) sia per i parametri fisici ($\lambda, \mu_p, \alpha, \varepsilon$) con $\text{PARAM\_LR\_FACTOR} = 1.0$.
+  - Range di variazione unificato: da $\text{BASE\_LR} = 2.5 \times 10^{-3}$ a $\text{ETA\_MIN} = 2.5 \times 10^{-6}$ lungo tutte le epoche Adam.
+- **Aggiornamento e Sincronizzazione Script di Produzione**:
+  - Allineati `train_4roll_main.py`, `train_4roll_main_mauri.py`, `src/physics.py`, `src/train.py`, `postprocess_run.py` e `train_transfer_learning.py`.
+
+### Pagine Modificate / Create
+- **[[Cosine_Annealing_LR]]** (Methods): documentato il protocollo sincronizzato di Fase 1 (range $2.5\times 10^{-3} \to 2.5\times 10^{-6}$, `PARAM_LR_FACTOR = 1.0`).
+- **[[ViscoelasticNet_Full model]]** (Methods): integrata la formulazione vincolata di $\alpha$ ed $\varepsilon$, la giustificazione numerica dei guess a $0.25$ e l'ottimizzazione sincrona.
+- **[[Viscoelastic_Training]]** (Systems): aggiornato il workflow di Fase 1 con i nuovi learning rate, i guess e l'inclusione di $\alpha$ ed $\varepsilon$.
+- **[[Viscoelastic_Parameter_Identifiability]]** (Topics): documentata l'identificabilità non lineare e il principio di model discovery imparziale.
+- **[[2026-09-19]]** (`Daily_Logs/`): redatto il log giornaliero dettagliato.
+- **[[00_Index]]**: indicizzato il daily log del 2026-09-19.
+- **[[01_Log]]**: registrata l'attività di curation.
+
+

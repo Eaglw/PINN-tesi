@@ -26,12 +26,21 @@ To minimize this loss, the neural network will take the easiest mathematical pat
 
 ---
 
-## Why is `tau_scale * shear_max` different?
-Dividing the Momentum equation by the momentum scale heuristic (`momentum_scale` = $\tau_{scale} \cdot \dot{\gamma}_{max}$) works because it targets the **true dominant force term** in the dimensionless system.
+## The Correct Solution: Intrinsic Dimensionless Momentum Balance ($\text{scale}_{mom} = 1.0$)
 
-In creeping viscoelastic flows, the momentum balance is dominated by the divergence of the stress tensor ($\nabla \cdot \boldsymbol{\tau}$). The magnitude of this term is precisely given by the magnitude of the stress ($\tau_{scale}$) multiplied by the intensity of spatial variations (the maximum dimensionless shear rate $\dot{\gamma}_{max}$).
+Rather than relying on heuristic ad-hoc divisors such as dividing by $p_{scale}$ (which causes gradient starvation) or dividing by `tau_scale * shear_max`, the production framework adopts a **rigorous global viscous nondimensionalization** (see [[Nondimensionalization]]):
+$$ \tau_0 = \frac{\eta_0 U_{\text{ref}}}{H_{\text{ref}}}, \qquad p = \frac{p^*}{\tau_0}, \qquad \boldsymbol{\tau} = \frac{\boldsymbol{\tau}^*}{\tau_0}, \qquad \mathbf{u} = \frac{\mathbf{u}^*}{U_{\text{ref}}}, \qquad \mathbf{x} = \frac{\mathbf{x}^*}{H_{\text{ref}}} $$
 
-By dividing the equation by this specific scale:
-$$ \frac{f_u}{\text{momentum\_scale}} $$
-We are dividing the equation by the *exact expected magnitude* of its largest term. 
-This ensures that the maximum residual naturally tops out at $\mathcal{O}(1)$. It prevents the Momentum Loss from exploding to $\mathcal{O}(10^3)$ (which would overshadow the Data Loss) without suppressing the internal balance of the equation, because we are using a scale derived from the kinematics/stresses themselves, not from an isolated scalar singularity like the pressure.
+Under these definitions, the Cauchy momentum equation transforms into:
+$$ Re_{\text{scale}} (\mathbf{u} \cdot \nabla \mathbf{u}) + \nabla p - \tilde{\eta}_s \nabla^2 \mathbf{u} - \nabla \cdot \boldsymbol{\tau} = \mathbf{0} $$
+
+### Key Theoretical Advantages:
+1. **Natural $\mathcal{O}(1)$ Balance**: Every term in this dimensionless momentum equation is naturally of order $\mathcal{O}(1)$ without needing any artificial scalar denominator.
+2. **Preservation of Force Coupling**: Setting $\text{scale}_{mom} = 1.0$ (`final_roll/src/physics.py`) guarantees that $\nabla p$ is directly coupled to $\nabla \cdot \boldsymbol{\tau}$ and viscous diffusion, completely avoiding the flat-pressure degenerate attractor.
+3. **Algebraic Hard Anchoring**: Gauge indeterminacy is resolved via exact hard anchoring in the forward pass rather than through penalty loss terms (see [[Pressure_Point_Anchoring]]).
+
+## References
+- [[Nondimensionalization]]
+- [[Pressure_Point_Anchoring]]
+- [[Viscoelastic_Residual_Scaling]]
+- [[Numerical_Hygiene_and_Phase2_Reforms]]
