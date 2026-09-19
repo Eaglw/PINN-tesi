@@ -372,7 +372,7 @@ if __name__ == "__main__":
     summary_metrics = {
         "mesh_tag": MESH_TAG,
         "param_tag": PARAM_TAG,
-        "n_points": int(len(data['points'])),
+        "n_points": int(len(data.get("coords", data.get("points", [])))),
         "lambda_estimated": float(params['lam']),
         "lambda_true": float(LAM_TRUE),
         "lambda_error_pct": float(err_lam_pct),
@@ -403,7 +403,7 @@ if __name__ == "__main__":
     print(f"\n{'=' * 75}")
     print(f"  >>> BENCHMARK METRICS SUMMARY [{MESH_TAG}] <<<")
     print(f"{'=' * 75}")
-    print(f"  Mesh:                  {MESH_TAG} ({len(data['points']):,} nodi)")
+    print(f"  Mesh:                  {MESH_TAG} ({len(data.get('coords', data.get('points', []))):,} nodi)")
     print(f"  Final Loss Totale:     {final_losses.get('total_loss', 0.0):.6e}")
     print(f"  Errore L2 (u, v):      {avg_l2_uv*100:.4f}%  (u: {errors.get('u', 0.0)*100:.4f}%, v: {errors.get('v', 0.0)*100:.4f}%)")
     print(f"  Errore L2 tau_xy:      {errors.get('tau_xy', 0.0)*100:.4f}%")
