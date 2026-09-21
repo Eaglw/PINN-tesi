@@ -84,11 +84,9 @@ class Physics(nn.Module):
         self.register_parameter("_raw_mu_s", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32), requires_grad=False))
 
         # Guess e parametri raw per modelli non-newtoniani non lineari (alpha: Giesekus, eps: PTT)
-        alpha_true_val = getattr(builtins, "ALPHA_TRUE", mod_globals.get("ALPHA_TRUE", 0.0))
-        eps_true_val = getattr(builtins, "EPS_TRUE", mod_globals.get("EPS_TRUE", 0.0))
-
-        guess_alpha = getattr(builtins, "GUESS_ALPHA", 0.25 if alpha_true_val == 0.0 else alpha_true_val * guess_factor)
-        guess_eps = getattr(builtins, "GUESS_EPS", 0.25 if eps_true_val == 0.0 else eps_true_val * guess_factor)
+        # Regola metodologica: alpha ed eps partono SEMPRE dal guess cieco 0.25 (centro del range fisico [0, 0.5])
+        guess_alpha = getattr(builtins, "GUESS_ALPHA", mod_globals.get("GUESS_ALPHA", 0.25))
+        guess_eps = getattr(builtins, "GUESS_EPS", mod_globals.get("GUESS_EPS", 0.25))
         if guess_alpha <= 0.0:
             guess_alpha = 0.25
         if guess_eps <= 0.0:
