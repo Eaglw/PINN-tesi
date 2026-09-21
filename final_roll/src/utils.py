@@ -1084,3 +1084,19 @@ def launch_tensorboard_server(log_dir):
     webbrowser.open("http://localhost:6006")
 
 
+def update_inverse_benchmarks_database():
+    """
+    Sincronizza e aggiorna automaticamente i registri centralizzati
+    output_4rollmill/inverse_runs.csv e inverse_runs.md scansionando tutti i risultati.
+    """
+    try:
+        import sys
+        final_roll_dir = Path(__file__).resolve().parent.parent
+        if str(final_roll_dir) not in sys.path:
+            sys.path.insert(0, str(final_roll_dir))
+        import sync_inverse_runs
+        sync_inverse_runs.export_database()
+    except Exception as e:
+        print(f"[Warning] Impossibile aggiornare inverse_runs.csv automaticamente: {e}")
+
+
