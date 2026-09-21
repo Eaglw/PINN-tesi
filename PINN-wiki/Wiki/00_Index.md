@@ -13,6 +13,8 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 ---
 
 ## Daily Logs
+- [[2026-09-21]]: Prima Inversione Modello di Giesekus, Sensibilità Parametrica di alpha e Suite Dataset ad Alta Elasticità
+- [[2026-09-20]]: Studio di Convergenza Multi-Mesh PINN e Primato della Mesh Ultraleggera 5k
 - [[2026-09-19]]: Parametrizzazione Vincolata e Guess Ottimali (alpha=0.25, eps=0.25) e Cosine Annealing Sincronizzato
 - [[2026-09-18]]: Studio di Convergenza Mesh (COMSOL vs PINN), Inclusione Modelli Giesekus/PTT e Setup Batch Runner
 

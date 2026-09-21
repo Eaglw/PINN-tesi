@@ -1061,6 +1061,39 @@
 - **[[2026-09-19]]** (`Daily_Logs/`): integrata la sezione 5 nel diario giornaliero.
 - **[[01_Log]]**: registrata l'attività.
 
+---
 
+## [2026-09-20] daily_recap | Studio di Convergenza Multi-Mesh e Primato della Mesh 5k
 
+### Sintesi Operazioni
+- **Completamento del Benchmark di Convergenza Multi-Mesh (Oldroyd-B $\lambda=0.1\,\mathrm{s}$)**:
+  - Addestrate e valutate le 5 risoluzioni di griglia COMSOL: 125k, 52k, 29k, 12k e 5k con protocollo standardizzato di Fase 1 (40k Adam + 10k L-BFGS).
+- **Scoperta del Primato della Mesh Ultraleggera (5k)**:
+  - Raggiunto il record assoluto di accuratezza sulla mesh più rada a 5k nodi: errore di velocità $L_2(u,v) = \mathbf{0.149\%}$ e stima di $\lambda = 0.1008\,\mathrm{s}$ con appena lo **$+0.79\%$** di errore relativo (contro il $+8.32\%$ a 125k).
+- **Formalizzazione del Meccanismo Matematico**:
+  - Dimostrato che la sovrabbondanza di nodi discreti di contorno estratti da FEM ad altissima risoluzione introduce rumore di interpolazione e micro-incoerenze geometriche che attivano lo Spectral Bias delle reti neurali, distorcendo l'ottimizzazione globale. La mesh 5k agisce da filtro regolarizzatore naturale, consentendo alle derivate esatte della PDE continua di dominare l'apprendimento.
+- **Pagine Create / Modificate**:
+  - **[[2026-09-20]]** (`Daily_Logs/`): redatto il log giornaliero dettagliato.
+  - **[[00_Index]]**: indicizzato il daily log del 2026-09-20.
 
+---
+
+## [2026-09-21] daily_recap | Prima Inversione Modello di Giesekus, Sensibilità di alpha e Tooling Run
+
+### Sintesi Operazioni
+- **Inversione Riuscita del Modello Non-Lineare di Giesekus**:
+  - Validata l'inversione reologica simultanea di $\lambda, \mu_p, \alpha$ su mesh 5k.
+  - Configurazione $\alpha = 0.35$: partendo da guess cieco $\alpha_{\text{guess}} = 0.25$, la PINN converge ad $\alpha = 0.3298$ con un errore di appena il **$-5.8\%$**, $\lambda = 0.1032\,\mathrm{s}$ (**$+3.2\%$**), $L_2(u,v) = 0.46\%$ e $\varepsilon \approx 0$.
+- **Analisi della Sensibilità Parametrica per Basso $\alpha$ ($\alpha = 0.10$)**:
+  - Identificato il limite di informazione di Fisher per $\alpha=0.10$ ($\alpha_{\text{est}} \approx 0.070$, errore $\sim -29\%$): il termine di mobilità quadratica $\frac{\alpha \lambda}{\eta_p}(\boldsymbol{\tau}\cdot\boldsymbol{\tau})$ contribuisce per meno del $2\%$ rispetto al termine elastico a $\text{Wi} = 0.1$, finendo mascherato dal rumore di approssimazione neurale.
+  - Proposta e preparata la soluzione di esaltazione dello stress tramite aumento del tempo di rilassamento a $\lambda = 0.3\,\mathrm{s}$ (incremento quadratico di $\boldsymbol{\tau}\cdot\boldsymbol{\tau}$ di 9 volte).
+- **Nuova Suite di Dataset ad Alta Elasticità (COMSOL 5k)**:
+  - Esportati in `COMSOL/4roll/Datasets/`: `4_roll_mill_L0.3-P0.5-S0.5-A0.1-E0-M5k.csv` (Giesekus $\lambda=0.3$) e tre dataset PTT a $\lambda=1.0\,\mathrm{s}$ con $\varepsilon \in \{0.1, 0.3, 0.5\}$.
+- **Infrastruttura di Sincronizzazione e Tracking**:
+  - Sviluppato `sync_inverse_runs.py` per scansionare automaticamente tutte le cartelle in `output_4rollmill/` e generare `inverse_runs.csv` e `inverse_runs.md` (12 esperimenti catalogati).
+- **Standardizzazione Codice**:
+  - Guess di default unificati a $0.25$ per $\alpha$ ed $\varepsilon$ in `train_4roll_main.py` e `train_4roll_main_mauri.py`. Archiviati i batch runner in `scratch/`.
+- **Pagine Create / Modificate**:
+  - **[[2026-09-21]]** (`Daily_Logs/`): redatto il log giornaliero dettagliato.
+  - **[[00_Index]]**: indicizzato il daily log del 2026-09-21.
+  - **[[01_Log]]**: registrata l'attività di recap.
