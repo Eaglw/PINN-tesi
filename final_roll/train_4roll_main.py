@@ -25,6 +25,8 @@ from src.utils import (
     get_optimal_chunk_size,
     build_dataset_tag,
     resolve_dataset_path,
+    parse_dataset_metadata,
+    update_inverse_benchmarks_database,
 )
 
 import src.debug
@@ -95,7 +97,7 @@ EPS_TRUE = 0.0  # Parametro PTT (bloccato a 0)
 ALPHA_TRUE = 0.0  # Parametro Giesekus (bloccato a 0)
 RHO = 1000.0  # Densità [kg/m³]
 
-# Risoluzione mesh COMSOL (default '12k', sovrascrivibile da CLI es. --mesh 29k o --mesh 52k)
+# Risoluzione mesh e parametri fisici da CLI (default '12k', sovrascrivibile es. --mesh 5k --alpha 0.1 o --dataset <nome>)
 import sys
 MESH_TAG = "12k"
 for i, arg in enumerate(sys.argv):
@@ -103,6 +105,34 @@ for i, arg in enumerate(sys.argv):
         MESH_TAG = sys.argv[i + 1]
     elif arg.startswith("--mesh="):
         MESH_TAG = arg.split("=")[1]
+    elif arg == "--alpha" and i + 1 < len(sys.argv):
+        ALPHA_TRUE = float(sys.argv[i + 1])
+    elif arg.startswith("--alpha="):
+        ALPHA_TRUE = float(arg.split("=")[1])
+    elif arg == "--eps" and i + 1 < len(sys.argv):
+        EPS_TRUE = float(sys.argv[i + 1])
+    elif arg.startswith("--eps="):
+        EPS_TRUE = float(arg.split("=")[1])
+    elif arg == "--dataset" and i + 1 < len(sys.argv):
+        _meta = parse_dataset_metadata(sys.argv[i + 1])
+        LAM_TRUE = _meta["lam_true"]
+        MU_P_TRUE = _meta["mu_p_true"]
+        MU_S_TRUE = _meta["mu_s_true"]
+        ALPHA_TRUE = _meta["alpha_true"]
+        EPS_TRUE = _meta["eps_true"]
+        MESH_TAG = _meta["mesh_tag"]
+    elif arg.startswith("--dataset="):
+        _meta = parse_dataset_metadata(arg.split("=")[1])
+        LAM_TRUE = _meta["lam_true"]
+        MU_P_TRUE = _meta["mu_p_true"]
+        MU_S_TRUE = _meta["mu_s_true"]
+        ALPHA_TRUE = _meta["alpha_true"]
+        EPS_TRUE = _meta["eps_true"]
+        MESH_TAG = _meta["mesh_tag"]
+
+# Ricalcolo grandezze derivate dopo eventuale parsing CLI
+MU_TOT_TRUE = MU_S_TRUE + MU_P_TRUE
+BETA_TRUE = MU_S_TRUE / MU_TOT_TRUE
 
 # Tag identificativo standard della configurazione reologica (L-P-S-A-E_M)
 PARAM_TAG = build_dataset_tag(LAM_TRUE, MU_P_TRUE, MU_S_TRUE, ALPHA_TRUE, EPS_TRUE, MESH_TAG)
@@ -366,6 +396,8 @@ if __name__ == "__main__":
     import json
     err_lam_pct = 100.0 * (params['lam'] - LAM_TRUE) / (LAM_TRUE + 1e-12)
     err_mup_pct = 100.0 * (params['mu_p'] - MU_P_TRUE) / (MU_P_TRUE + 1e-12)
+    err_alpha_pct = 100.0 * (params['alpha'] - ALPHA_TRUE) / (ALPHA_TRUE + 1e-12) if ALPHA_TRUE > 0.0 else None
+    err_eps_pct = 100.0 * (params['eps'] - EPS_TRUE) / (EPS_TRUE + 1e-12) if EPS_TRUE > 0.0 else None
     avg_l2_uv = 0.5 * (errors.get('u', 0.0) + errors.get('v', 0.0))
     avg_l2_diag = 0.5 * (errors.get('tau_xx', 0.0) + errors.get('tau_yy', 0.0))
     
@@ -381,8 +413,10 @@ if __name__ == "__main__":
         "mu_p_error_pct": float(err_mup_pct),
         "alpha_estimated": float(params['alpha']),
         "alpha_true": float(ALPHA_TRUE),
+        "alpha_error_pct": float(err_alpha_pct) if err_alpha_pct is not None else None,
         "eps_estimated": float(params['eps']),
         "eps_true": float(EPS_TRUE),
+        "eps_error_pct": float(err_eps_pct) if err_eps_pct is not None else None,
         "l2_u": float(errors.get('u', 0.0)),
         "l2_v": float(errors.get('v', 0.0)),
         "l2_uv_mean": float(avg_l2_uv),
@@ -400,6 +434,9 @@ if __name__ == "__main__":
     with open(summary_json_path, "w", encoding="utf-8") as f_json:
         json.dump(summary_metrics, f_json, indent=2)
 
+    # Aggiorna automaticamente i registri centralizzati inverse_runs.csv e inverse_runs.md
+    update_inverse_benchmarks_database()
+
     print(f"\n{'=' * 75}")
     print(f"  >>> BENCHMARK METRICS SUMMARY [{MESH_TAG}] <<<")
     print(f"{'=' * 75}")
@@ -411,8 +448,14 @@ if __name__ == "__main__":
     print(f"  ---------------------------------------------------------------------------")
     print(f"  Parametro lambda:      {params['lam']:.6f} s   [True: {LAM_TRUE:.4f} s | Err: {err_lam_pct:+.2f}%]")
     print(f"  Parametro mu_p:        {params['mu_p']:.6f} Pa·s [True: {MU_P_TRUE:.4f} Pa·s | Err: {err_mup_pct:+.2f}%]")
-    print(f"  Parametro alpha:       {params['alpha']:.6f}     [True: {ALPHA_TRUE:.4f} | Guess: {GUESS_ALPHA:.2f}]")
-    print(f"  Parametro eps:         {params['eps']:.6f}     [True: {EPS_TRUE:.4f} | Guess: {GUESS_EPS:.2f}]")
+    if err_alpha_pct is not None:
+        print(f"  Parametro alpha:       {params['alpha']:.6f}     [True: {ALPHA_TRUE:.4f} | Err: {err_alpha_pct:+.2f}% | Guess: {GUESS_ALPHA:.2f}]")
+    else:
+        print(f"  Parametro alpha:       {params['alpha']:.6f}     [True: {ALPHA_TRUE:.4f} | Guess: {GUESS_ALPHA:.2f}]")
+    if err_eps_pct is not None:
+        print(f"  Parametro eps:         {params['eps']:.6f}     [True: {EPS_TRUE:.4f} | Err: {err_eps_pct:+.2f}% | Guess: {GUESS_EPS:.2f}]")
+    else:
+        print(f"  Parametro eps:         {params['eps']:.6f}     [True: {EPS_TRUE:.4f} | Guess: {GUESS_EPS:.2f}]")
     print(f"{'=' * 75}")
     print(f"  [JSON Salvato]: {summary_json_path}")
     print(f"{'=' * 75}\n")
