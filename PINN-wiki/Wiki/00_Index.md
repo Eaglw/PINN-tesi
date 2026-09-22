@@ -100,6 +100,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 - [[Zero_Stress_BC_Compatibility]]: Zero-stress BCs and momentum curl compatibility in Phase 1 for Full-PIV rheometry
 - [[MLS_Derivatives_Pressure]]: Moving Least Squares spatial derivative estimation with local scaling [-1, 1] for direct pressure training
 - [[Numerical_Hygiene_and_Phase2_Reforms]]: Numerical hygiene standards (TF32 off, Adam EPS, FP64 guards) and Phase 2 reforms (momentum scale_mom, hard pressure anchoring, mu_tot softplus, Hodge-Leray rho_id)
+- [[Active_Learning_DoE]]: Gaussian Process Level Set Estimation (Straddle + Kriging Believer) for active boundary exploration of PINN convergence limits
 
 
 

@@ -1097,3 +1097,25 @@
   - **[[2026-09-21]]** (`Daily_Logs/`): redatto il log giornaliero dettagliato.
   - **[[00_Index]]**: indicizzato il daily log del 2026-09-21.
   - **[[01_Log]]**: registrata l'attività di recap.
+
+---
+
+## [2026-09-22] update_wiki | Ingestion Modulo Active Learning e Bayesian DoE
+
+### Sintesi Operazioni
+- **Sviluppo Modulo `active_learning/` nella Root**:
+  - Realizzato il framework autonomo di **Bayesian Experimental Design (DoE)** e **Active Learning** basato su Processi Gaussiani con kernel Matérn 5/2 ARD per mappare l'involucro di operabilità e i limiti di convergenza del solver PINN viscoelastico.
+- **Formulazione Level Set Estimation (LSE)**:
+  - Adottata l'euristica di **Straddle**:
+    $$a(\mathbf{x}) = 1.96 \cdot \sigma(\mathbf{x}) - \big|\mu(\mathbf{x}) - \log_{10}(10.0)\big|$$
+    focalizzando la ricerca sulla soglia critica del $10\%$ di errore relativo massimo sui parametri fisici ($\lambda, \eta_p, \alpha, \varepsilon$).
+- **Algoritmo di Batching Diversificato (*Kriging Believer*)**:
+  - Implementata la selezione iterativa con aggiornamento fittizio di covarianza per generare un batch di $k=3$ esperimenti complementari e non ridondanti.
+- **Supporto Multi-Modello e CLI**:
+  - Script eseguibile `active_learning/suggest_batch.py` con opzioni `--model` (Oldroyd-B, Giesekus, PTT) e `--diverse-models`. Generazione automatica di mappe 2D di isolivelli e punti candidati in `active_learning/plots/convergence_boundary_doe.png`.
+- **Pagine Create / Modificate**:
+  - **[[Active_Learning_DoE]]** (Methods, NEW): formalizzazione teorica, formulazione matematica GP/LSE, range parametri e guida operativa.
+  - **[[Viscoelastic_Training]]** (Systems): integrata la sezione *Autonomous Frontier Exploration* e collegamenti tematici.
+  - **[[00_Index]]**: indicizzato il nuovo metodo in *Technical Methods*.
+  - **[[01_Log]]**: registrata l'attività.
+

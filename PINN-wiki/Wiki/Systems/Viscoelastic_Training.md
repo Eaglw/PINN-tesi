@@ -111,6 +111,14 @@ To rigorously substantiate the claim of full-blind parameter discovery, the foll
 
 ---
 
+## Autonomous Frontier Exploration (Active Learning DoE)
+
+Per mappare i limiti di operabilità e convergenza del solver PINN su regimi ad alta elasticità e Weissenberg elevato ([[High_Weissenberg_Number_Problem]]), il workflow adotta il framework [[Active_Learning_DoE]] (`active_learning/`). 
+- Il Gaussian Process modella l'errore parametrico massimo storico da `inverse_runs.csv`.
+- La funzione di acquisizione **Straddle** ($a(\mathbf{x}) = 1.96\sigma(\mathbf{x}) - |\mu(\mathbf{x}) - 1.0|$) e l'algoritmo **Kriging Believer** suggeriscono batch sequenziali di 3 nuovi esperimenti COMSOL focalizzati sul confine critico del $10\%$ di errore.
+
+---
+
 ## Related Wiki Links
-- **Theory & Physics**: [[Solvent_Viscosity_Non_Identifiability]], [[Viscoelastic_Fluids]], [[Viscoelastic_Parameter_Identifiability]], [[Pressure_Stress_Decoupling]], [[Nondimensionalization]]
-- **Methods**: [[Soft_Anti_Drift]], [[Adaptive_Nondimensionalization]], [[Staged_Training_Procedure]], [[Staged_Precision_Strategy]], [[ViscoelasticNet]]
+- **Theory & Physics**: [[Solvent_Viscosity_Non_Identifiability]], [[Viscoelastic_Fluids]], [[Viscoelastic_Parameter_Identifiability]], [[Pressure_Stress_Decoupling]], [[Nondimensionalization]], [[High_Weissenberg_Number_Problem]]
+- **Methods**: [[Soft_Anti_Drift]], [[Adaptive_Nondimensionalization]], [[Staged_Training_Procedure]], [[Staged_Precision_Strategy]], [[ViscoelasticNet]], [[Active_Learning_DoE]]
