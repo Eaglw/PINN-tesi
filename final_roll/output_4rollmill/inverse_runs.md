@@ -1,10 +1,11 @@
 # Registro Storico Run Inverse (PINN Viscoelastic Fluid)
 
 Database consolidato generato automaticamente da `sync_inverse_runs.py`.
-Totale esperimenti catalogati: **13**.
+Totale esperimenti catalogati: **14**.
 
 | Data / Run | Fluido | Mesh | $\lambda$ True | $\lambda$ Est (Err%) | $\mu_p$ True | $\mu_p$ Est (Err%) | $\alpha$ True | $\alpha$ Est (Err%) | $\varepsilon$ Est | Err $L_2(u,v)$ | Err $L_2(\tau_{xy})$ | Note |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `2026-09-22 12:53` | **PTT** | **5k** | 1.000 s | 0.5166 s (**-48.3%**) | 0.500 Pa·s | 0.2567 Pa·s (**-48.7%**) | 0.000 | 0.0000  | 3.12e-05 | **0.24%** | 16.46% |  |
 | `2026-09-22 09:30` | **Giesekus** | **5k** | 0.300 s | 0.2770 s (**-7.7%**) | 0.500 Pa·s | 0.4751 Pa·s (**-5.0%**) | 0.100 | 0.0285 (-71.5%) | 5.29e-05 | **0.48%** | 6.32% |  |
 | `2026-09-21 20:24` | **Giesekus** | **5k** | 0.100 s | 0.1027 s (**+2.7%**) | 0.500 Pa·s | 0.5294 Pa·s (**+5.9%**) | 0.100 | 0.0704 (-29.6%) | 2.10e-05 | **0.45%** | 6.25% | Retry (Guess cieco alpha=0.25) |
 | `2026-09-21 17:07` | **Giesekus** | **5k** | 0.100 s | 0.1032 s (**+3.2%**) | 0.500 Pa·s | 0.5307 Pa·s (**+6.1%**) | 0.350 | 0.3298 (-5.8%) | 1.49e-05 | **0.46%** | 5.92% | Validazione Giesekus A0.35 (Guess cieco 0.25) |

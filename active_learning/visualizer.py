@@ -1,5 +1,9 @@
 """
 Modulo di visualizzazione per la frontiera di convergenza e i punti del batch.
+Include diagrammi a 3 pannelli:
+1. lambda vs eta_p (Oldroyd-B / bilancio solvente)
+2. lambda vs alpha (Giesekus mobility)
+3. lambda vs eps (PTT extensibility / distruzione reticolare)
 """
 
 from pathlib import Path
@@ -19,50 +23,48 @@ def plot_active_learning_doe(
     save_path: Path = PLOTS_DIR / "convergence_boundary_doe.png"
 ):
     """
-    Genera un diagramma a 2 pannelli:
+    Genera un diagramma a 3 pannelli:
     1. Piano (lambda vs eta_p) per Oldroyd-B / modelli lineari
     2. Piano (lambda vs alpha) per Giesekus
-    Mostrando isolivelli di errore, la frontiera critica al 10% e i punti del batch suggerito.
+    3. Piano (lambda vs eps) per PTT
+    Mostrando isolivelli di errore atteso, frontiera critica al 10% e punti del batch.
     """
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6), dpi=150)
+    fig, axes = plt.subplots(1, 3, figsize=(20, 5.5), dpi=150)
+
+    lam_grid = np.linspace(0.05, 1.20, 80)
+    hist_conv = historical_df[historical_df["converged"] == True]
+    hist_fail = historical_df[historical_df["converged"] == False]
 
     # -------------------------------------------------------------
     # Pannello 1: lambda vs eta_p (Fissando alpha=0, eps=0, mesh=5k)
     # -------------------------------------------------------------
     ax1 = axes[0]
-    lam_grid = np.linspace(0.05, 1.20, 80)
     etap_grid = np.linspace(0.10, 0.95, 80)
-    L_mesh, P_mesh = np.meshgrid(lam_grid, etap_grid)
+    L_mesh1, P_mesh1 = np.meshgrid(lam_grid, etap_grid)
 
     pts1 = []
-    for l_val, p_val in zip(L_mesh.ravel(), P_mesh.ravel()):
+    for l_val, p_val in zip(L_mesh1.ravel(), P_mesh1.ravel()):
         s_val = float(np.round(1.0 - p_val, 4))
         pts1.append([l_val, p_val, s_val, 0.0, 0.0, np.log10(5086)])
     pts1 = np.array(pts1)
 
     mu1, sigma1 = gp_model.predict(pts1)
     err1_pct = 10.0 ** mu1
-    Z_err1 = err1_pct.reshape(L_mesh.shape)
+    Z_err1 = err1_pct.reshape(L_mesh1.shape)
 
-    # Contorno a colori di errore atteso
-    cp1 = ax1.contourf(L_mesh, P_mesh, Z_err1, levels=np.linspace(0, 35, 36), cmap="Spectral_r", extend="both", alpha=0.85)
+    cp1 = ax1.contourf(L_mesh1, P_mesh1, Z_err1, levels=np.linspace(0, 35, 36), cmap="Spectral_r", extend="both", alpha=0.85)
     cbar1 = fig.colorbar(cp1, ax=ax1)
     cbar1.set_label("Errore Parametrico Atteso (%)", fontsize=10)
 
-    # Linea di isolivello al 10% (Frontiera critica)
-    cs1 = ax1.contour(L_mesh, P_mesh, Z_err1, levels=[10.0], colors="black", linewidths=2.5, linestyles="--")
+    cs1 = ax1.contour(L_mesh1, P_mesh1, Z_err1, levels=[10.0], colors="black", linewidths=2.5, linestyles="--")
     if len(cs1.levels) > 0:
         ax1.clabel(cs1, fmt={10.0: "Soglia 10%"}, inline=True, fontsize=9)
 
-    # Punti storici
-    hist_conv = historical_df[historical_df["converged"] == True]
-    hist_fail = historical_df[historical_df["converged"] == False]
     ax1.scatter(hist_conv["lambda"], hist_conv["eta_p"], c="lime", edgecolors="black", s=60, label="Storico: Conv (<10%)", zorder=4)
     ax1.scatter(hist_fail["lambda"], hist_fail["eta_p"], c="red", edgecolors="black", s=60, marker="s", label="Storico: Alto Errore", zorder=4)
 
-    # Punti del batch
     for item in selected_batch:
         ax1.scatter(
             item["lambda"], item["eta_p"],
@@ -76,7 +78,7 @@ def plot_active_learning_doe(
             fontweight="bold", fontsize=11, color="navy"
         )
 
-    ax1.set_title("Frontiera di Convergenza PINN: $\\lambda$ vs $\\eta_p$", fontsize=12, fontweight="bold")
+    ax1.set_title("Frontiera PINN: $\\lambda$ vs $\\eta_p$ (Oldroyd-B)", fontsize=12, fontweight="bold")
     ax1.set_xlabel("$\\lambda$ (Relaxation time)", fontsize=11)
     ax1.set_ylabel("$\\eta_p$ (Polymeric viscosity)", fontsize=11)
     ax1.grid(True, linestyle=":", alpha=0.6)
@@ -122,10 +124,55 @@ def plot_active_learning_doe(
             fontweight="bold", fontsize=11, color="navy"
         )
 
-    ax2.set_title("Effetto Non-lineare Giesekus: $\\lambda$ vs $\\alpha$", fontsize=12, fontweight="bold")
+    ax2.set_title("Effetto Giesekus: $\\lambda$ vs $\\alpha$", fontsize=12, fontweight="bold")
     ax2.set_xlabel("$\\lambda$ (Relaxation time)", fontsize=11)
     ax2.set_ylabel("$\\alpha$ (Giesekus mobility)", fontsize=11)
     ax2.grid(True, linestyle=":", alpha=0.6)
+
+    # -------------------------------------------------------------
+    # Pannello 3: lambda vs eps (PTT con eta_p=0.5, eta_s=0.5, mesh=5k)
+    # -------------------------------------------------------------
+    ax3 = axes[2]
+    eps_grid = np.linspace(0.00, 0.50, 80)
+    L_mesh3, E_mesh3 = np.meshgrid(lam_grid, eps_grid)
+
+    pts3 = []
+    for l_val, e_val in zip(L_mesh3.ravel(), E_mesh3.ravel()):
+        pts3.append([l_val, 0.5, 0.5, 0.0, e_val, np.log10(5086)])
+    pts3 = np.array(pts3)
+
+    mu3, sigma3 = gp_model.predict(pts3)
+    err3_pct = 10.0 ** mu3
+    Z_err3 = err3_pct.reshape(L_mesh3.shape)
+
+    cp3 = ax3.contourf(L_mesh3, E_mesh3, Z_err3, levels=np.linspace(0, 35, 36), cmap="Spectral_r", extend="both", alpha=0.85)
+    cbar3 = fig.colorbar(cp3, ax=ax3)
+    cbar3.set_label("Errore Parametrico Atteso (%)", fontsize=10)
+
+    cs3 = ax3.contour(L_mesh3, E_mesh3, Z_err3, levels=[10.0], colors="black", linewidths=2.5, linestyles="--")
+    if len(cs3.levels) > 0:
+        ax3.clabel(cs3, fmt={10.0: "Soglia 10%"}, inline=True, fontsize=9)
+
+    ax3.scatter(hist_conv["lambda"], hist_conv["eps"], c="lime", edgecolors="black", s=60, zorder=4)
+    ax3.scatter(hist_fail["lambda"], hist_fail["eps"], c="red", edgecolors="black", s=60, marker="s", zorder=4)
+
+    for item in selected_batch:
+        ax3.scatter(
+            item["lambda"], item["eps"],
+            c="gold", edgecolors="black", s=180, marker="*",
+            zorder=5
+        )
+        ax3.annotate(
+            f"#{item['batch_rank']}",
+            (item["lambda"], item["eps"]),
+            textcoords="offset points", xytext=(6, 6),
+            fontweight="bold", fontsize=11, color="navy"
+        )
+
+    ax3.set_title("Effetto PTT: $\\lambda$ vs $\\varepsilon$", fontsize=12, fontweight="bold")
+    ax3.set_xlabel("$\\lambda$ (Relaxation time)", fontsize=11)
+    ax3.set_ylabel("$\\varepsilon$ (PTT parameter)", fontsize=11)
+    ax3.grid(True, linestyle=":", alpha=0.6)
 
     plt.tight_layout()
     plt.savefig(save_path, bbox_inches="tight")
