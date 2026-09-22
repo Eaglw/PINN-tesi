@@ -109,6 +109,8 @@ EPS_TRUE = 0.0
 ALPHA_TRUE = 0.0
 MESH_TAG = "125k"
 RHO = 1000.0
+WARMUP_UNLOCK_EPOCH = 0
+EPS_PARAM_TYPE = "softplus"
 
 # Risoluzione mesh e parametri fisici da CLI (default '125k', sovrascrivibile es. --mesh 5k --alpha 0.1 o --dataset <nome>)
 for i, arg in enumerate(sys.argv):
@@ -124,6 +126,14 @@ for i, arg in enumerate(sys.argv):
         EPS_TRUE = float(sys.argv[i + 1])
     elif arg.startswith("--eps="):
         EPS_TRUE = float(arg.split("=")[1])
+    elif arg == "--warmup" and i + 1 < len(sys.argv):
+        WARMUP_UNLOCK_EPOCH = int(sys.argv[i + 1])
+    elif arg.startswith("--warmup="):
+        WARMUP_UNLOCK_EPOCH = int(arg.split("=")[1])
+    elif arg == "--eps-param" and i + 1 < len(sys.argv):
+        EPS_PARAM_TYPE = sys.argv[i + 1].lower()
+    elif arg.startswith("--eps-param="):
+        EPS_PARAM_TYPE = arg.split("=")[1].lower()
     elif arg == "--dataset" and i + 1 < len(sys.argv):
         _meta = parse_dataset_metadata(sys.argv[i + 1])
         LAM_TRUE = _meta["lam_true"]
@@ -229,6 +239,10 @@ def _format_iters(n):
     return f"{n / 1000:.1f}k"
 
 budget_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}_Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}"
+if WARMUP_UNLOCK_EPOCH > 0:
+    budget_tag += f"_Warmup{_format_iters(WARMUP_UNLOCK_EPOCH)}"
+if EPS_PARAM_TYPE == "exp":
+    budget_tag += "_EpsExp"
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
 config_name = f"[{run_timestamp}][{mode_tag}][{PARAM_TAG}][{budget_tag}][mauri]"
 
