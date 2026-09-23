@@ -62,16 +62,26 @@ Per i parametri non lineari dei modelli costitutivi estesi (Giesekus e PTT), son
   $$\alpha = 0.5 \cdot \sigma(r_\alpha)$$
   dove $\sigma(x) = \frac{1}{1 + e^{-x}}$ è la funzione sigmoide e $r_\alpha \in \mathbb{R}$.
 * **Estensibilità di Phan-Thien–Tanner ($\varepsilon$)**:
-  Vincolato strettamente non-negativo ($\varepsilon \ge 0$):
-  $$\varepsilon = \operatorname{softplus}(r_\varepsilon) = \ln(1 + e^{r_\varepsilon})$$
+  Vincolato non-negativo ($\varepsilon \ge 0$). Supporta due formulazioni alternative:
+  1. *Softplus Standard*:
+     $$\varepsilon = \operatorname{softplus}(r_\varepsilon) = \ln(1 + e^{r_\varepsilon})$$
+  2. *Log-Space Esponenziale (Opzione `--eps-param exp`)*:
+     $$\varepsilon = \varepsilon_{\text{guess}} \cdot \exp(r_\varepsilon)$$
+     dove $r_\varepsilon \in \mathbb{R}$ parte da $0.0$, garantendo $\frac{d\varepsilon}{dr_\varepsilon} = \varepsilon > 0$ ed eliminando la saturazione a derivata nulla.
+  3. *Sigmoide Scalata (Simmetrica con $\alpha$)*:
+     $$\varepsilon = \varepsilon_{\max} \cdot \sigma(r_\varepsilon) \in [0, \varepsilon_{\max}]$$
+     con $\varepsilon_{\max} \approx 0.60$, perfettamente analoga alla formulazione di Giesekus.
 
 #### Selezione dei Guess Iniziali Ottimali ($\alpha_{\text{guess}} = 0.25, \varepsilon_{\text{guess}} = 0.25$)
 La scelta di fissare $\alpha_{\text{guess}} = 0.25$ ed $\varepsilon_{\text{guess}} = 0.25$ risponde a precisi criteri fisici e numerici:
 1. **Massima Mobilità del Gradiente per $\alpha$**:
    Poiché $\alpha = 0.5 \cdot \sigma(r_\alpha)$, impostare $\alpha_{\text{guess}} = 0.25$ implica $\sigma(r_\alpha) = 0.5 \implies r_\alpha = 0.0$. Il punto $r_\alpha = 0$ è il flesso della sigmoide, dove la derivata prima $\sigma'(0) = 0.25$ è massima. L'ottimizzatore possiede la massima reattività ed evita completamente la saturazione esponenziale ai bordi ($0$ o $0.5$).
 2. **Valore Canonico di Benchmark per $\varepsilon$**:
-   In letteratura reologica e nei moduli CFD (COMSOL, ANSYS Polyflow) per soluzioni polimeriche concentrate e fusi (es. IUPAC LDPE), $\varepsilon$ risiede tipicamente in $[0.01, 0.25]$ (con limite superiore fisico intorno a $0.5$). $\varepsilon_{\text{guess}} = 0.25$ costituisce il valore archetipico e bilanciato, con $\operatorname{softplus}'(r_\varepsilon) \approx 0.22$, assicurando gradienti attivi.
-3. **Test Cieco di Scoperta del Modello (Model Discovery)**:
+   In letteratura reologica e nei moduli CFD (COMSOL, ANSYS Polyflow) per soluzioni polimeriche concentrate e fusi (es. IUPAC LDPE), $\varepsilon$ risiede tipicamente in $[0.01, 0.25]$ (con limite superiore fisico intorno a $0.5$). $\varepsilon_{\text{guess}} = 0.25$ costituisce il valore archetipico e bilanciato.
+3. **Analisi del Vanishing Gradient della Softplus vs. Robustezza Esponenziale**:
+   - Con la Softplus standard, $\varepsilon_{\text{guess}} = 0.25$ corrisponde a $r_\varepsilon = \ln(e^{0.25} - 1) \approx -1.26$, con derivata iniziale $\sigma'(-1.26) \approx 0.22$. Tuttavia, se durante le prime epoche caotiche Adam spinge $r_\varepsilon \to -8.68$, la derivata crolla a $\text{sigmoid}(-8.68) = 1.7 \times 10^{-4}$ (vanishing gradient).
+   - L'Ablation Study sperimentale su Kaggle (confronto tra Softplus, Warmup a 8.000 epoche e formulazione Esponenziale) ha dimostrato che la convergenza verso $\varepsilon \to 0$ ad alto Weissenberg è un attrattore fisico strutturale invariante rispetto alla parametrizzazione numerica (si veda **[[Viscoelastic_Parameter_Identifiability]]** per la dimostrazione analitica dell'equivalenza PTT/Oldroyd-B).
+4. **Test Cieco di Scoperta del Modello (Model Discovery)**:
    Partire da $0.25$ per entrambi i parametri rappresenta un test di validazione rigoroso e neutrale: se il fluido target è un Oldroyd-B puro ($\alpha = 0, \varepsilon = 0$), la PINN deve dimostrare la capacità di spingere autonomamente $\alpha \to 0$ ed $\varepsilon \to 0$ da uno stato iniziale fortemente non lineare.
 
 #### Schema di Ottimizzazione Sincronizzato in Fase 1

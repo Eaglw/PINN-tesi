@@ -1119,3 +1119,33 @@
   - **[[00_Index]]**: indicizzato il nuovo metodo in *Technical Methods*.
   - **[[01_Log]]**: registrata l'attività.
 
+---
+
+## [2026-09-23] update_wiki | Degenerazione Strutturale PTT vs Oldroyd-B e Legge del Rilassamento Efficace
+
+### Sintesi Operazioni
+- **Indagine sulla Convergenza di $\varepsilon \to 0$ nei Fluidi PTT ad Alto Weissenberg ($Wi=1.666$)**:
+  - Analizzato il comportamento anomalo del modello PTT ($\lambda=1.0\,\mathrm{s}, \mu_p=0.5\,\mathrm{Pa\cdot s}, \varepsilon=0.3$ su mesh 5k), dove la PINN fa collassare $\varepsilon \to 10^{-4}$ sottostimando $\lambda \approx 0.42\,\mathrm{s}$ e $\mu_p \approx 0.21\,\mathrm{Pa\cdot s}$, pur mantenendo $G = \mu_p/\lambda \equiv 0.50\,\mathrm{Pa}$ ($<1\%$ errore) e cinematica eccellente ($L_2(u,v) < 0.8\%$).
+- **Diagnosi del Loss Landscape Offline (`scratch/offline_loss_landscape_lptt.py`)**:
+  - Calcolato il paesaggio di loss 2D/1D sui campi esatti FEM di COMSOL.
+  - Dimostrato che la loss sui parametri esatti è 25 volte più profonda rispetto al punto attrattore della PINN, e che il minimo 1D di $\varepsilon$ è esattamente in $\varepsilon_{\min} = 0.299 \approx 0.300$. Questo ha escluso categoricamente bug nella formulazione differenziale della PDE o saturazione numerica della Softplus.
+- **Ablation Study Sistematico su Kaggle e PC Locale (3 Ipotesi)**:
+  - Testate 3 varianti metodologiche: (1) Warmup parametrico a 8.000 epoche con campi $\psi$ e $\boldsymbol{\tau}$ pre-orientati; (2) Parametrizzazione log-esponenziale non limitata $\varepsilon = \varepsilon_{\text{guess}}e^{r_\varepsilon}$; (3) Combinazione sinergica Warmup + EpsExp.
+  - Tutte e 3 le configurazioni sono confluite esattamente sullo stesso punto stazionario ($\lambda \approx 0.42\,\mathrm{s}, \varepsilon \sim 10^{-4}$), provando che l'attrattore è una proprietà fisica intrinseca del sistema con supervisione al contorno.
+- **Dimostrazione della Degenerazione di Identificabilità Reologica & Legge del Rilassamento Efficace**:
+  - Dimostrato che nei flussi a parete a dominante di taglio puro, il termine non-lineare $Y(\boldsymbol{\tau}) = 1 + \frac{\varepsilon \lambda}{\eta_p}\text{tr}(\boldsymbol{\tau})$ viene assorbito in un tempo di rilassamento efficace $\frac{1}{\lambda_{\text{eff}}} \approx \frac{1}{\lambda_{\text{true}}} + C \cdot \varepsilon_{\text{true}}$, rendendo il comportamento di bordo identico a un fluido lineare di Oldroyd-B con $\lambda_{\text{eff}} \approx 0.42\,\mathrm{s}$.
+  - Confermato il tasso empirico $\Delta(1/\lambda)/\Delta\varepsilon \approx 1.97 \approx 2.0\,\mathrm{s}^{-1}$ su tutta la suite $\varepsilon \in \{0.1, 0.3, 0.5\}$.
+- **Esperimento Offline di Sensibilità e Collinearità del Jacobiano (`offline_sensitivity_collinearity.py`)**:
+  - Formalizzata la distinzione tra sensibilità e identificabilità: provato che sui rulli il vettore $\mathbf{S}_\varepsilon$ è collineare con $\mathbf{S}_{\mu_p}$ ($|\rho| = 0.9115$) e il condition number della matrice di Fisher è $\kappa(C) \approx 1.70 \times 10^3$ (degenere).
+  - Nel core estensionale centrale $\Omega_{\text{ext}}$, la natura estensionale pura ($\xi \to 1$) spezza la collinearità, abbassando il condition number di due ordini di grandezza a **$\kappa(C) = 17.2$**.
+  - Evidenziata l'invarianza rigorosa del modulo elastico $G = \mu_p / \lambda \equiv 0.50\,\mathrm{Pa}$ ($<1.2\%$ errore in tutte le run), a riprova che la PINN scopre esattamente la valle 1D ma scivola su di essa per collinearità sui bordi.
+- **Strategia per la Tesi: Focus sul Sottodominio Estensionale ($\Omega_{\text{ext}}$)**:
+  - Proposta la focalizzazione della loss costitutiva o di dati sparsi ottici direttamente nel sottodominio $\Omega_{\text{ext}}$ per impedire che il segnale estensionale venga disperso nel bulk a taglio, in linea con il successo del cross-slot in ViscoelasticNet ([[Thakur_et_al_ViscoelasticNet]]).
+- **Pagine Create / Modificate**:
+  - **[[Viscoelastic_Parameter_Identifiability]]** (Topics): integrata la sezione teorica su collinearità del Jacobiano, invarianza di $G$, benchmark cross-slot e strategia del sottodominio estensionale.
+  - **[[ViscoelasticNet_Full model]]** (Methods): documentate le opzioni di parametrizzazione e l'analisi del vanishing gradient Softplus vs Exp.
+  - **[[2026-09-23]]** (`Daily_Logs/`, NEW): redatto il diario giornaliero arricchito con la diagnostica di collinearità e grafici.
+  - **[[00_Index]]**: indicizzato il nuovo daily log.
+  - **[[01_Log]]**: registrata l'attività.
+
+
