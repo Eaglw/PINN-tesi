@@ -96,15 +96,9 @@ class Physics(nn.Module):
         val_alpha_init = float(np.clip(val_alpha_init, 1e-6, 0.499))
         raw_alpha_init = float(inverse_sigmoid(val_alpha_init / 0.5).item())
 
-        self.eps_param_type = getattr(builtins, "EPS_PARAM_TYPE", mod_globals.get("EPS_PARAM_TYPE", "softplus")).lower()
-        self.guess_eps = torch.tensor(guess_eps, device=DEVICE, dtype=torch.float32)
-
         val_eps_init = guess_eps if inverse_mode else eps_true_val
         val_eps_init = float(max(val_eps_init, 1e-6))
-        if self.eps_param_type == "exp":
-            raw_eps_init = float(np.log(val_eps_init / guess_eps))
-        else:
-            raw_eps_init = float(inverse_softplus(val_eps_init).item())
+        raw_eps_init = float(inverse_softplus(val_eps_init).item())
 
         self.register_parameter("_raw_alpha", nn.Parameter(torch.tensor([raw_alpha_init], device=DEVICE, dtype=torch.float32)))
         self.register_parameter("_raw_eps", nn.Parameter(torch.tensor([raw_eps_init], device=DEVICE, dtype=torch.float32)))
@@ -183,12 +177,9 @@ class Physics(nn.Module):
 
     @property
     def eps(self):
-        """Parametro di estensibilita' PTT (>= 0): eps = softplus(raw_eps) o guess_eps * exp(raw_eps)."""
+        """Parametro di estensibilita' PTT (>= 0): eps = softplus(raw_eps)."""
         if not self.inverse_mode and getattr(builtins, "EPS_TRUE", 0.0) == 0.0:
             return torch.tensor(0.0, device=self._raw_lam.device, dtype=self._raw_lam.dtype)
-        param_type = getattr(builtins, "EPS_PARAM_TYPE", getattr(self, "eps_param_type", "softplus")).lower()
-        if param_type == "exp":
-            return self.guess_eps * torch.exp(self._raw_eps).squeeze()
         return torch.nn.functional.softplus(self._raw_eps).squeeze()
 
     @property

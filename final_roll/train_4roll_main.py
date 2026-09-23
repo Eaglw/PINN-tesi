@@ -101,7 +101,6 @@ RHO = 1000.0  # Densità [kg/m³]
 import sys
 MESH_TAG = "12k"
 WARMUP_UNLOCK_EPOCH = 0
-EPS_PARAM_TYPE = "softplus"
 for i, arg in enumerate(sys.argv):
     if arg == "--mesh" and i + 1 < len(sys.argv):
         MESH_TAG = sys.argv[i + 1]
@@ -119,10 +118,6 @@ for i, arg in enumerate(sys.argv):
         WARMUP_UNLOCK_EPOCH = int(sys.argv[i + 1])
     elif arg.startswith("--warmup="):
         WARMUP_UNLOCK_EPOCH = int(arg.split("=")[1])
-    elif arg == "--eps-param" and i + 1 < len(sys.argv):
-        EPS_PARAM_TYPE = sys.argv[i + 1].lower()
-    elif arg.startswith("--eps-param="):
-        EPS_PARAM_TYPE = arg.split("=")[1].lower()
     elif arg == "--dataset" and i + 1 < len(sys.argv):
         _meta = parse_dataset_metadata(sys.argv[i + 1])
         LAM_TRUE = _meta["lam_true"]
@@ -238,8 +233,6 @@ else:
     budget_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}"
     if WARMUP_UNLOCK_EPOCH > 0:
         budget_tag += f"_Warmup{_format_iters(WARMUP_UNLOCK_EPOCH)}"
-    if EPS_PARAM_TYPE == "exp":
-        budget_tag += "_EpsExp"
 
 if RESUME_CHECKPOINT is not None and RESUME_CHECKPOINT.exists():
     OUTPUT_DIR = RESUME_CHECKPOINT.parent
