@@ -33,7 +33,7 @@ def plot_active_learning_doe(
 
     fig, axes = plt.subplots(1, 3, figsize=(20, 5.5), dpi=150)
 
-    lam_grid = np.linspace(0.05, 1.20, 80)
+    lam_grid = np.linspace(0.005, 1.20, 100)
     hist_conv = historical_df[historical_df["converged"] == True]
     hist_fail = historical_df[historical_df["converged"] == False]
 

@@ -23,8 +23,8 @@ MESH_NODES = {
 
 # Range fisici di esplorazione sensati per il problema 4-roll mill
 PARAM_BOUNDS = {
-    "lambda": (0.05, 1.20),       # Tempo di rilassamento / Weissenberg proxy
-    "eta_p": (0.10, 0.95),        # Viscosità polimerica (con eta_s = 1.0 - eta_p)
+    "lambda": (0.005, 2.00),      # Tempo di rilassamento / Weissenberg proxy
+    "eta_p": (0.02, 0.98),        # Viscosità polimerica (con eta_s = 1.0 - eta_p)
     "alpha": (0.00, 0.50),        # Parametro mobilità di Giesekus (0 per Oldroyd-B/PTT)
     "eps": (0.00, 0.50),          # Parametro reticolare PTT (0 per Oldroyd-B/Giesekus)
     "log10_n_points": (np.log10(5000), np.log10(130000))  # Scala logaritmica dei punti

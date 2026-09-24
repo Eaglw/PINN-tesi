@@ -218,9 +218,9 @@ class BoundaryGaussianProcess:
         candidates = []
         features_list = []
 
-        # Griglia di discretizzazione per i parametri candidati
-        lambda_vals = [0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.70, 0.85, 1.00, 1.20]
-        eta_p_vals = [0.30, 0.50, 0.70, 0.85, 0.90, 0.95]
+        # Griglia di discretizzazione per i parametri candidati (estesa)
+        lambda_vals = [0.008, 0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.70, 0.85, 1.00, 1.20, 1.50, 1.80, 2.00]
+        eta_p_vals = [0.05, 0.15, 0.30, 0.50, 0.70, 0.85, 0.90, 0.95, 0.98]
         mesh_keys = ["5k", "12k", "29k", "52k", "88k", "125k"]
 
         # Famiglie costitutive
@@ -228,7 +228,7 @@ class BoundaryGaussianProcess:
         # Oldroyd-B
         if not fluid_model_filter or fluid_model_filter.lower() in ["oldroyd-b", "oldroyd"]:
             model_configs.append(("Oldroyd-B", 0.0, 0.0))
-        # Giesekus
+        # Giesekus (alpha rigorosamente in [0, 0.50])
         if not fluid_model_filter or fluid_model_filter.lower() == "giesekus":
             for a in [0.05, 0.10, 0.20, 0.35, 0.50]:
                 model_configs.append(("Giesekus", a, 0.0))
@@ -273,12 +273,14 @@ class BoundaryGaussianProcess:
         self,
         batch_size: int = 3,
         fluid_model_filter: Optional[str] = None,
-        diverse_models: bool = False
+        diverse_models: bool = False,
+        model_sequence: Optional[List[str]] = None
     ) -> List[Dict]:
         """
         Algoritmo Kriging Believer:
         Seleziona iterativamente un batch diversificato di candidati ottimali
         aggiornando la covarianza del GP dopo ciascuna selezione.
+        Supporta una model_sequence specifica (es. ['Giesekus', 'Giesekus', 'Oldroyd-B']).
         """
         if self.gp is None or self.X_train_orig is None or self.y_train_orig is None:
             raise RuntimeError("Il modello deve essere addestrato prima di richiedere un batch.")
@@ -300,21 +302,34 @@ class BoundaryGaussianProcess:
         available_indices = list(range(len(candidate_pool)))
         chosen_models = set()
 
-        for b in range(batch_size):
-            # Valutazione di mu e sigma sui candidati rimasti
-            X_sub = X_cand[available_indices]
+        effective_batch_size = len(model_sequence) if model_sequence else batch_size
+
+        for b in range(effective_batch_size):
+            # Se è specificata una sequenza per modello per questo slot di batch
+            target_model = model_sequence[b] if model_sequence and b < len(model_sequence) else None
+
+            # Filtra gli indici disponibili per il target model se specificato
+            if target_model:
+                slot_indices = [idx for idx in available_indices if candidate_pool[idx]["fluid_model"].lower() == target_model.lower()]
+                if not slot_indices:
+                    slot_indices = available_indices
+            else:
+                slot_indices = available_indices
+
+            # Valutazione di mu e sigma sui candidati eleggibili per lo slot
+            X_sub = X_cand[slot_indices]
             mu, sigma = gp_temp.predict(X_sub)
             acq = gp_temp.acquisition_straddle(mu, sigma)
 
-            # Se e richiesta diversita tra modelli costitutivi, penalizza modelli gia scelti
-            if diverse_models:
-                for idx_sub, orig_idx in enumerate(available_indices):
+            # Se è richiesta diversità generica tra modelli
+            if diverse_models and not model_sequence:
+                for idx_sub, orig_idx in enumerate(slot_indices):
                     cand_model = candidate_pool[orig_idx]["fluid_model"]
                     if cand_model in chosen_models:
-                        acq[idx_sub] -= 2.0  # Penalizzazione diversita
+                        acq[idx_sub] -= 2.0  # Penalizzazione diversità
 
             best_sub_idx = int(np.argmax(acq))
-            best_cand_idx = available_indices[best_sub_idx]
+            best_cand_idx = slot_indices[best_sub_idx]
             chosen = candidate_pool[best_cand_idx]
             chosen_models.add(chosen["fluid_model"])
 
@@ -347,7 +362,8 @@ class BoundaryGaussianProcess:
             X_curr = np.vstack([X_curr, chosen["features"]])
             y_curr = np.append(y_curr, hallucinated_y)
 
-            available_indices.pop(best_sub_idx)
+            if best_cand_idx in available_indices:
+                available_indices.remove(best_cand_idx)
             gp_temp.fit(X_curr, y_curr)
 
         return selected_batch

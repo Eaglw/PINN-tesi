@@ -35,7 +35,10 @@ def main():
     parser.add_argument("--threshold", type=float, default=CONVERGENCE_THRESHOLD_PCT, help="Soglia errore di convergenza in %% (default: 10.0)")
     parser.add_argument("--model", type=str, default=None, choices=["Oldroyd-B", "Giesekus", "PTT"], help="Filtra per specifico modello fluido (default: tutti)")
     parser.add_argument("--diverse-models", action="store_true", help="Forza la selezione di modelli costitutivi diversi nel batch")
+    parser.add_argument("--composition", type=str, default=None, help="Composizione vincolata del batch separata da virgole (es. 'Giesekus,Giesekus,Oldroyd-B')")
     args = parser.parse_args()
+
+    model_sequence = [m.strip() for m in args.composition.split(",")] if args.composition else None
 
     print("=" * 80)
     print(" ACTIVE LEARNING & BAYESIAN DoE - FRONTIERA DI CONVERGENZA PINN")
@@ -70,11 +73,14 @@ def main():
     # 3. Selezione Batch tramite Kriging Believer
     filter_info = f" (Filtro modello: {args.model})" if args.model else ""
     diverse_info = " [Modalità Diverse Models Attiva]" if args.diverse_models else ""
-    print(f"\n[3/4] Ricerca e selezione del Batch di {args.batch_size} NUOVI esperimenti (Kriging Believer){filter_info}{diverse_info}...")
+    comp_info = f" [Composizione Sequenza: {model_sequence}]" if model_sequence else ""
+    effective_b_size = len(model_sequence) if model_sequence else args.batch_size
+    print(f"\n[3/4] Ricerca e selezione del Batch di {effective_b_size} NUOVI esperimenti (Kriging Believer){filter_info}{diverse_info}{comp_info}...")
     batch = gp_model.suggest_batch(
         batch_size=args.batch_size,
         fluid_model_filter=args.model,
-        diverse_models=args.diverse_models
+        diverse_models=args.diverse_models,
+        model_sequence=model_sequence
     )
     print("      -> Ottimizzazione completata.\n")
 
