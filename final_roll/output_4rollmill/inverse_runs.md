@@ -1,10 +1,13 @@
 # Registro Storico Run Inverse (PINN Viscoelastic Fluid)
 
 Database consolidato generato automaticamente da `sync_inverse_runs.py`.
-Totale esperimenti catalogati: **18**.
+Totale esperimenti catalogati: **21**.
 
 | Data / Run | Fluido | Mesh | $\lambda$ True | $\lambda$ Est (Err%) | $\mu_p$ True | $\mu_p$ Est (Err%) | $\alpha$ True | $\alpha$ Est (Err%) | $\varepsilon$ Est | Err $L_2(u,v)$ | Err $L_2(\tau_{xy})$ | Note |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `2026-09-24 20:15` | **Oldroyd-B** | **5k** | 1.500 s | 1.1651 s (**-22.3%**) | 0.500 Pa·s | 0.3208 Pa·s (**-35.8%**) | 0.000 | 0.0000  | 6.27e-07 | **0.65%** | 18.15% | Record Accuratezza Mesh Ultraleggera |
+| `2026-09-24 17:13` | **Giesekus** | **5k** | 1.000 s | 0.8510 s (**-14.9%**) | 0.500 Pa·s | 0.4257 Pa·s (**-14.9%**) | 0.350 | 0.2738 (-21.8%) | 3.29e-06 | **0.15%** | 3.17% |  |
+| `2026-09-24 13:46` | **Giesekus** | **5k** | 0.700 s | 0.3987 s (**-43.0%**) | 0.500 Pa·s | 0.2904 Pa·s (**-41.9%**) | 0.200 | 0.0056 (-97.2%) | 1.15e-05 | **0.48%** | 8.21% |  |
 | `2026-09-23 18:37` | **PTT** | **12k** | 0.700 s | 0.2700 s (**-61.4%**) | 0.950 Pa·s | 0.3687 Pa·s (**-61.2%**) | 0.000 | 0.0001  | 4.42e-04 | **0.88%** | 9.90% |  |
 | `2026-09-23 13:21` | **PTT** | **12k** | 0.008 s | 0.0083 s (**+3.4%**) | 0.025 Pa·s | 0.0266 Pa·s (**+6.3%**) | 0.000 | 0.0000  | 6.15e-06 | **0.52%** | 5.12% |  |
 | `2026-09-22 19:06` | **PTT** | **5k** | 1.000 s | 0.3672 s (**-63.3%**) | 0.500 Pa·s | 0.1854 Pa·s (**-62.9%**) | 0.000 | 0.0000  | 2.27e-04 | **0.77%** | 10.80% |  |
