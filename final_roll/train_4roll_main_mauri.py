@@ -110,6 +110,9 @@ ALPHA_TRUE = 0.0
 MESH_TAG = "125k"
 RHO = 1000.0
 WARMUP_UNLOCK_EPOCH = 0
+TRANSFER_CKPT_PATH = None
+ADAM_EPOCHS_OVERRIDE = None
+LBFGS_ITERS_OVERRIDE = None
 
 # Risoluzione mesh e parametri fisici da CLI (default '125k', sovrascrivibile es. --mesh 5k --alpha 0.1 o --dataset <nome>)
 for i, arg in enumerate(sys.argv):
@@ -129,6 +132,22 @@ for i, arg in enumerate(sys.argv):
         WARMUP_UNLOCK_EPOCH = int(sys.argv[i + 1])
     elif arg.startswith("--warmup="):
         WARMUP_UNLOCK_EPOCH = int(arg.split("=")[1])
+    elif arg == "--transfer-ckpt" and i + 1 < len(sys.argv):
+        TRANSFER_CKPT_PATH = sys.argv[i + 1]
+    elif arg.startswith("--transfer-ckpt="):
+        TRANSFER_CKPT_PATH = arg.split("=")[1]
+    elif arg == "--transfer" and i + 1 < len(sys.argv):
+        TRANSFER_CKPT_PATH = sys.argv[i + 1]
+    elif arg.startswith("--transfer="):
+        TRANSFER_CKPT_PATH = arg.split("=")[1]
+    elif arg == "--adam1" and i + 1 < len(sys.argv):
+        ADAM_EPOCHS_OVERRIDE = int(sys.argv[i + 1])
+    elif arg.startswith("--adam1="):
+        ADAM_EPOCHS_OVERRIDE = int(arg.split("=")[1])
+    elif arg == "--lbfgs1" and i + 1 < len(sys.argv):
+        LBFGS_ITERS_OVERRIDE = int(sys.argv[i + 1])
+    elif arg.startswith("--lbfgs1="):
+        LBFGS_ITERS_OVERRIDE = int(arg.split("=")[1])
     elif arg == "--dataset" and i + 1 < len(sys.argv):
         _meta = parse_dataset_metadata(sys.argv[i + 1])
         LAM_TRUE = _meta["lam_true"]
@@ -184,6 +203,17 @@ ADAM_EPOCHS_PHASE1 = 40000
 USE_LBFGS_PHASE1 = True
 LBFGS_MAX_ITERS_PHASE1 = 10000
 
+# Se specificato override o transfer learning default (20k + 5k)
+if ADAM_EPOCHS_OVERRIDE is not None:
+    ADAM_EPOCHS_PHASE1 = ADAM_EPOCHS_OVERRIDE
+elif TRANSFER_CKPT_PATH is not None:
+    ADAM_EPOCHS_PHASE1 = 20000
+
+if LBFGS_ITERS_OVERRIDE is not None:
+    LBFGS_MAX_ITERS_PHASE1 = LBFGS_ITERS_OVERRIDE
+elif TRANSFER_CKPT_PATH is not None:
+    LBFGS_MAX_ITERS_PHASE1 = 5000
+
 # Budget Fase 2: Disattivata (focus su benchmark di convergenza mesh in Fase 1)
 ADAM_EPOCHS_PHASE2 = 0
 USE_LBFGS_PHASE2 = False
@@ -233,7 +263,8 @@ def _format_iters(n):
         return f"{n // 1000}k"
     return f"{n / 1000:.1f}k"
 
-budget_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}_Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}"
+tl_prefix = "TL_" if TRANSFER_CKPT_PATH is not None else ""
+budget_tag = f"{tl_prefix}Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}_Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}"
 if WARMUP_UNLOCK_EPOCH > 0:
     budget_tag += f"_Warmup{_format_iters(WARMUP_UNLOCK_EPOCH)}"
 run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
@@ -289,6 +320,34 @@ def main():
         p_scale=data["p_scale"],
         eta_0=ETA_0,
     ).to(DEVICE)
+
+    # 2b. Caricamento Pesi da Transfer Learning (se specificato)
+    if TRANSFER_CKPT_PATH is not None:
+        transfer_p = Path(TRANSFER_CKPT_PATH)
+        if not transfer_p.is_absolute():
+            transfer_p = BASE_DIR / transfer_p
+        if not transfer_p.exists():
+            alt_p = BASE_DIR / "checkpoints" / transfer_p.name
+            if alt_p.exists():
+                transfer_p = alt_p
+        if not transfer_p.exists():
+            raise FileNotFoundError(f"[Transfer Learning] Checkpoint donatore non trovato: {TRANSFER_CKPT_PATH}")
+
+        print(f"\n[Transfer Learning] Caricamento pesi pre-addestrati da:\n  {transfer_p}")
+        source_chk = torch.load(str(transfer_p), map_location=DEVICE)
+        model_dict = model.state_dict()
+        pretrained_dict = {
+            k: v for k, v in source_chk['model_state_dict'].items()
+            if k in model_dict and v.shape == model_dict[k].shape
+        }
+        model.load_state_dict(pretrained_dict, strict=False)
+        print(f"[Transfer Learning] Caricati con successo {len(pretrained_dict)}/{len(model_dict)} tensori di pesi per la rete.")
+        print("[Transfer Learning] Parametri fisici RESETTATI rigorosamente ai valori di Guess target:")
+        print(f"  - lambda_guess: {physics.lam.item():.4f} s (Target reale: {LAM_TRUE:.4f} s, Guess: {GUESS_LAM:.4f} s)")
+        print(f"  - mu_p_guess:   {physics.mu_p.item():.4f} Pa·s (Target reale: {MU_P_TRUE:.4f} Pa·s, Guess: {GUESS_MU_P:.4f} Pa·s)")
+        print(f"  - alpha_guess:  {physics.alpha.item():.4f}   (Target reale: {ALPHA_TRUE:.4f}, Guess: {GUESS_ALPHA:.4f})")
+        print(f"  - eps_guess:    {physics.eps.item():.4f}   (Target reale: {EPS_TRUE:.4f}, Guess: {GUESS_EPS:.4f})")
+        print("  - L'ottimizzatore Adam partirà da epoca 0 su questi pesi pre-addestrati.")
 
     # Verifica eventuale checkpoint di ripresa
     if RESUME_CHECKPOINT is not None and not RESUME_CHECKPOINT.exists():

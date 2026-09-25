@@ -1,4 +1,5 @@
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -101,6 +102,10 @@ RHO = 1000.0  # Densità [kg/m³]
 import sys
 MESH_TAG = "12k"
 WARMUP_UNLOCK_EPOCH = 0
+TRANSFER_CKPT_PATH = None
+ADAM_EPOCHS_OVERRIDE = None
+LBFGS_ITERS_OVERRIDE = None
+
 for i, arg in enumerate(sys.argv):
     if arg == "--mesh" and i + 1 < len(sys.argv):
         MESH_TAG = sys.argv[i + 1]
@@ -118,6 +123,22 @@ for i, arg in enumerate(sys.argv):
         WARMUP_UNLOCK_EPOCH = int(sys.argv[i + 1])
     elif arg.startswith("--warmup="):
         WARMUP_UNLOCK_EPOCH = int(arg.split("=")[1])
+    elif arg == "--transfer-ckpt" and i + 1 < len(sys.argv):
+        TRANSFER_CKPT_PATH = sys.argv[i + 1]
+    elif arg.startswith("--transfer-ckpt="):
+        TRANSFER_CKPT_PATH = arg.split("=")[1]
+    elif arg == "--transfer" and i + 1 < len(sys.argv):
+        TRANSFER_CKPT_PATH = sys.argv[i + 1]
+    elif arg.startswith("--transfer="):
+        TRANSFER_CKPT_PATH = arg.split("=")[1]
+    elif arg == "--adam1" and i + 1 < len(sys.argv):
+        ADAM_EPOCHS_OVERRIDE = int(sys.argv[i + 1])
+    elif arg.startswith("--adam1="):
+        ADAM_EPOCHS_OVERRIDE = int(arg.split("=")[1])
+    elif arg == "--lbfgs1" and i + 1 < len(sys.argv):
+        LBFGS_ITERS_OVERRIDE = int(sys.argv[i + 1])
+    elif arg.startswith("--lbfgs1="):
+        LBFGS_ITERS_OVERRIDE = int(arg.split("=")[1])
     elif arg == "--dataset" and i + 1 < len(sys.argv):
         _meta = parse_dataset_metadata(sys.argv[i + 1])
         LAM_TRUE = _meta["lam_true"]
@@ -180,6 +201,17 @@ ADAM_EPOCHS_PHASE1 = 40000
 USE_LBFGS_PHASE1 = True
 LBFGS_MAX_ITERS_PHASE1 = 10000
 
+# Se specificato override o transfer learning default (20k + 5k)
+if ADAM_EPOCHS_OVERRIDE is not None:
+    ADAM_EPOCHS_PHASE1 = ADAM_EPOCHS_OVERRIDE
+elif TRANSFER_CKPT_PATH is not None:
+    ADAM_EPOCHS_PHASE1 = 20000
+
+if LBFGS_ITERS_OVERRIDE is not None:
+    LBFGS_MAX_ITERS_PHASE1 = LBFGS_ITERS_OVERRIDE
+elif TRANSFER_CKPT_PATH is not None:
+    LBFGS_MAX_ITERS_PHASE1 = 5000
+
 # Fase 2: Disattivata (solo Fase 1 ex-novo)
 ADAM_EPOCHS_PHASE2 = 0
 USE_LBFGS_PHASE2 = False
@@ -230,7 +262,8 @@ def _format_iters(n):
 if ADAM_EPOCHS_PHASE2 > 0 or USE_LBFGS_PHASE2:
     budget_tag = f"Ph2_{_format_iters(ADAM_EPOCHS_PHASE2)}+{_format_iters(LBFGS_MAX_ITERS_PHASE2)}_Warmup{_format_iters(WARMUP_PHASE2_EPOCHS)}"
 else:
-    budget_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}"
+    tl_prefix = "TL_" if TRANSFER_CKPT_PATH is not None else ""
+    budget_tag = f"{tl_prefix}Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}"
     if WARMUP_UNLOCK_EPOCH > 0:
         budget_tag += f"_Warmup{_format_iters(WARMUP_UNLOCK_EPOCH)}"
 
@@ -289,11 +322,40 @@ if __name__ == "__main__":
         eta_0=ETA_0,
     ).to(DEVICE)
 
+    # 2b. Caricamento Pesi da Transfer Learning (se specificato)
+    if TRANSFER_CKPT_PATH is not None:
+        transfer_p = Path(TRANSFER_CKPT_PATH)
+        if not transfer_p.is_absolute():
+            transfer_p = BASE_DIR / transfer_p
+        if not transfer_p.exists():
+            alt_p = BASE_DIR / "checkpoints" / transfer_p.name
+            if alt_p.exists():
+                transfer_p = alt_p
+        if not transfer_p.exists():
+            raise FileNotFoundError(f"[Transfer Learning] Checkpoint donatore non trovato: {TRANSFER_CKPT_PATH}")
+
+        print(f"\n[Transfer Learning] Caricamento pesi pre-addestrati da:\n  {transfer_p}")
+        source_chk = torch.load(str(transfer_p), map_location=DEVICE)
+        model_dict = model.state_dict()
+        pretrained_dict = {
+            k: v for k, v in source_chk['model_state_dict'].items()
+            if k in model_dict and v.shape == model_dict[k].shape
+        }
+        model.load_state_dict(pretrained_dict, strict=False)
+        print(f"[Transfer Learning] Caricati con successo {len(pretrained_dict)}/{len(model_dict)} tensori di pesi per la rete.")
+        print("[Transfer Learning] Parametri fisici RESETTATI rigorosamente ai valori di Guess target:")
+        print(f"  - lambda_guess: {physics.lam.item():.4f} s (Target reale: {LAM_TRUE:.4f} s, Guess: {GUESS_LAM:.4f} s)")
+        print(f"  - mu_p_guess:   {physics.mu_p.item():.4f} Pa·s (Target reale: {MU_P_TRUE:.4f} Pa·s, Guess: {GUESS_MU_P:.4f} Pa·s)")
+        print(f"  - alpha_guess:  {physics.alpha.item():.4f}   (Target reale: {ALPHA_TRUE:.4f}, Guess: {GUESS_ALPHA:.4f})")
+        print(f"  - eps_guess:    {physics.eps.item():.4f}   (Target reale: {EPS_TRUE:.4f}, Guess: {GUESS_EPS:.4f})")
+        print("  - L'ottimizzatore Adam partirà da epoca 0 su questi pesi pre-addestrati.")
+
     # Recap Configurazione
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nModello: {total_params:,} parametri totali")
     if INVERSE_PROBLEM:
-        print("Modalità: PROBLEMA INVERSO (FASE 1 ONLY - Estensione Cinematica & Reologia)")
+        mode_desc = "TRANSFER LEARNING FASE 1" if TRANSFER_CKPT_PATH is not None else "FASE 1 ONLY"
+        print(f"Modalità: PROBLEMA INVERSO ({mode_desc} - Estensione Cinematica & Reologia)")
         print(f"  - Obiettivo: Raffinamento intensivo dei campi (psi, tau) e parametri (lam, mu_p, alpha, eps)")
         print(f"  - Scala di Riferimento: eta_0={physics.eta_0.item():.2f} Pa·s")
         print(f"  - Valori Attuali Caricati: lam={physics.lam.item():.4f} s (true: {LAM_TRUE}), mu_p={physics.mu_p.item():.4f} Pa·s (true: {MU_P_TRUE}), alpha={physics.alpha.item():.4f} (true: {ALPHA_TRUE}), eps={physics.eps.item():.4f} (true: {EPS_TRUE})")
@@ -337,6 +399,14 @@ if __name__ == "__main__":
     )
     
     tb_writer.close()
+
+    # 3b. Archiviazione automatica Checkpoint Fase 1 per benchmark e transfer learning futuri
+    f1_ckpt_in_run = OUTPUT_DIR / "checkpoint_lbfgs_phase1.pth"
+    if f1_ckpt_in_run.exists():
+        f1_tag = budget_tag
+        f1_dest = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_{f1_tag}.pth"
+        shutil.copy2(f1_ckpt_in_run, f1_dest)
+        print(f"\n[Checkpoint F1] Checkpoint consolidato Fase 1 archiviato in: {f1_dest}")
 
     # 4. Report Risultati Finali
     params = physics.log_params()
