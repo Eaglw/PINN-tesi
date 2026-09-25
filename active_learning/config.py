@@ -21,17 +21,29 @@ MESH_NODES = {
     "125k": 125000
 }
 
-# Range fisici di esplorazione sensati per il problema 4-roll mill
+# Nomi delle feature in input al Gaussian Process (rimossa eta_s collinearmente ridondante)
+FEATURE_NAMES = ["lambda", "eta_p", "alpha", "eps", "is_giesekus", "is_ptt", "log10_n_points"]
+
+# Costi computazionali relativi indicativi per risoluzione di mesh (5k baseline = 1.0)
+MESH_COST = {
+    "5k": 1.0,
+    "12k": 2.4,
+    "29k": 5.6,
+    "52k": 9.8,
+    "88k": 16.2,
+    "125k": 22.8
+}
+
+# Range fisici di esplorazione sensati per il problema 4-roll mill (unica sorgente di verità)
 PARAM_BOUNDS = {
     "lambda": (0.005, 2.00),      # Tempo di rilassamento / Weissenberg proxy
     "eta_p": (0.02, 0.98),        # Viscosità polimerica (con eta_s = 1.0 - eta_p)
     "alpha": (0.00, 0.50),        # Parametro mobilità di Giesekus (0 per Oldroyd-B/PTT)
     "eps": (0.00, 0.50),          # Parametro reticolare PTT (0 per Oldroyd-B/Giesekus)
+    "is_giesekus": (0.0, 1.0),    # Indicatore binario modello Giesekus
+    "is_ptt": (0.0, 1.0),         # Indicatore binario modello PTT
     "log10_n_points": (np.log10(5000), np.log10(130000))  # Scala logaritmica dei punti
 }
-
-# Nomi delle feature in input al Gaussian Process
-FEATURE_NAMES = ["lambda", "eta_p", "eta_s", "alpha", "eps", "log10_n_points"]
 
 # Metrica di convergenza: errore percentuale relativo massimo dei parametri fisici
 # Se l'errore max è sotto il 10%, la PINN è considerata convergente per identificazione inversa.

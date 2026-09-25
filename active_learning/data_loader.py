@@ -51,6 +51,11 @@ def load_inverse_runs(csv_path: Path = INVERSE_RUNS_CSV) -> Tuple[np.ndarray, np
         alpha = float(row["alpha_true"]) if pd.notna(row.get("alpha_true")) else 0.0
         eps = float(row["eps_true"]) if pd.notna(row.get("eps_true")) else 0.0
 
+        # Indicatori binari del modello fluido (Oldroyd-B baseline = [0, 0])
+        model_str = str(row.get("fluid_model", "")).lower()
+        is_giesekus = 1.0 if "giesekus" in model_str else 0.0
+        is_ptt = 1.0 if "ptt" in model_str else 0.0
+
         # mesh e n_points
         n_pts = row.get("n_points")
         if pd.isna(n_pts) or float(n_pts) <= 0:
@@ -79,7 +84,8 @@ def load_inverse_runs(csv_path: Path = INVERSE_RUNS_CSV) -> Tuple[np.ndarray, np
         max_err_safe = max(max_err, 0.05)
         log_err = float(np.log10(max_err_safe))
 
-        features = [lam, mu_p, eta_s, alpha, eps, log10_n]
+        # Vettore feature pulito (7 dimensioni): eta_s esclusa per evitare collinearità esatta
+        features = [lam, mu_p, alpha, eps, is_giesekus, is_ptt, log10_n]
         features_list.append(features)
         targets_log.append(log_err)
 
@@ -91,6 +97,8 @@ def load_inverse_runs(csv_path: Path = INVERSE_RUNS_CSV) -> Tuple[np.ndarray, np
             "eta_s": eta_s,
             "alpha": alpha,
             "eps": eps,
+            "is_giesekus": is_giesekus,
+            "is_ptt": is_ptt,
             "n_points": int(n_pts),
             "max_param_err_pct": max_err,
             "log10_max_err": log_err,

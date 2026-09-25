@@ -36,6 +36,7 @@ def main():
     parser.add_argument("--model", type=str, default=None, choices=["Oldroyd-B", "Giesekus", "PTT"], help="Filtra per specifico modello fluido (default: tutti)")
     parser.add_argument("--diverse-models", action="store_true", help="Forza la selezione di modelli costitutivi diversi nel batch")
     parser.add_argument("--composition", type=str, default=None, help="Composizione vincolata del batch separata da virgole (es. 'Giesekus,Giesekus,Oldroyd-B')")
+    parser.add_argument("--cost-aware", action="store_true", help="Pesa l'acquisizione dividendo per il costo computazionale relativo della mesh")
     args = parser.parse_args()
 
     model_sequence = [m.strip() for m in args.composition.split(",")] if args.composition else None
@@ -59,6 +60,7 @@ def main():
     # 2. Addestramento Gaussian Process
     print(f"\n[2/4] Fitting Gaussian Process Regressor...")
     print(f"      - Kernel: Constant * Matern5/2(ARD) + WhiteKernel")
+    print(f"      - Feature vector (7D): [lambda, eta_p, alpha, eps, is_giesekus, is_ptt, log10_n]")
     print(f"      - Soglia convergenza target: {args.threshold}% (log10 = {args.threshold / 10.0})")
     print(f"      - Parametro di confidenza esplorazione beta: {args.beta}")
     
@@ -70,17 +72,33 @@ def main():
     gp_model.fit(X, y)
     print("      -> GP addestrato con successo.")
 
+    # 2b. Validazione Qualità GP (Leave-One-Out Cross-Validation)
+    loo = gp_model.loo_cv_report()
+    cov_95 = loo["coverage_95_pct"]
+    print(f"\n[2b/4] Validazione Qualità GP (Leave-One-Out Cross-Validation):")
+    print(f"       - Campioni storici valutati:    {loo['n_samples']}")
+    print(f"       - RMSE sui residui log10:       {loo['rmse']:.3f}")
+    print(f"       - Coverage empirica al 95%:     {cov_95:.1f}% (target nominale: 95.0%)")
+    print(f"       - Residuo standardizzato medio: {loo['mean_std_residual']:+.3f}")
+    if cov_95 < 80.0 or cov_95 > 99.0:
+        print(f"       [ATTENZIONE] Coverage empirica ({cov_95:.1f}%) fuori dall'intervallo ideale [80%, 99%].")
+        print(f"                    Il modello potrebbe essere sotto/sovra-confidente: verificare iperparametri.")
+    else:
+        print(f"       -> Calibrazione GP eccellente: incertezza epistemica sigma affidabile e ben tarata.")
+
     # 3. Selezione Batch tramite Kriging Believer
     filter_info = f" (Filtro modello: {args.model})" if args.model else ""
     diverse_info = " [Modalità Diverse Models Attiva]" if args.diverse_models else ""
     comp_info = f" [Composizione Sequenza: {model_sequence}]" if model_sequence else ""
+    cost_info = " [Acquisizione Cost-Aware Attiva]" if args.cost_aware else ""
     effective_b_size = len(model_sequence) if model_sequence else args.batch_size
-    print(f"\n[3/4] Ricerca e selezione del Batch di {effective_b_size} NUOVI esperimenti (Kriging Believer){filter_info}{diverse_info}{comp_info}...")
+    print(f"\n[3/4] Ricerca e selezione del Batch di {effective_b_size} NUOVI esperimenti (Kriging Believer){filter_info}{diverse_info}{comp_info}{cost_info}...")
     batch = gp_model.suggest_batch(
         batch_size=args.batch_size,
         fluid_model_filter=args.model,
         diverse_models=args.diverse_models,
-        model_sequence=model_sequence
+        model_sequence=model_sequence,
+        cost_aware=args.cost_aware
     )
     print("      -> Ottimizzazione completata.\n")
 

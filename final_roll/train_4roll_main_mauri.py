@@ -327,9 +327,9 @@ def main():
         if not transfer_p.is_absolute():
             transfer_p = BASE_DIR / transfer_p
         if not transfer_p.exists():
-            alt_p = BASE_DIR / "checkpoints" / transfer_p.name
-            if alt_p.exists():
-                transfer_p = alt_p
+            ckpt_matches = list((BASE_DIR / "checkpoints").rglob(transfer_p.name))
+            if ckpt_matches:
+                transfer_p = ckpt_matches[0]
         if not transfer_p.exists():
             raise FileNotFoundError(f"[Transfer Learning] Checkpoint donatore non trovato: {TRANSFER_CKPT_PATH}")
 
@@ -382,7 +382,15 @@ def main():
     f1_ckpt_in_run = OUTPUT_DIR / "checkpoint_lbfgs_phase1.pth"
     if f1_ckpt_in_run.exists():
         f1_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}"
-        f1_dest = BASE_DIR / "checkpoints" / f"checkpoint_inverso_fase1_{PARAM_TAG}_{f1_tag}.pth"
+        if ALPHA_TRUE > 0:
+            subfolder = "giesekus"
+        elif EPS_TRUE > 0:
+            subfolder = "ptt"
+        else:
+            subfolder = "oldroyd"
+        dest_dir = BASE_DIR / "checkpoints" / subfolder
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        f1_dest = dest_dir / f"checkpoint_inverso_fase1_{PARAM_TAG}_{f1_tag}.pth"
         import shutil
         shutil.copy2(f1_ckpt_in_run, f1_dest)
         print(f"\n[Checkpoint F1] Checkpoint consolidato Fase 1 archiviato in: {f1_dest}")
