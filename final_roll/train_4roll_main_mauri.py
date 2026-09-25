@@ -99,15 +99,15 @@ DEBUG_MODE = False
 USE_ROLL_STRESS_BC = True
 W_ROLL_STRESS = 1.0
 
-# Parametri Fisici REALI (Ground Truth)
+# Parametri Fisici REALI (Ground Truth) - Setup Giesekus Mesh Study 52k (da zero)
 MU_S_TRUE = 0.500
 MU_P_TRUE = 0.500
 MU_TOT_TRUE = 1.000
 BETA_TRUE = 0.500
-LAM_TRUE = 0.100
+LAM_TRUE = 0.700
 EPS_TRUE = 0.0
-ALPHA_TRUE = 0.0
-MESH_TAG = "125k"
+ALPHA_TRUE = 0.35
+MESH_TAG = "52k"
 RHO = 1000.0
 WARMUP_UNLOCK_EPOCH = 0
 TRANSFER_CKPT_PATH = None
@@ -378,22 +378,6 @@ def main():
     )
     tb_writer.close()
 
-    # 5. Archiviazione Checkpoint Fase 1 per benchmark e test futuri
-    f1_ckpt_in_run = OUTPUT_DIR / "checkpoint_lbfgs_phase1.pth"
-    if f1_ckpt_in_run.exists():
-        f1_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}"
-        if ALPHA_TRUE > 0:
-            subfolder = "giesekus"
-        elif EPS_TRUE > 0:
-            subfolder = "ptt"
-        else:
-            subfolder = "oldroyd"
-        dest_dir = BASE_DIR / "checkpoints" / subfolder
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        f1_dest = dest_dir / f"checkpoint_inverso_fase1_{PARAM_TAG}_{f1_tag}.pth"
-        import shutil
-        shutil.copy2(f1_ckpt_in_run, f1_dest)
-        print(f"\n[Checkpoint F1] Checkpoint consolidato Fase 1 archiviato in: {f1_dest}")
 
     # 6. Report Risultati Finali
     params = physics.log_params()
@@ -490,6 +474,45 @@ def main():
     print(f"{'=' * 75}")
     print(f"  [JSON Salvato]: {summary_json_path}")
     print(f"{'=' * 75}\n")
+
+    # 9. Archiviazione con Quality Gate per Checkpoint Donatori (Fase 1)
+    f1_ckpt_in_run = OUTPUT_DIR / "checkpoint_lbfgs_phase1.pth"
+    if f1_ckpt_in_run.exists():
+        f1_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_ITERS_PHASE1)}"
+        if ALPHA_TRUE > 0:
+            subfolder = "giesekus"
+        elif EPS_TRUE > 0:
+            subfolder = "ptt"
+        else:
+            subfolder = "oldroyd"
+            
+        MAX_ERR_LAM = 10.5      # Max ~10% errore relativo su lambda
+        MAX_ERR_MUP = 10.5      # Max ~10% errore relativo su mu_p
+        MAX_ERR_TAU_XY = 8.0    # Max 8% errore L2 su tau_xy
+        MAX_ERR_UV = 5.0        # Max 5% errore L2 su (u, v) (rilassato)
+        
+        err_tau_xy_pct = errors.get('tau_xy', 0.0) * 100.0
+        err_uv_pct = avg_l2_uv * 100.0
+        
+        is_quality_ok = (
+            abs(err_lam_pct) <= MAX_ERR_LAM and
+            abs(err_mup_pct) <= MAX_ERR_MUP and
+            err_tau_xy_pct <= MAX_ERR_TAU_XY and
+            err_uv_pct <= MAX_ERR_UV
+        )
+        
+        if is_quality_ok:
+            dest_dir = BASE_DIR / "checkpoints" / subfolder
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            f1_dest = dest_dir / f"checkpoint_inverso_fase1_{PARAM_TAG}_{f1_tag}.pth"
+            import shutil
+            shutil.copy2(f1_ckpt_in_run, f1_dest)
+            print(f"[Quality Gate: SUPERATO] Checkpoint donatore archiviato in:\n  -> {f1_dest}")
+        else:
+            print(f"[Quality Gate: NON SUPERATO] Checkpoint NON archiviato in checkpoints/{subfolder}:")
+            print(f"  Soglie: |Err lam| <= {MAX_ERR_LAM}%, |Err mu_p| <= {MAX_ERR_MUP}%, Err tau_xy <= {MAX_ERR_TAU_XY}%, Err uv <= {MAX_ERR_UV}%")
+            print(f"  Valori: |Err lam| = {abs(err_lam_pct):.2f}%, |Err mu_p| = {abs(err_mup_pct):.2f}%, Err tau_xy = {err_tau_xy_pct:.2f}%, Err uv = {err_uv_pct:.2f}%")
+            print(f"  (Il checkpoint rimane disponibile nella cartella di run: {OUTPUT_DIR})")
 
     print(f"\n[OK] Run Completa End-to-End conclusa con successo sul PC di Maurizio! Output: {OUTPUT_DIR}")
 

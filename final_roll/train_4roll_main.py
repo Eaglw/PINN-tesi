@@ -88,14 +88,14 @@ DEBUG_MODE = False  # True: stampa info e test avanzati (es. magnitudo PDE)
 USE_ROLL_STRESS_BC = True
 W_ROLL_STRESS = 1.0  # Peso dello stress BC rispetto al velocity BC sui rulli (pesato 1:1 per componente)
 
-# --- Parametri Fisici REALI (Ground Truth) ---
+# --- Parametri Fisici REALI (Ground Truth) - Setup Giesekus Mesh Study 12k (da zero) ---
 MU_S_TRUE = 0.5  # Viscosità solvente [Pa·s]
 MU_P_TRUE = 0.5  # Viscosità polimerica [Pa·s]
 MU_TOT_TRUE = MU_S_TRUE + MU_P_TRUE  # Viscosità totale [Pa·s] (1.0)
 BETA_TRUE = MU_S_TRUE / MU_TOT_TRUE  # Rapporto di viscosità (0.50)
-LAM_TRUE = 0.1  # Tempo di rilassamento [s]
+LAM_TRUE = 0.7  # Tempo di rilassamento [s]
 EPS_TRUE = 0.0  # Parametro PTT (bloccato a 0)
-ALPHA_TRUE = 0.0  # Parametro Giesekus (bloccato a 0)
+ALPHA_TRUE = 0.35  # Parametro Giesekus (bloccato a 0.35)
 RHO = 1000.0  # Densità [kg/m³]
 
 # Risoluzione mesh e parametri fisici da CLI (default '12k', sovrascrivibile es. --mesh 5k --alpha 0.1 o --dataset <nome>)
@@ -400,21 +400,6 @@ if __name__ == "__main__":
     
     tb_writer.close()
 
-    # 3b. Archiviazione automatica Checkpoint Fase 1 per benchmark e transfer learning futuri
-    f1_ckpt_in_run = OUTPUT_DIR / "checkpoint_lbfgs_phase1.pth"
-    if f1_ckpt_in_run.exists():
-        f1_tag = budget_tag
-        if ALPHA_TRUE > 0:
-            subfolder = "giesekus"
-        elif EPS_TRUE > 0:
-            subfolder = "ptt"
-        else:
-            subfolder = "oldroyd"
-        dest_dir = BASE_DIR / "checkpoints" / subfolder
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        f1_dest = dest_dir / f"checkpoint_inverso_fase1_{PARAM_TAG}_{f1_tag}.pth"
-        shutil.copy2(f1_ckpt_in_run, f1_dest)
-        print(f"\n[Checkpoint F1] Checkpoint consolidato Fase 1 archiviato in: {f1_dest}")
 
     # 4. Report Risultati Finali
     params = physics.log_params()
@@ -544,5 +529,43 @@ if __name__ == "__main__":
     print(f"{'=' * 75}")
     print(f"  [JSON Salvato]: {summary_json_path}")
     print(f"{'=' * 75}\n")
+    
+    # 8. Archiviazione con Quality Gate per Checkpoint Donatori (Fase 1)
+    f1_ckpt_in_run = OUTPUT_DIR / "checkpoint_lbfgs_phase1.pth"
+    if f1_ckpt_in_run.exists():
+        f1_tag = budget_tag
+        if ALPHA_TRUE > 0:
+            subfolder = "giesekus"
+        elif EPS_TRUE > 0:
+            subfolder = "ptt"
+        else:
+            subfolder = "oldroyd"
+            
+        MAX_ERR_LAM = 10.5      # Max ~10% errore relativo su lambda
+        MAX_ERR_MUP = 10.5      # Max ~10% errore relativo su mu_p
+        MAX_ERR_TAU_XY = 8.0    # Max 8% errore L2 su tau_xy
+        MAX_ERR_UV = 5.0        # Max 5% errore L2 su (u, v) (rilassato)
+        
+        err_tau_xy_pct = errors.get('tau_xy', 0.0) * 100.0
+        err_uv_pct = avg_l2_uv * 100.0
+        
+        is_quality_ok = (
+            abs(err_lam_pct) <= MAX_ERR_LAM and
+            abs(err_mup_pct) <= MAX_ERR_MUP and
+            err_tau_xy_pct <= MAX_ERR_TAU_XY and
+            err_uv_pct <= MAX_ERR_UV
+        )
+        
+        if is_quality_ok:
+            dest_dir = BASE_DIR / "checkpoints" / subfolder
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            f1_dest = dest_dir / f"checkpoint_inverso_fase1_{PARAM_TAG}_{f1_tag}.pth"
+            shutil.copy2(f1_ckpt_in_run, f1_dest)
+            print(f"[Quality Gate: SUPERATO] Checkpoint donatore archiviato in:\n  -> {f1_dest}")
+        else:
+            print(f"[Quality Gate: NON SUPERATO] Checkpoint NON archiviato in checkpoints/{subfolder}:")
+            print(f"  Soglie: |Err lam| <= {MAX_ERR_LAM}%, |Err mu_p| <= {MAX_ERR_MUP}%, Err tau_xy <= {MAX_ERR_TAU_XY}%, Err uv <= {MAX_ERR_UV}%")
+            print(f"  Valori: |Err lam| = {abs(err_lam_pct):.2f}%, |Err mu_p| = {abs(err_mup_pct):.2f}%, Err tau_xy = {err_tau_xy_pct:.2f}%, Err uv = {err_uv_pct:.2f}%")
+            print(f"  (Il checkpoint rimane disponibile nella cartella di run: {OUTPUT_DIR})")
         
     print(f"\n[OK] Esecuzione terminata. Plot salvati in: {OUTPUT_DIR}")
