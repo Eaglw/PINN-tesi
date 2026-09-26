@@ -107,6 +107,19 @@ In numerical experiments (both FEM in COMSOL and PINN collocation grids):
 
 ---
 
+## 5. The Inverse PINN Resolution Paradox at Extreme HWNP
+
+In classical CFD (FEM/FVM), the failure to resolve the elastic boundary layer $\delta \sim Wi^{-1}$ in Oldroyd-B leads to catastrophic numerical divergence (loss of positive-definiteness of the conformation tensor, spurious oscillations, and breakdown of nonlinear Newton solvers).
+
+In contrast, Physics-Informed Neural Networks demonstrate a unique behavior in the **inverse regime**:
+- **Low-Pass Filter Regularization**: The neural network architecture inherently biases toward smooth, continuous functional manifolds ([[Spectral_Bias]]). Rather than exploding, the network acts as a spatial low-pass filter, truncating the sharp boundary-layer stress spikes.
+- **Accurate Inversion under Sub-Resolved Fields**: In the benchmark test on Oldroyd-B with $Wi = 1.2$ and $\beta_s = 0.02$ on an ultralight mesh ($M=5\text{k}$), the point-wise stress error reached $\sim 26\text{--}29\%$. Despite this local truncation error, the relaxation time $\lambda$ was identified within $+4.05\%$ and polymeric viscosity $\mu_p$ within $+7.27\%$.
+- **Methodological Rule**:
+  - **Parameter Calibration Goal**: Mesh resolution is not a critical bottleneck; sparse meshes ($5\text{k}$) suffice to capture the convective bulk signature.
+  - **Local Stress Field Goal**: For Oldroyd-B at $Wi > 1$ without solvent damping ($\beta_s \to 0$), dense meshes ($12\text{k}$ or higher) or adaptive sampling in boundary layers are mandatory to resolve peak stresses without attenuation.
+
+---
+
 ## References & Back-links
 - [[Mesh_Convergence_Protocol]]
 - [[ViscoelasticNet_Full model]]

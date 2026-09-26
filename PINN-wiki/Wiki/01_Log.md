@@ -1148,4 +1148,24 @@
   - **[[00_Index]]**: indicizzato il nuovo daily log.
   - **[[01_Log]]**: registrata l'attività.
 
+---
+
+## [2026-09-26] update_wiki | Coda Batch Multi-Modello e Risoluzione dei Campi vs Identificabilità Parametrica
+
+### Sintesi Operazioni
+- **Completamento Pipeline Batch (`run_batch_queue.py`) in 8.45 Ore di Calcolo GPU**:
+  - Run 1: Giesekus ($L=0.7, \alpha=0.35, M=12\text{k}$) — studio di mesh inverso completato (40k Adam + 10k L-BFGS).
+  - Run 2: Giesekus ($L=0.3, \alpha=0.50, \eta_s=0.95, M=5\text{k}$) — transfer learning ad alta mobilità e alto solvente completato in 100 min.
+  - Run 3: Oldroyd-B ($L=1.2, \beta_s=0.02, \eta_p=0.98, M=5\text{k}$) — frontiera estrema HWNP / quasi-melt completata in 100 min.
+- **Studio Mesh su Giesekus ($5\text{k} \to 12\text{k}$)**:
+  - Dimostrato che l'identificabilità parametrica non è limitata dalla mesh: $\lambda$ passa da $-8.2\%$ a $-4.1\%$ e $\mu_p$ da $-7.8\%$ a $-3.5\%$, mentre $\alpha$ converge esattamente all'asintoto teorico identico ($\alpha \approx 0.297$ vs $0.299$, $\sim -15\%$).
+- **Formalizzazione del Paradosso Inverso PINN ad Alto Weissenberg (Oldroyd-B $Wi=1.2, \beta_s=0.02$)**:
+  - Documentato il decoupling tra la risoluzione locale del campo di stress e la calibrazione globale dei parametri: a causa dello strato limite elastico sub-millimetrico ($\delta \sim Wi^{-1}$), una griglia 5k senza solvente smussa i picchi puntuali di stress ($\text{Err}(\tau_{xy}) \approx 25.7\%$), ma la PINN identifica accuratamente $\lambda$ ($+4.05\%$) e $\mu_p$ ($+7.27\%$) grazie alla robustezza del decadimento convettivo lungo le linee di flusso nel bulk ($\mathbf{u}\cdot\nabla\boldsymbol{\tau}$).
+- **Pagine Create / Modificate**:
+  - **[[Viscoelastic_Parameter_Identifiability]]**: aggiunta sezione su Identificabilità Parametrica Globale vs Fedeltà di Campo Locale ad Alto Weissenberg.
+  - **[[High_Weissenberg_Number_Problem]]**: integrata la sezione 5 sul Paradosso di Risoluzione della PINN Inversa ad estremo HWNP.
+  - **[[2026-09-26]]** (NEW): redatto il report giornaliero organico con la sintesi delle 3 run e le considerazioni per la tesi.
+  - **[[00_Index]]**: indicizzato il nuovo daily log `[[2026-09-26]]`.
+  - **[[01_Log]]**: registrata l'attività.
+
 

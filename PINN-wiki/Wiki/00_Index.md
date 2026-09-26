@@ -13,6 +13,7 @@ Welcome to the PINN-tesi LLM Wiki. This is a persistent, compounding knowledge b
 ---
 
 ## Daily Logs
+- [[2026-09-26]]: Coda Batch Multi-Modello, Studio di Mesh Inverso (Giesekus 12k vs 5k) e Resilienza Parametrica Oldroyd-B HWNP
 - [[2026-09-23]]: Degenerazione Strutturale PTT vs Oldroyd-B ad Alto Weissenberg e Legge del Tempo di Rilassamento Efficace
 - [[2026-09-21]]: Prima Inversione Modello di Giesekus, Sensibilità Parametrica di alpha e Suite Dataset ad Alta Elasticità
 - [[2026-09-20]]: Studio di Convergenza Multi-Mesh PINN e Primato della Mesh Ultraleggera 5k
