@@ -37,6 +37,7 @@ def main():
     parser.add_argument("--diverse-models", action="store_true", help="Forza la selezione di modelli costitutivi diversi nel batch")
     parser.add_argument("--composition", type=str, default=None, help="Composizione vincolata del batch separata da virgole (es. 'Giesekus,Giesekus,Oldroyd-B')")
     parser.add_argument("--cost-aware", action="store_true", help="Pesa l'acquisizione dividendo per il costo computazionale relativo della mesh")
+    parser.add_argument("--max-lambda", type=float, default=1.0, help="Tetto massimo per lambda nell'esplorazione dei candidati (default: 1.0)")
     args = parser.parse_args()
 
     model_sequence = [m.strip() for m in args.composition.split(",")] if args.composition else None
@@ -91,14 +92,16 @@ def main():
     diverse_info = " [Modalità Diverse Models Attiva]" if args.diverse_models else ""
     comp_info = f" [Composizione Sequenza: {model_sequence}]" if model_sequence else ""
     cost_info = " [Acquisizione Cost-Aware Attiva]" if args.cost_aware else ""
+    lam_info = f" [Max Lambda = {args.max_lambda}]" if args.max_lambda else ""
     effective_b_size = len(model_sequence) if model_sequence else args.batch_size
-    print(f"\n[3/4] Ricerca e selezione del Batch di {effective_b_size} NUOVI esperimenti (Kriging Believer){filter_info}{diverse_info}{comp_info}{cost_info}...")
+    print(f"\n[3/4] Ricerca e selezione del Batch di {effective_b_size} NUOVI esperimenti (Kriging Believer){filter_info}{diverse_info}{comp_info}{cost_info}{lam_info}...")
     batch = gp_model.suggest_batch(
         batch_size=args.batch_size,
         fluid_model_filter=args.model,
         diverse_models=args.diverse_models,
         model_sequence=model_sequence,
-        cost_aware=args.cost_aware
+        cost_aware=args.cost_aware,
+        max_lambda=args.max_lambda
     )
     print("      -> Ottimizzazione completata.\n")
 

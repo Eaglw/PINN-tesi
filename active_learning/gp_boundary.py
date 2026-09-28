@@ -260,16 +260,23 @@ class BoundaryGaussianProcess:
         dist_to_boundary = np.abs(mu - self.threshold_log)
         return self.beta * sigma - dist_to_boundary
 
-    def generate_candidate_pool(self, fluid_model_filter: Optional[str] = None) -> Tuple[np.ndarray, List[Dict]]:
+    def generate_candidate_pool(
+        self,
+        fluid_model_filter: Optional[str] = None,
+        max_lambda: Optional[float] = None
+    ) -> Tuple[np.ndarray, List[Dict]]:
         """
         Genera una griglia densa di nuove configurazioni fisiche candidate nello spazio
         dei parametri a 7 dimensioni (escludendo combinazioni già testate in passato).
+        Supporta un tetto massimo opzionale max_lambda (es. 1.0).
         """
         candidates = []
         features_list = []
 
         # Griglia di discretizzazione derivata coerentemente da PARAM_BOUNDS
         lam_min, lam_max = PARAM_BOUNDS["lambda"]
+        if max_lambda is not None:
+            lam_max = min(lam_max, float(max_lambda))
         etap_min, etap_max = PARAM_BOUNDS["eta_p"]
         lambda_base = [0.008, 0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.70, 0.85, 1.00, 1.20, 1.50, 1.80, 2.00]
         lambda_vals = [l for l in lambda_base if lam_min <= l <= lam_max]
@@ -335,7 +342,8 @@ class BoundaryGaussianProcess:
         fluid_model_filter: Optional[str] = None,
         diverse_models: bool = False,
         model_sequence: Optional[List[str]] = None,
-        cost_aware: bool = False
+        cost_aware: bool = False,
+        max_lambda: Optional[float] = None
     ) -> List[Dict]:
         """
         Algoritmo Kriging Believer:
@@ -347,7 +355,10 @@ class BoundaryGaussianProcess:
         if self.gp is None or self.X_train_orig is None or self.y_train_orig is None:
             raise RuntimeError("Il modello deve essere addestrato prima di richiedere un batch.")
 
-        X_cand, candidate_pool = self.generate_candidate_pool(fluid_model_filter=fluid_model_filter)
+        X_cand, candidate_pool = self.generate_candidate_pool(
+            fluid_model_filter=fluid_model_filter,
+            max_lambda=max_lambda
+        )
 
         # Copia di lavoro del dataset per Kriging Believer
         X_curr = np.copy(self.X_train_orig)

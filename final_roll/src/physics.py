@@ -56,6 +56,8 @@ class Physics(nn.Module):
         mu_s_true_val = getattr(builtins, "MU_S_TRUE", mod_globals.get("MU_S_TRUE", 0.1))
         mu_p_true_val = getattr(builtins, "MU_P_TRUE", mod_globals.get("MU_P_TRUE", 0.9))
         lam_true_val = getattr(builtins, "LAM_TRUE", mod_globals.get("LAM_TRUE", 0.05))
+        alpha_true_val = getattr(builtins, "ALPHA_TRUE", mod_globals.get("ALPHA_TRUE", 0.0))
+        eps_true_val = getattr(builtins, "EPS_TRUE", mod_globals.get("EPS_TRUE", 0.0))
 
         guess_factor = getattr(builtins, "GUESS_FACTOR", 0.8)
         guess_mu_s = getattr(builtins, "GUESS_MU_S", mu_s_true_val * guess_factor)

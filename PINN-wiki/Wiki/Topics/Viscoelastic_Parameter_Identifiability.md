@@ -253,10 +253,12 @@ Why does the PINN identify the constitutive parameters with $< 5\text{--}8\%$ er
    $$\mathbf{u} \cdot \nabla \boldsymbol{\tau} \sim -\frac{1}{\lambda} \boldsymbol{\tau} + 2 \frac{\mu_p}{\lambda} \mathbf{D}$$
    Because the bulk flow covers over $90\%$ of the domain and the velocity field $\mathbf{u}$ is resolved with $< 0.8\%$ error, the spatial rate of stress decay provides an abundantly sampled, highly constrained mathematical signature that pins down $\lambda$ and $\mu_p$ regardless of local boundary layer truncation.
 
-### 3. Mesh Convergence Takeaway (Giesekus $5\text{k} \to 12\text{k}$)
-The parallel mesh study on Giesekus ($L=0.7, \alpha=0.35$) further confirms this principle:
-- Increasing collocation points from $5\text{k}$ to $12\text{k}$ halved the estimation errors ($\lambda$: $-8.2\% \to -4.1\%$; $\mu_p$: $-7.8\% \to -3.5\%$).
-- Crucially, the non-linear mobility parameter $\alpha$ converged to an identical value ($\alpha \approx 0.297$ vs $0.299$, $\sim -15\%$), proving that parameter identifiability is structurally robust even on sparse grids, and that residual parameter offsets stem from intrinsic PDE sensitivity rather than spatial under-sampling.
+### 3. Multi-Mesh Convergence (Giesekus $5\text{k} \to 12\text{k} \to 52\text{k}$)
+The complete mesh convergence study on Giesekus ($L=0.7, \alpha=0.35, \eta_p=0.5, \eta_s=0.5$) demonstrates a monotonic convergence toward physical truth:
+- **Relaxation time $\lambda$**: $|\text{Err}|: 8.20\% \ (5\text{k}) \to 4.13\% \ (12\text{k}) \to \mathbf{1.58\% \ (52\text{k})}$.
+- **Polymeric viscosity $\mu_p$**: $|\text{Err}|: 7.79\% \ (5\text{k}) \to 3.47\% \ (12\text{k}) \to \mathbf{1.82\% \ (52\text{k})}$.
+- **Non-linear mobility $\alpha$**: Error stalls at $\sim -15\%$ across sparse meshes ($0.299$ on $5\text{k}$ and $0.297$ on $12\text{k}$), but cuts down to **$-7.16\%$** ($0.3249$) on the fine $52\text{k}$ mesh.
+- **Physical Interpretation**: The quadratic dissipation term $\frac{\alpha \lambda}{\eta_p}(\boldsymbol{\tau} \cdot \boldsymbol{\tau})$ is sharply concentrated in an ultra-thin sub-millimetric boundary layer near the rotating rollers. Sparse grids lack sufficient collocation points within the $\boldsymbol{\tau}^2$ peak to yield strong parametric sensitivity for $\alpha$. At $52\text{k}$ points, the quadratic layer is resolved, unlocking accurate identification of the non-linear mobility parameter.
 
 ---
 
