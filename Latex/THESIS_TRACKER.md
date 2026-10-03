@@ -9,34 +9,41 @@
 
 ## Roadmap e Stato Avanzamento
 
-- [ ] **G1: Ristrutturazione Cap 2 (Fluidodinamica)**
+- [x] **G1: Ristrutturazione Cap 2 (Fluidodinamica)**
   - File: `Chapters/2.Fluid-dynamics.tex`
-  - Output: Indice dettagliato con raccordo al Four-Roll Mill. Taglio del superfluo/generico dalla bozza.
-  - Stato: In corso.
-- [ ] **G2: Revisione testo Cap 2 (Parte 1)**
+  - Output: Indice dettagliato con raccordo al Four-Roll Mill.
+  - Stato: Completato.
+- [x] **G2: Revisione testo Cap 2 (Parte 1)**
   - File: `Chapters/2.Fluid-dynamics.tex`
-  - Output: Sezioni 2.1 e 2.2 chiuse (Governing equations, Modelli costitutivi: focus su limiti sperimentali e necessità numerica).
-- [ ] **G3: Chiusura Cap 2 (Parte 2)**
+  - Output: Sezioni 2.1 e 2.2 chiuse (Governing equations, decomposizione dello sforzo).
+  - Stato: Completato.
+- [x] **G3: Chiusura Cap 2 (Parte 2)**
   - File: `Chapters/2.Fluid-dynamics.tex`
-  - Output: Sezioni 2.3 e 2.4 chiuse (Adimensionalizzazione specifica del dominio, cinematica del four-roll mill).
-- [ ] **G4: Ristrutturazione e revisione Cap 3 (PINN - Parte 1)**
+  - Output: Sezioni 2.3, 2.4 e 2.5 chiuse (Giesekus, PTT, Oldroyd-B, cinematica Four-Roll Mill con equazioni e citazioni, BCs).
+  - Stato: Completato.
+- [x] **G4: Ristrutturazione e revisione Cap 3 (PINN - Parte 1)**
   - File: `Chapters/3.PINNs.tex`
-  - Output: Fondamenti di Raissi et al., struttura loss PDE + BC/IC, formulazione stream-function.
-- [ ] **G5: Chiusura Cap 3 (PINN - Parte 2)**
+  - Output: Fondamenti Deep Learning, Universal Approximation, limiti data-driven, paradigma PINN.
+  - Stato: Completato.
+- [x] **G5: Chiusura Cap 3 (PINN - Parte 2)**
   - File: `Chapters/3.PINNs.tex`
-  - Output: Stato dell'arte su reti per fluidi complessi/viscoelastici (High-Weissenberg problem, gradient pathologies, staged training).
-- [ ] **G6: Cap 4: Metodologia e Setup**
-  - File: `Chapters/4.Results.tex` (da strutturare/creare)
-  - Output: Dominio 4-roll mill, campionamento punti di collocazione, architettura multi-head, loss functions implementate.
-- [ ] **G7: Cap 4: Validazione COMSOL (Fase 1)**
+  - Output: Deep dive training classico vs PINN (AD coordinate, assenza overfitting, meshless), Raissi et al., ViscoelasticNet, literature gap.
+  - Stato: Completato.
+- [x] **G6: Cap 4: Metodologia e Setup**
   - File: `Chapters/4.Results.tex`
-  - Output: Benchmark sintetico COMSOL, metriche di errore e confronto Fase 1 (cinematica e reologia).
+  - Output: Recap matematico stream function, loss multiobiettivo, architettura 3-head SiLU, training a stadi (Phase 1 e Phase 2 con micro-unfreezing).
+  - Stato: Completato.
+- [x] **G7: Cap 4: Validazione COMSOL e Problema Diretto**
+  - File: `Chapters/4.Results.tex`
+  - Output: Studio convergenza di griglia con cutlines, accuratezza diretta $L_2 < 2\%$, calibrazione gauge pressione $\nabla p < 3.5\%$.
+  - Stato: Completato.
 - [ ] **G8: Cap 1: Introduzione e Motivazione**
   - File: `Chapters/1.Introduction.tex` (da strutturare/creare)
   - Output: Stesura completa: traiettoria da "limiti reometria classica" a "PINN nel four-roll mill".
-- [ ] **G9: Cap 4: Risultati Fase 2 o Congelamento Stato**
+- [x] **G9: Cap 4: Risultati Inversi, Mesh Independence, TL e Degenerazione PTT**
   - File: `Chapters/4.Results.tex`
-  - Output: Identificazione parametri / viscosità, analisi critica della convergenza e momentum coupling.
+  - Output: 4 benchmark inversi, grid independence (5k superiore a 125k), transfer learning (-50% epoche), limite invarianza $\mu_s$ a bassi $Re$, spiegazione analitica degenerazione PTT e conservazione modulo elastico $G = \mu_p/\lambda$.
+  - Stato: Completato.
 - [ ] **G10: Conclusioni + Raccordo Finale**
   - File: `Chapters/5.Conclusions.tex` & `references.bib`
   - Output: Conclusioni e future work, audit bibliografico completo, verifica coerenza notazioni globali.
@@ -57,14 +64,13 @@
 
 ---
 
-### Sessione G1 - 2026-09-16
-- **Obiettivo:** Inizializzazione tracker e ristrutturazione Capitolo 2 (*Viscoelastic Fluid Mechanics*).
+### Sessione G1-G7, G9 - 2026-10-03
+- **Obiettivo:** Allineamento integrale con le slide del seminario e finalizzazione di Capitoli 2, 3 e 4.
 - **Azioni completate:**
-  - Creato framework di persistenza e `THESIS_TRACKER.md`.
-  - Configurate regole operative in `GEMINI.md`.
-  - **Capitolo 2 - Intro:** Riformulata con taglio ingegneristico verso il formalismo differenziale della PINN.
-  - **Capitolo 2 - Sez 2.1:** Rimossa l'incomprimibilità prematura da 2.1.1 (puramente generale).
-  - **Capitolo 2 - Sez 2.2:** Approfondito il campo solenoidale (senza stream function, rimandata a Cap 4); corretta la gravità trascurabile (eliminato $Bo$, sostituito con rapporto peso/sforzi viscosi $\rho g L^2 / (\mu_0 U) \ll 1$); giustificata planarità 2D e stazionarietà.
-  - **Capitolo 2 - Sez 2.3:** Eliminati completamente PTT e Giesekus; focalizzazione esclusiva su Oldroyd-B e spiegazione del comportamento estensionale singolare / High-Weissenberg Number Problem ($Wi \to 0.5$).
-  - **Capitolo 2 - Sez 2.4:** Verificata la piena coerenza delle scale e dei residui PDE ($f_u, f_v, f_{\tau}$) con l'implementazione in `final_roll/src/physics.py`.
-- **Prossimo Step Immediato:** Riorganizzazione finale e rifinitura della sezione 2.5 (Boundary Conditions e Four-Roll Mill: no-slip, gauge pressure e pinning).
+  - **Bibliografia (`references.bib`):** Aggiunte 9 citazioni autorevoli con DOI: Goodfellow et al. (2016), Baydin et al. (2018), Fuller & Leal (1981), D'Avino et al. (2017), Matos et al. (2026), Giesekus (1982), Phan-Thien & Tanner (1977), Kingma & Ba (2014), Cybenko (1989).
+  - **Asset grafici (`Latex/images/`):** Importate e collegate tutte le 9 figure ad alta risoluzione (vettoriali e PNG).
+  - **Capitolo 2 (`2.Fluid-dynamics.tex`):** Completato con Giesekus, PTT, Oldroyd-B, residui 2D cartesiani unificati, cinematica analitica 4-roll mill ($E, \omega, \lambda_p$), punto di ristagno iperbolico ($t_{\mathrm{res}} \to \infty$), geometric ratios di D'Avino e boundary conditions con pressure pinning.
+  - **Capitolo 3 (`3.PINNs.tex`):** Completato con Deep Learning fundamentals (SiLU, MLP, Adam Cosine Annealing, L-BFGS), Universal Approximation, limiti data-driven, Deep Dive training standard vs PINN (differenziazione automatica alle coordinate, meshless, assenza di overfitting grazie al vincolo induttivo della PDE), Raissi et al. (2019) (pressione nascosta) e ViscoelasticNet (Thakur et al. 2024).
+  - **Capitolo 4 (`4.Results.tex`):** Creato ex-novo e completato: recap matematico ViscoelasticNet a 3 teste con $\psi$, convergenza COMSOL con cutlines, validazione problema diretto (Tabella 1, $L_2 < 2\%$, calibrazione pressione $\nabla p < 3.5\%$), problema inverso su 4 benchmark (Tabella 2, errori sotto l'1-6\%), grid independence con spiegazione della superiorità di 5k (Tabella 3), transfer learning (-50% epoche), limite invarianza $\mu_s$ a bassi $Re$, spiegazione analitica della degenerazione PTT e conservazione rigida del modulo elastico $G = \mu_p/\lambda$ (Tabella 4), e posizionamento PINN come virtual rheometer.
+  - **Compilazione TeX Live:** Eseguita con successo: **0 errori, 0 citazioni mancanti, 0 riferimenti rotti**. Generato [Latex/TESI.pdf](file:///c:/Users/eaglw/Documents/PINN%20tesi/Latex/TESI.pdf).
+
