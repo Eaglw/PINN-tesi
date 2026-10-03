@@ -24,12 +24,12 @@ Configuration: Canonical Oldroyd-B fluid ($Wi = 0.0833, Re = 0.0417, \lambda = 0
 
 ## 2. Inverse Problem: The 4 Representative Benchmarks
 
-| # | Constitutive Model | Regime / Setup | Target Parameter | PINN Estimation | Parameter Error | Velocity $L_2(u,v)$ Error |
-| :-: | :--- | :--- | :--- | :--- | :---: | :-: |
-| **1** | **Oldroyd-B** | Canonical Benchmark (125k Mesh) | $\lambda = 0.050\,\mathrm{s}$<br/>$\mu_p = 0.900\,\mathrm{Pa\cdot s}$ | $\lambda = \mathbf{0.0502\,\mathrm{s}}$<br/>$\mu_p = \mathbf{0.9049\,\mathrm{Pa\cdot s}}$ | **$+0.41\%$**<br/>**$+0.54\%$** | **$0.040\%$** |
-| **2** | **Giesekus** | Nonlinear (Blind guess $\alpha_0 = 0.25$) | $\alpha = 0.350$<br/>$\lambda = 0.100\,\mathrm{s}$<br/>$\mu_p = 0.500\,\mathrm{Pa\cdot s}$ | $\alpha = \mathbf{0.3298}$<br/>$\lambda = \mathbf{0.1032\,\mathrm{s}}$<br/>$\mu_p = \mathbf{0.5307\,\mathrm{Pa\cdot s}}$ | **$-5.76\%$**<br/>**$+3.16\%$**<br/>**$+6.14\%$** | **$0.460\%$** |
-| **3** | **Mesh Study** | Resolution Independence (5k vs 125k) | $\lambda = 0.100\,\mathrm{s}$<br/>$\mu_p = 0.500\,\mathrm{Pa\cdot s}$ | **5k**: $\lambda = \mathbf{0.1008\,\mathrm{s}}$<br/>**125k**: $\lambda = 0.1083\,\mathrm{s}$ | **5k**: **$+0.79\%$**<br/>**125k**: $+8.32\%$ | **$0.150\%$** (5k)<br/>$0.500\%$ (125k) |
-| **4** | **Transfer Learning**| High-Weissenberg Continuation | $\lambda = 0.100\,\mathrm{s}$<br/>$\lambda = 0.200\,\mathrm{s}$<br/>$G = 2.500\,\mathrm{Pa}$ | $\lambda_{0.1} = \mathbf{0.1037\,\mathrm{s}}$<br/>$\lambda_{0.2} = \mathbf{0.2081\,\mathrm{s}}$<br/>$G = \mathbf{2.505\,\mathrm{Pa}}$ | **$+3.70\%$**<br/>**$+4.05\%$**<br/>**$+0.20\%$** | $< \mathbf{0.310\%}$ |
+| # | Constitutive Model | Setup & Strategy | TF Donor Source | Target Parameter | PINN Estimation | Parameter Error | Velocity $L_2(u,v)$ Error |
+| :-: | :--- | :--- | :--- | :--- | :--- | :---: | :-: |
+| **1** | **Oldroyd-B** | Standard Canonical ($Wi = 0.08$) | **Ex-Novo** (From Scratch, 50k iters) | $\lambda = 0.050\,\mathrm{s}$<br/>$\mu_p = 0.900\,\mathrm{Pa\cdot s}$ | $\lambda = \mathbf{0.0502\,\mathrm{s}}$<br/>$\mu_p = \mathbf{0.9049\,\mathrm{Pa\cdot s}}$ | **$+0.41\%$**<br/>**$+0.54\%$** | **$0.040\%$** |
+| **2** | **Oldroyd-B** | High Elasticity ($Wi = 1.17$, Boger) | **Transfer Learning** (25k iters, -50%) | `ckpt_L0.2-P0.5-S0.5` | $\lambda = \mathbf{0.7089\,\mathrm{s}}$<br/>$\mu_p = \mathbf{0.5019\,\mathrm{Pa\cdot s}}$ | **$+1.27\%$**<br/>**$+0.38\%$** | **$0.330\%$** |
+| **3** | **Giesekus** | Nonlinear (Blind guess $\alpha_0 = 0.25$) | **Ex-Novo** (From Scratch, 50k iters) | $\alpha = 0.350$<br/>$\lambda = 0.100\,\mathrm{s}$<br/>$\mu_p = 0.500\,\mathrm{Pa\cdot s}$ | $\alpha = \mathbf{0.3298}$<br/>$\lambda = \mathbf{0.1032\,\mathrm{s}}$<br/>$\mu_p = \mathbf{0.5307\,\mathrm{Pa\cdot s}}$ | **$-5.76\%$**<br/>**$+3.16\%$**<br/>**$+6.14\%$** | **$0.460\%$** |
+| **4** | **Giesekus** | Extreme Mobility (Max $\alpha = 0.50$) | **Transfer Learning** (25k iters, -50%) | `ckpt_giesekus_L0.1-A0.35` | $\alpha = \mathbf{0.4665}$<br/>$\lambda = \mathbf{0.3077\,\mathrm{s}}$<br/>$\mu_p = \mathbf{0.0522\,\mathrm{Pa\cdot s}}$ | **$-6.70\%$**<br/>**$+2.57\%$**<br/>**$+4.40\%$** | **$0.520\%$** |
 
 > **Slide Talking Point (Inverse Problem)**:
 > "Crucially, the PINN is trained without any internal stress sensor data; only boundary velocity on the rotating rollers is provided (mimicking experimental PIV measurements). The network simultaneously reconstructs the hidden stress distribution and inverts both linear relaxation times and nonlinear mobility parameters with errors well within single digits."

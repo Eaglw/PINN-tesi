@@ -326,24 +326,26 @@ def export_inverse_benchmarks_figures():
     # -------------------------------------------------------------------------
     # 1. Dark-mode High-Resolution Table for the 4 Representative Inverse Cases
     # -------------------------------------------------------------------------
-    fig_tbl = plt.figure(figsize=(19, 8.5), facecolor=DARK_BG)
+    fig_tbl = plt.figure(figsize=(21, 9.6), facecolor=DARK_BG)
     ax_tbl = fig_tbl.add_subplot(111)
     ax_tbl.axis("off")
 
     headers = [
         "Case #",
         "Constitutive Model & Setup",
+        "Training Strategy & TF Source",
         "Target Parameter",
-        "Ground Truth",
-        "PINN Prediction",
-        "Param. Error",
-        "Field Error $L_2$"
+        "Ground\nTruth",
+        "PINN\nPrediction",
+        "Parameter\nError",
+        "Velocity\nError $L_2$"
     ]
 
     table_data = [
         [
             "Case 1",
-            "Canonical Oldroyd-B\n(Dense 125k Mesh Benchmark)",
+            "Canonical Oldroyd-B\n(Standard Low-$Wi = 0.08$)",
+            "Ex-Novo (From Scratch)\n40k Adam + 10k L-BFGS\nDonor: None",
             "Relaxation time $\\lambda$ [s]\nPolymer viscosity $\\mu_p$ [Pa·s]",
             "0.0500\n0.9000",
             "0.0502\n0.9049",
@@ -352,34 +354,37 @@ def export_inverse_benchmarks_figures():
         ],
         [
             "Case 2",
+            "Oldroyd-B High Elasticity\n(High-$Wi = 1.17$, Boger Fluid)",
+            "Transfer Learning (TF)\n20k Adam + 5k L-BFGS (-50% budget)\nDonor: ckpt_L0.2-P0.5-S0.5",
+            "Relaxation time $\\lambda$ [s]\nPolymer viscosity $\\mu_p$ [Pa·s]",
+            "0.7000\n0.5000",
+            "0.7089\n0.5019",
+            "+1.27%\n+0.38%",
+            "0.330%"
+        ],
+        [
+            "Case 3",
             "Nonlinear Giesekus Model\n(Blind guess $\\alpha_0 = 0.25$)",
-            "Mobility $\\alpha$ [-]\nRelaxation time $\\lambda$ [s]\nPolymer viscosity $\\mu_p$ [Pa·s]",
+            "Ex-Novo (From Scratch)\n40k Adam + 10k L-BFGS\nDonor: None",
+            "Mobility parameter $\\alpha$ [-]\nRelaxation time $\\lambda$ [s]\nPolymer viscosity $\\mu_p$ [Pa·s]",
             "0.3500\n0.1000\n0.5000",
             "0.3298\n0.1032\n0.5307",
             "-5.76%\n+3.16%\n+6.14%",
             "0.460%"
         ],
         [
-            "Case 3",
-            "Mesh Independence Study\n(Ultra-light 5k vs Dense 125k)",
-            "$\\lambda$ (5k Mesh) [s]\n$\\mu_p$ (5k Mesh) [Pa·s]\n$\\lambda$ (125k Mesh) [s]",
-            "0.1000\n0.5000\n0.1000",
-            "0.1008\n0.5103\n0.1083",
-            "+0.79%\n+2.06%\n+8.32%",
-            "0.150% (5k)\n0.500% (125k)"
-        ],
-        [
             "Case 4",
-            "Transfer Learning Continuation\n(High-Wi: $\\lambda = 0.05 \\to 0.20$ s)",
-            "$\\lambda = 0.10$ s (from 0.05s)\n$\\lambda = 0.20$ s (from 0.10s)\nShear modulus $G = \\mu_p/\\lambda$ [Pa]",
-            "0.1000\n0.2000\n2.5000",
-            "0.1037\n0.2081\n2.5050",
-            "+3.70%\n+4.05%\n+0.20%",
-            "< 0.310%"
+            "Giesekus Extreme Mobility\n(Strong shear-thinning $\\alpha = 0.50$)",
+            "Transfer Learning (TF)\n20k Adam + 5k L-BFGS (-50% budget)\nDonor: ckpt_giesekus_L0.1-A0.35",
+            "Mobility parameter $\\alpha$ [-]\nRelaxation time $\\lambda$ [s]\nPolymer viscosity $\\mu_p$ [Pa·s]",
+            "0.5000\n0.3000\n0.0500",
+            "0.4665\n0.3077\n0.0522",
+            "-6.70%\n+2.57%\n+4.40%",
+            "0.520%"
         ]
     ]
 
-    col_widths = [0.08, 0.25, 0.21, 0.11, 0.11, 0.12, 0.12]
+    col_widths = [0.06, 0.19, 0.23, 0.18, 0.085, 0.085, 0.085, 0.085]
     mpl_table = ax_tbl.table(
         cellText=table_data,
         colLabels=headers,
@@ -389,7 +394,7 @@ def export_inverse_benchmarks_figures():
     )
 
     mpl_table.auto_set_font_size(False)
-    mpl_table.set_fontsize(11.5)
+    mpl_table.set_fontsize(11.0)
 
     # Style table cells
     for (row_idx, col_idx), cell in mpl_table.get_celld().items():
@@ -398,29 +403,36 @@ def export_inverse_benchmarks_figures():
         if row_idx == 0:
             # Header
             cell.set_facecolor("#1f2937")
-            cell.set_text_props(color="#58a6ff", weight="bold", fontsize=12)
-            cell.set_height(0.10)
+            cell.set_text_props(color="#58a6ff", weight="bold", fontsize=11.5)
+            cell.set_height(0.12)
         else:
             # Body rows
             bg_color = DARK_PANEL if row_idx % 2 == 1 else DARK_BG
             cell.set_facecolor(bg_color)
-            cell.set_height(0.18)
+            cell.set_height(0.19)
 
             if col_idx == 0:
-                cell.set_text_props(color="#58a6ff", weight="bold", fontsize=12.5)
+                cell.set_text_props(color="#58a6ff", weight="bold", fontsize=12)
             elif col_idx == 1:
-                cell.set_text_props(color="#e6edf3", weight="bold", fontsize=11.5)
-            elif col_idx == 4:
-                cell.set_text_props(color="#7ee787", weight="bold", fontsize=12)
+                cell.set_text_props(color="#e6edf3", weight="bold", fontsize=11)
+            elif col_idx == 2:
+                cell.set_text_props(color="#79c0ff", fontsize=10.5)
             elif col_idx == 5:
-                cell.set_text_props(color="#f2cc60", weight="bold", fontsize=12)
+                cell.set_text_props(color="#7ee787", weight="bold", fontsize=11.5)
             elif col_idx == 6:
-                cell.set_text_props(color="#bc8cff", weight="bold", fontsize=12)
+                cell.set_text_props(color="#f2cc60", weight="bold", fontsize=11.5)
+            elif col_idx == 7:
+                cell.set_text_props(color="#bc8cff", weight="bold", fontsize=11.5)
             else:
-                cell.set_text_props(color="#c9d1d9", fontsize=11.5)
+                cell.set_text_props(color="#c9d1d9", fontsize=11)
 
-    fig_tbl.suptitle("Inverse Problem: Summary of the 4 Key Parameter Identification Benchmarks",
-                     fontsize=19, fontweight="bold", y=0.96, color="#ffffff")
+    fig_tbl.suptitle(
+        "Inverse Problem: Key Parameter Discovery Benchmarks (Oldroyd-B & Giesekus with Transfer Learning)",
+        fontsize=18,
+        fontweight="bold",
+        y=0.96,
+        color="#ffffff"
+    )
 
     save_tbl_path = OUTPUT_DIR / "fig4_inverso_barchart_parametri.png"
     fig_tbl.savefig(str(save_tbl_path), bbox_inches="tight", facecolor=DARK_BG)
