@@ -123,30 +123,37 @@ def parse_dataset_metadata(path_or_filename):
     import re
     name = Path(path_or_filename).name
 
-    pattern = r"^(?:4_roll_mill_)?L([0-9.]+)-P([0-9.]+)-S([0-9.]+)-A([0-9.]+)-E([0-9.]+)[_-]M([0-9a-zA-Z]+)(?:\.csv)?$"
+    pattern = r"^(?:4_roll_mill_)?L([0-9.]+)-P([0-9.]+)-S([0-9.]+)-A([0-9.]+)-E([0-9.]+)(?:-([a-zA-Z0-9]+))?[_-]M([0-9a-zA-Z]+)(?:\.csv)?$"
     m = re.match(pattern, name)
     if not m:
         raise ValueError(
             f"[STRICT DATASET ERROR] Il nome file o tag '{name}' non rispetta la convenzione obbligatoria:\n"
             f"  Formato atteso: 4_roll_mill_L{{lambda}}-P{{eta_p}}-S{{eta_s}}-A{{alpha}}-E{{eps}}_M{{mesh}}.csv\n"
+            f"  (o variante con tag modello, es. 4_roll_mill_L0.5-P0.5-S0.5-A0-E0.3-ePTT-M5k.csv)\n"
             f"  Esempio valido: 4_roll_mill_L0.05-P0.5-S0.5-A0-E0_M125k.csv\n"
             f"  Nessun fallback consentito: rinomina il dataset o correggi il parametro."
         )
-    return {
+    model_tag = m.group(6)
+    meta = {
         "lam_true": float(m.group(1)),
         "mu_p_true": float(m.group(2)),
         "mu_s_true": float(m.group(3)),
         "alpha_true": float(m.group(4)),
         "eps_true": float(m.group(5)),
-        "mesh_tag": m.group(6),
+        "mesh_tag": m.group(7),
     }
+    if model_tag:
+        meta["model_tag"] = model_tag
+        if model_tag.lower() in ("eptt", "exp", "exponential"):
+            meta["ptt_form"] = "exp"
+    return meta
 
 
 def resolve_dataset_path(directory, param_tag):
     """
     Risolve rigorosamente il percorso del dataset in base al tag standard.
     Supporta sia directory base 'COMSOL/4roll' sia 'COMSOL/4roll/Datasets'.
-    Supporta entrambe le varianti di separatore mesh (_M e -M).
+    Supporta entrambe le varianti di separatore mesh (_M e -M) e tag ePTT.
     Solleva FileNotFoundError bloccante se il file non esiste (nessun fallback).
     """
     dir_path = Path(directory)
@@ -163,6 +170,13 @@ def resolve_dataset_path(directory, param_tag):
         alt_file = dir_path / f"4_roll_mill_{alt_tag}.csv"
         if alt_file.exists():
             return alt_file
+
+        # Controlla eventuale presenza del tag -ePTT o altro modello prima del separatore mesh
+        base_prefix = param_tag.split("_M")[0] if "_M" in param_tag else param_tag.split("-M")[0]
+        mesh_part = param_tag.split("_M")[1] if "_M" in param_tag else param_tag.split("-M")[1]
+        for cand in dir_path.glob(f"*{base_prefix}*{mesh_part}*.csv"):
+            if cand.is_file():
+                return cand
 
         existing_csvs = list(dir_path.glob("*.csv"))
         file_list_str = "\n".join(f"    - {f.name}" for f in existing_csvs) if existing_csvs else "    (nessun file .csv trovato)"

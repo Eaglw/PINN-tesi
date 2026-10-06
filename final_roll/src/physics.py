@@ -28,7 +28,7 @@ def inverse_sigmoid(y, eps=1e-7):
 class Physics(nn.Module):
     """PDE adimensionali + boundary conditions. Supporta modalità diretta o inversa."""
 
-    def __init__(self, U_ref, H_ref, H_coord=0.05, var_weights=None, inverse_mode=True, tau_scale=1.0, p_scale=50.0, use_roll_stress_bc=True, w_roll_stress=1.0, eta_0=None):
+    def __init__(self, U_ref, H_ref, H_coord=0.05, var_weights=None, inverse_mode=True, tau_scale=1.0, p_scale=50.0, use_roll_stress_bc=True, w_roll_stress=1.0, eta_0=None, ptt_form=None):
         super().__init__()
         self.U_ref = U_ref
         self.H_ref = H_ref
@@ -38,6 +38,11 @@ class Physics(nn.Module):
         self.p_scale = p_scale
         self.use_roll_stress_bc = use_roll_stress_bc
         self.w_roll_stress = w_roll_stress
+
+        # Supporto per formulazione PTT: 'linear' (default) o 'exp'/'exponential'
+        if ptt_form is None:
+            ptt_form = getattr(builtins, "PTT_FORM", globals().get("PTT_FORM", "linear"))
+        self.ptt_form = str(ptt_form).lower()
 
         # [Proposta C] Registrazione buffer tau_scale (1, 3)
         if not isinstance(tau_scale, torch.Tensor):
@@ -361,7 +366,13 @@ class Physics(nn.Module):
 
         # --- Costitutive ---
         if w_constitutive > 0.0:
-            f_PTT = 1.0 + (eps * Wi / mu_p_nd) * (tau_xx + tau_yy)
+            if getattr(self, "ptt_form", "linear") in ("exp", "exponential", "eptt"):
+                # Exponential Phan-Thien-Tanner (ePTT): Y = exp( (eps * Wi / mu_p_nd) * tr(tau) )
+                exp_arg = torch.clamp((eps * Wi / mu_p_nd) * (tau_xx + tau_yy), max=50.0)
+                f_PTT = torch.exp(exp_arg)
+            else:
+                # Linear Phan-Thien-Tanner (lPTT) standard: Y = 1 + (eps * Wi / mu_p_nd) * tr(tau)
+                f_PTT = 1.0 + (eps * Wi / mu_p_nd) * (tau_xx + tau_yy)
             upper_xx = u * tau_xx_x + v * tau_xx_y - 2 * u_x * tau_xx - 2 * u_y * tau_xy
             upper_yy = u * tau_yy_x + v * tau_yy_y - 2 * v_x * tau_xy - 2 * v_y * tau_yy
             upper_xy = (

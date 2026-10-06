@@ -105,6 +105,7 @@ WARMUP_UNLOCK_EPOCH = 0
 TRANSFER_CKPT_PATH = None
 ADAM_EPOCHS_OVERRIDE = None
 LBFGS_ITERS_OVERRIDE = None
+PTT_FORM = getattr(builtins, "PTT_FORM", "linear")
 
 for i, arg in enumerate(sys.argv):
     if arg == "--mesh" and i + 1 < len(sys.argv):
@@ -119,6 +120,10 @@ for i, arg in enumerate(sys.argv):
         EPS_TRUE = float(sys.argv[i + 1])
     elif arg.startswith("--eps="):
         EPS_TRUE = float(arg.split("=")[1])
+    elif arg == "--ptt-form" and i + 1 < len(sys.argv):
+        PTT_FORM = sys.argv[i + 1].lower()
+    elif arg.startswith("--ptt-form="):
+        PTT_FORM = arg.split("=")[1].lower()
     elif arg == "--warmup" and i + 1 < len(sys.argv):
         WARMUP_UNLOCK_EPOCH = int(sys.argv[i + 1])
     elif arg.startswith("--warmup="):
@@ -147,6 +152,8 @@ for i, arg in enumerate(sys.argv):
         ALPHA_TRUE = _meta["alpha_true"]
         EPS_TRUE = _meta["eps_true"]
         MESH_TAG = _meta["mesh_tag"]
+        if "ptt_form" in _meta:
+            PTT_FORM = _meta["ptt_form"]
     elif arg.startswith("--dataset="):
         _meta = parse_dataset_metadata(arg.split("=")[1])
         LAM_TRUE = _meta["lam_true"]
@@ -155,6 +162,10 @@ for i, arg in enumerate(sys.argv):
         ALPHA_TRUE = _meta["alpha_true"]
         EPS_TRUE = _meta["eps_true"]
         MESH_TAG = _meta["mesh_tag"]
+        if "ptt_form" in _meta:
+            PTT_FORM = _meta["ptt_form"]
+
+builtins.PTT_FORM = PTT_FORM
 
 # Ricalcolo grandezze derivate dopo eventuale parsing CLI
 MU_TOT_TRUE = MU_S_TRUE + MU_P_TRUE
@@ -272,7 +283,8 @@ if RESUME_CHECKPOINT is not None and RESUME_CHECKPOINT.exists():
     config_name = OUTPUT_DIR.name
 else:
     run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
-    config_name = f"[{run_timestamp}][{mode_tag}][{PARAM_TAG}][{budget_tag}]"
+    model_tag_str = "[ePTT]" if PTT_FORM in ("exp", "exponential", "eptt") else ""
+    config_name = f"[{run_timestamp}][{mode_tag}][{PARAM_TAG}]{model_tag_str}[{budget_tag}]"
     OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -320,6 +332,7 @@ if __name__ == "__main__":
         tau_scale=data["tau_scale_vec"],
         p_scale=data["p_scale"],
         eta_0=ETA_0,
+        ptt_form=PTT_FORM,
     ).to(DEVICE)
 
     # 2b. Caricamento Pesi da Transfer Learning (se specificato)
@@ -337,8 +350,9 @@ if __name__ == "__main__":
         print(f"\n[Transfer Learning] Caricamento pesi pre-addestrati da:\n  {transfer_p}")
         source_chk = torch.load(str(transfer_p), map_location=DEVICE)
         model_dict = model.state_dict()
+        source_model_state = source_chk.get('model_state_dict', source_chk.get('model_state', {}))
         pretrained_dict = {
-            k: v for k, v in source_chk['model_state_dict'].items()
+            k: v for k, v in source_model_state.items()
             if k in model_dict and v.shape == model_dict[k].shape
         }
         model.load_state_dict(pretrained_dict, strict=False)
