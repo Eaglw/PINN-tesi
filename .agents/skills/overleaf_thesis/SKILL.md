@@ -1,6 +1,6 @@
 ---
 name: overleaf_thesis
-description: Protocol for developing, formatting, validating, and editing a LaTeX thesis for Overleaf. Manages chapter files (chapters/), bibliography (references.bib), media inclusion, math/CFD/PINN notation, syntax checks, quality control reports, and scientific English editing.
+description: Protocol for developing, formatting, validating, and editing a LaTeX thesis for Overleaf and local workflows. Manages chapter files (chapters/), bibliography (references.bib), media inclusion, math/CFD/PINN notation, syntax checks, local fast PDF compilation with texres, quality control reports, and scientific English editing.
 ---
 
 # overleaf_thesis: Overleaf LaTeX Thesis Development & Quality Protocol
@@ -50,15 +50,43 @@ Each chapter must reside in `Latex/Chapters/` as a standalone `.tex` file using 
 
 ---
 
-## 3. LaTeX Syntax & Quality Control Protocol
+## 3. Local PDF Compilation Protocol (`texres`)
+
+The thesis project utilizes **`texres`** (high-performance Rust TeX engine, formerly known as `ratex`) for fast local builds, incremental compilation, and real-time preview.
+
+### Standard Build Command:
+To compile the complete thesis with auxiliary bibliography parsing, cross-references, and SyncTeX:
+```powershell
+# From workspace root:
+texres -pdf -interaction=nonstopmode -synctex=1 -jobname TESI Latex/main.tex
+
+# Or inside the Latex/ folder:
+cd Latex
+texres -pdf -interaction=nonstopmode -synctex=1 -jobname TESI main.tex
+```
+
+### Key Technical Details:
+- **Binary**: `texres.exe` (located in PATH, e.g. `C:\Program Files\ratex\bin\texres.exe`).
+- **Flags**:
+  - `-pdf`: Selects standard PDF output mode (or auto-detected from preamble).
+  - `-interaction=nonstopmode`: Batch non-interactive compilation.
+  - `-synctex=1`: Generates `.synctex.gz` allowing bi-directional editor-PDF navigation (Ctrl+Click).
+  - `-jobname TESI`: Names output files `TESI.pdf` and `TESI.synctex.gz`.
+- **Output Artifacts**: Produces `Latex/TESI.pdf` directly. Internal cache and auxiliary files are managed cleanly.
+- **Speed**: Executes full multi-pass compilation and BibTeX in ~2-6 seconds.
+
+---
+
+## 4. LaTeX Syntax & Quality Control Protocol
 
 Whenever reviewing, editing, or validating thesis files, execute a **Quality Control (QC)** check.
 
-### Syntax Check Rules:
-1. **Balanced Environments**: Every `\begin{env}` must match an `\end{env}`.
-2. **Brace Matching**: Ensure all curly braces `{}` and square brackets `[]` are strictly balanced.
-3. **Hierarchy Integrity**: Verify logical structural depth (`\chapter{}` -> `\section{}` -> `\subsection{}` -> `\subsubsection{}`).
-4. **Cross-Referencing**:
+### Syntax & Build Check Rules:
+1. **Compilation Validation (`texres`)**: Execute `texres -pdf -interaction=nonstopmode -synctex=1 -jobname TESI Latex/main.tex` and ensure exit status is 0 and `TESI.pdf` is generated.
+2. **Balanced Environments**: Every `\begin{env}` must match an `\end{env}`.
+3. **Brace Matching**: Ensure all curly braces `{}` and square brackets `[]` are strictly balanced.
+4. **Hierarchy Integrity**: Verify logical structural depth (`\chapter{}` -> `\section{}` -> `\subsection{}` -> `\subsubsection{}`).
+5. **Cross-Referencing**:
    - Labels: `\label{chap:...}`, `\label{sec:...}`, `\label{fig:...}`, `\label{tab:...}`, `\label{eq:...}`.
    - References: Use `\ref{sec:...}` for sections/figures, `\eqref{eq:...}` for equations, and `\cite{...}` for citations.
 
@@ -70,7 +98,12 @@ When asked to perform a Quality Control audit, generate a report structured as f
 
 ## Summary Status: [ OK | WARNING | ERROR ]
 
-### 1. File Structure & Existence
+### 1. Build & Compilation (`texres`)
+- Compilation command: `texres -pdf -interaction=nonstopmode -synctex=1 -jobname TESI Latex/main.tex`
+- Exit Code: 0 (OK)
+- Target: `Latex/TESI.pdf` (Generated/Updated)
+
+### 2. File Structure & Existence
 - [x] chapters/01_introduction.tex (Valid)
 - [x] chapters/02_fluidodynamic_background.tex (Valid)
 - ...
@@ -94,7 +127,7 @@ When asked to perform a Quality Control audit, generate a report structured as f
 
 ---
 
-## 4. Bibliography Management (`references.bib`)
+## 5. Bibliography Management (`references.bib`)
 
 1. **Syntax Integrity**: Ensure BibTeX entries follow valid key-value structures (`@article`, `@book`, `@inproceedings`, `@phdthesis`).
 2. **Citation Style**: IEEE or ACS style (`\usepackage[style=ieee]{biblatex}`).
@@ -107,7 +140,7 @@ When asked to perform a Quality Control audit, generate a report structured as f
 
 ---
 
-## 5. Figures and Media Standards (`media/`)
+## 6. Figures and Media Standards (`media/`)
 
 1. **File Location**: Place all figures in `media/` (e.g., `media/4roll_streamlines.png`, `media/pinn_architecture.pdf`).
 2. **Environment Template**:
@@ -127,7 +160,7 @@ When asked to perform a Quality Control audit, generate a report structured as f
 
 ---
 
-## 6. Mathematical & Physics Notation Guidelines (CFD & PINNs)
+## 7. Mathematical & Physics Notation Guidelines (CFD & PINNs)
 
 1. **Packages**: Use `amsmath`, `amssymb`, `siunitx`.
 2. **SI Units**: Use `\SI{value}{unit}` or `\qty{value}{unit}` (e.g., `\SI{1.0}{\pascal\second}`, `\SI{1000}{\kilogram\per\cubic\meter}`).
@@ -146,7 +179,7 @@ When asked to perform a Quality Control audit, generate a report structured as f
 
 ---
 
-## 7. Scientific English Writing & Style Guidelines
+## 8. Scientific English Writing & Style Guidelines
 
 When writing or editing thesis text, adhere strictly to these scientific writing principles:
 
@@ -163,7 +196,7 @@ When writing or editing thesis text, adhere strictly to these scientific writing
 
 ---
 
-## 8. Step-by-Step Skill Workflow
+## 9. Step-by-Step Skill Workflow
 
 When invoked by the user (e.g., "Antigravity, review chapter 2", "Write introduction for LaTeX thesis", "Run quality check on thesis files"):
 
@@ -176,8 +209,9 @@ When invoked by the user (e.g., "Antigravity, review chapter 2", "Write introduc
    - **Bibliography**: Check or insert BibTeX citations, verifying against `references.bib`.
    - **Figures**: Format LaTeX figure blocks and check file existence in `media/`.
 
-3. **Run Quality Control**:
+3. **Run Quality Control & Build Validation**:
    - Perform LaTeX syntax check (balanced environment tags, brace counts, citation links).
+   - Execute fast compilation test with `texres` (`texres -pdf -interaction=nonstopmode -synctex=1 -jobname TESI Latex/main.tex`) to ensure `TESI.pdf` builds without errors.
    - Generate summary report if requested.
 
 4. **User Communication**:

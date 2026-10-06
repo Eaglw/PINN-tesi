@@ -541,7 +541,10 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
         eta_min_ph1 = getattr(builtins, "ETA_MIN", 2.5e-6)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps_rem, 1), eta_min=eta_min_ph1)
-        print(f"  Learning Rate Fase 1: Cosine Annealing da {BASE_LR:.2e} a {eta_min_ph1:.2e} (con parametri fisici a LR={phys_lr:.2e} -> {eta_min_ph1:.2e})")
+        if physics.inverse_mode:
+            print(f"  Learning Rate Fase 1: Cosine Annealing da {BASE_LR:.2e} a {eta_min_ph1:.2e} (con parametri fisici a LR={phys_lr:.2e} -> {eta_min_ph1:.2e})")
+        else:
+            print(f"  Learning Rate Fase 1: Cosine Annealing da {BASE_LR:.2e} a {eta_min_ph1:.2e} (parametri fisici fissi)")
 
         # Carica stato se ripreso da checkpoint
         opt_loaded = False
