@@ -145,7 +145,7 @@ As illustrated in Figure~\ref{fig:direct_kinematics}, the predicted velocity com
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.92\linewidth]{images/fig1_diretto_cinematica.png}
+    \includegraphics[width=0.92\linewidth]{media/fig1_diretto_cinematica.png}
     \caption{Comparison of kinematic velocity fields between PINN predictions and COMSOL reference data for the direct problem, showing $u$ and $v$ contours and absolute error distributions.}
     \label{fig:direct_kinematics}
 \end{figure}
@@ -155,7 +155,7 @@ Resolving extra-stress tensor fields in viscoelastic flows is notoriously diffic
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.92\linewidth]{images/fig3_diretto_stress.png}
+    \includegraphics[width=0.92\linewidth]{media/fig3_diretto_stress.png}
     \caption{Viscoelastic extra-stress tensor components $(\tau_{xx}, \tau_{xy}, \tau_{yy})$ for the direct problem: COMSOL ground truth, PINN predictions, and point-wise absolute residuals.}
     \label{fig:direct_stress}
 \end{figure}
@@ -164,7 +164,7 @@ Furthermore, the first normal stress difference $N_1 = \tau_{xx} - \tau_{yy}$, p
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\linewidth]{images/fig3b_diretto_n1.png}
+    \includegraphics[width=0.85\linewidth]{media/fig3b_diretto_n1.png}
     \caption{Distribution of the first normal stress difference $N_1 = \tau_{xx} - \tau_{yy}$ across the four-roll mill domain, highlighting elastic stress concentration at the central stagnation region.}
     \label{fig:direct_n1}
 \end{figure}
@@ -180,7 +180,7 @@ As shown in Figure~\ref{fig:direct_pressure}, the calibrated pressure field exhi
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.88\linewidth]{images/fig2_diretto_pressione.png}
+    \includegraphics[width=0.88\linewidth]{media/fig2_diretto_pressione.png}
     \caption{Hydrodynamic pressure field reconstruction: comparison between raw PINN prediction, gauge-calibrated pressure, and COMSOL reference field, demonstrating exact gradient matching.}
     \label{fig:direct_pressure}
 \end{figure}
@@ -231,7 +231,7 @@ Table~\ref{tab:inverse_benchmarks} summarizes the parameter estimation accuracy 
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.88\linewidth]{images/fig4_inverso_barchart_parametri.png}
+    \includegraphics[width=0.88\linewidth]{media/fig4_inverso_barchart_parametri.png}
     \caption{Relative percentage error in estimated constitutive parameters ($\lambda, \mu_p, \alpha$) across the four inverse benchmarks, highlighting sub-percent errors for Oldroyd-B and single-digit errors for Giesekus.}
     \label{fig:inverse_barchart}
 \end{figure}
@@ -243,7 +243,7 @@ Figure~\ref{fig:inverse_convergence} displays the parameter evolution during the
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\linewidth]{images/slide50_inverse_convergence_m125k.png}
+    \includegraphics[width=0.85\linewidth]{media/fig4b_inverso_convergence_m125k.png}
     \caption{Parameter convergence trajectories ($\lambda$ and $\mu_p$) during staged Adam (FP32) and L-BFGS (FP64) optimization on the M125k dataset.}
     \label{fig:inverse_convergence}
 \end{figure}
@@ -275,7 +275,7 @@ In classical finite element methods, refining the computational mesh monotonical
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.88\linewidth]{images/fig5_inverso_mesh_independence.png}
+    \includegraphics[width=0.88\linewidth]{media/fig5_inverso_mesh_independence.png}
     \caption{Grid independence study: comparison of parameter estimation errors ($\lambda$ and $\mu_p$) and velocity $L_2$ errors across mesh resolutions from 5k to 125k collocation points.}
     \label{fig:inverse_mesh_convergence}
 \end{figure}
@@ -351,7 +351,7 @@ When applying the inverse PINN solver to synthetic data generated from the Phan-
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.88\linewidth]{images/fig6_ptt_degeneracy_insight.png}
+    \includegraphics[width=0.88\linewidth]{media/fig6_ptt_degeneracy_insight.png}
     \caption{The PTT parameter degeneracy: comparison of offline PDE loss landscape versus network convergence, illustrating the preservation of the elastic shear modulus $G = \mu_p / \lambda$.}
     \label{fig:ptt_degeneracy}
 \end{figure}
