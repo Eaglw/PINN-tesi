@@ -13,6 +13,14 @@ scratch/
 !PINN-wiki/Runs/**/*.png
 !PINN-wiki/Runs/**/*.txt
 !PINN-wiki/Wiki/Assets/Mesh_Convergence/*.png
+!Latex/media/**/*.png
+!Latex/media/*.png
+!Latex/media/**/*.jpg
+!Latex/media/*.jpg
+!Latex/images/**/*.png
+!Latex/images/*.png
+!Latex/images/**/*.jpg
+!Latex/images/*.jpg
 .DS_Store
 *.mph.lock
 train_log.txt

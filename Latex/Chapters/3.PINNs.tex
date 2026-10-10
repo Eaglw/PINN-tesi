@@ -42,8 +42,8 @@ fundamentals of neural networks and their optimization. We then examine why
 continuous neural representations are compelling for physical modeling, while
 discussing the critical limitations of purely data-driven black-box approaches. This
 analysis naturally motivates the Physics-Informed Neural Network (PINN) paradigm,
-followed by a review of foundational literature benchmarks and the specific research
-objectives of this dissertation in complex viscoelastic flows.
+followed by a review of foundational literature benchmarks and their applications
+in complex non-Newtonian flows.
 
 % ============================================================
 % 3.1 FUNDAMENTALS OF DEEP LEARNING
@@ -122,6 +122,13 @@ A central theoretical property of MLPs is their universal approximation capabili
 \cite{cybenko1989approximation, hornik1989multilayer}: a feedforward network with
 sufficient width and smooth non-linear activations can approximate any continuous
 function on a closed domain to an arbitrary degree of accuracy.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.92\linewidth]{media/deep_learning_mlp_diagram.png}
+    \caption{Foundational deep learning representations: (a) schematic of an individual artificial neuron computing an affine combination $z = \boldsymbol{w} \cdot \boldsymbol{x} + b$ followed by a smooth non-linear activation $\sigma(z)$; (b) deep Multi-Layer Perceptron (MLP) architecture propagating coordinate inputs $(x, y)$ through $L$ hidden layers to parameterize continuous physical fields $(\psi, p, \boldsymbol{\tau})$.}
+    \label{fig:deep_learning_mlp_diagram}
+\end{figure}
 
 \subsubsection{Weight Initialization: Glorot Scheme and Output Zero-Initialization}
 \label{subsubsec:weight_initialization}
@@ -322,6 +329,13 @@ insufficient kinematic variation in the data, or ill-conditioned loss landscapes
 Integrating governing equations provides necessary structure, but does not automatically guarantee 
 parameter identifiability or solution uniqueness.
 
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{media/pinn_workflow_concept.png}
+    \caption{The Physics-Informed Neural Network (PINN) computational architecture: spatial coordinates $(x, y)$ are propagated through a deep neural network surrogate, exact coordinate derivatives are evaluated via Automatic Differentiation (AD) without grid stencils, and parameters $\boldsymbol{\theta}$ (and unknown physics $\boldsymbol{\lambda}$) are updated iteratively by minimizing a multi-objective composite loss comprising PDE residuals, boundary conditions, and observed data.}
+    \label{fig:pinn_workflow_concept}
+\end{figure}
+
 \subsection{Deep Dive: Standard Supervised Training vs. PINN Optimization}
 \label{subsec:deep_dive_training}
 
@@ -329,6 +343,16 @@ The operational differences between conventional supervised learning and physics
 are characterized by several key aspects:
 
 \begin{enumerate}
+    \item \textbf{Training as a Continuous Boundary-Value Solver vs. Statistical Generalization}: 
+    In classical machine learning, a neural network is optimized on a finite training partition with 
+    the primary objective of statistical out-of-sample generalization to unseen test distributions ($X_{\mathrm{test}} \to Y_{\mathrm{test}}$). 
+    In contrast, in Physics-Informed Neural Networks, \textit{the training process itself is the numerical solver}. 
+    The network is not designed as an inductive predictor to infer flow fields across disparate, unseen geometries; 
+    rather, the optimization of parameters $\boldsymbol{\theta}$ directly computes the solution of a specific boundary-value problem on the domain $\Omega$. 
+    Fitting empirical data $\mathcal{L}_{\mathrm{data}}$ during training does not function as an external test of generalization, 
+    but acts as an active physical regularization and data-assimilation mechanism that guides the optimization manifold 
+    toward the true physical state alongside differential residuals $\mathcal{L}_{\mathrm{pde}}$ and boundary conditions $\mathcal{L}_{\mathrm{bc}}$.
+
     \item \textbf{Physical Regularization and Inductive Bias}: In standard supervised training, 
     the network is unconstrained in regions devoid of training data, which allows over-parameterized models 
     to fit noisy samples while producing spurious oscillations. 
@@ -404,12 +428,9 @@ The non-dimensional incompressible Navier--Stokes equations were formulated as:
 where $\lambda_1$ represents the convective acceleration coefficient ($\lambda_1^{\mathrm{true}} = 1.0$) 
 and $\lambda_2$ corresponds to the kinematic viscosity ($\lambda_2^{\mathrm{true}} = 1/Re = 0.01$).
 
-To satisfy incompressibility~\eqref{eq:cylinder_cont} identically, Raissi et al. adopted the scalar stream function 
-formulation $\psi(t, x, y)$ (consistent with Eq.~\eqref{eq:stream_function_def}):
-\begin{equation}
-    u = \frac{\partial \psi}{\partial y}, \qquad v = -\frac{\partial \psi}{\partial x} .
-    \label{eq:stream_function_cylinder}
-\end{equation}
+To satisfy incompressibility~\eqref{eq:cylinder_cont} identically, Raissi et al. parameterized velocities 
+via the scalar stream function formulation $\psi(t, x, y)$ through the exact relations 
+$u = \partial\psi/\partial y, v = -\partial\psi/\partial x$ established in Eq.~\eqref{eq:stream_function_def}. 
 A single neural network with 9 hidden layers and 20 neurons per layer, activated by hyperbolic tangent ($\tanh$) functions, 
 was trained to predict the latent fields $(\psi, p)$ from coordinates $(t, x, y)$ while treating $\lambda_1$ and $\lambda_2$ 
 as unknown learnable parameters.
@@ -473,79 +494,6 @@ To address these challenges, ViscoelasticNet proposed an inverse framework conce
 \end{itemize}
 These findings established that PINNs can serve as an effective tool for inferring non-Newtonian stresses from velocity fields 
 in channel configurations. However, their formulation was tailored to open channels with through-flow and relied on specific 
-boundary information, leaving critical methodological questions unaddressed.
+boundary information, leaving critical methodological questions unaddressed. 
 
-% ============================================================
-% 3.5 LITERATURE GAP AND DISSERTATION OBJECTIVES
-% ============================================================
-\section{Literature Gap and Dissertation Objectives}
-\label{sec:literature_gap_objectives}
-
-\subsection{Why PINNs for Viscoelastic Flows in Complex Geometries}
-\label{subsec:why_pinns_complex_rheology}
-
-In complex polymeric flows, conventional computational fluid dynamics methods (Finite Element and Finite Volume Methods) 
-encounter well-documented bottlenecks:
-\begin{enumerate}
-    \item \textbf{The High Weissenberg Number Problem}: Hyperbolic stress advection creates exponential boundary layers 
-    and steep stress gradients near walls and stagnation points, causing severe convergence loss in standard discretizations.
-    \item \textbf{Stabilization Overhead and Mesh Distortion}: While stabilization methods (such as SUPG and the log-conformation transformation) 
-    mitigate breakdown, they introduce numerical diffusion and require fine, geometrically conforming grids around moving boundaries.
-    \item \textbf{Complexity of Inverse Parameter Estimation}: Standard CFD packages function as forward solvers; 
-    extracting unknown rheological parameters from kinematic observations requires costly outer-loop optimization iterations.
-\end{enumerate}
-
-Physics-informed neural networks offer an alternative paradigm by treating simulation and parameter identification 
-as a continuous, mesh-free optimization problem. 
-However, their applicability, robustness, and accuracy in complex viscoelastic flows cannot be assumed a priori. 
-The transfer of findings from simple open channels to recirculating configurations with mixed kinematics 
-raises fundamental questions regarding training stability, field coupling, and parameter identifiability.
-
-\subsection{Advancing Beyond ViscoelasticNet: Specific Dissertation Contributions}
-\label{subsec:gap_vs_viscoelasticnet}
-
-While ViscoelasticNet demonstrated the potential of PINNs for viscoelastic stress discovery, 
-a critical examination of the literature reveals several essential gaps that motivate this dissertation:
-
-\begin{enumerate}
-    \item \textbf{Enclosed Recirculating Domains with Mixed Kinematics}: 
-    Existing viscoelastic PINN studies have focused predominantly on open channel configurations 
-    (such as planar stenosis or cross-slot channels) governed by net pressure drops and convective through-flow. 
-    In contrast, enclosed recirculating flows—such as the four-roll mill benchmark established in Chapter~\ref{chap:fluidodynamic_background}—feature 
-    closed streamlines with zero net flux, driven entirely by rotating boundaries. 
-    This domain combines a central hyperbolic extensional stagnation point with intense shear layers adjacent to rotating surfaces. 
-    Whether physics-informed networks can reliably capture closed stress orbits and resolve mixed kinematic regimes 
-    without unphysical stress accumulation remains an open question.
-
-    \item \textbf{Exact Incompressibility vs. Soft Continuity Penalization}: 
-    Prior viscoelastic PINN formulations, including ViscoelasticNet, utilized primitive velocity variables $(u, v)$ 
-    and enforced incompressibility as a soft penalty term in the loss function ($\mathcal{L}_{\mathrm{div}}$). 
-    In enclosed recirculating flows, soft divergence penalties can lead to cumulative mass leakage over training iterations. 
-    By adopting the scalar stream function formulation $\psi(x, y)$ (Eq.~\eqref{eq:stream_function_def}), 
-    incompressibility $\nabla \cdot \boldsymbol{u} \equiv 0$ is satisfied analytically, eliminating the continuity residual 
-    and reducing competition among loss components.
-
-    \item \textbf{Role of Stress Boundary Conditions and Data Dependence}: 
-    A pivotal and unresolved question in the literature concerns the extent to which inverse parameter identification 
-    relies on prescribed stress data at physical boundaries. 
-    In experimental rheology, internal stresses cannot be measured, and prescribing boundary stress values 
-    on moving walls is difficult. 
-    Evaluating whether rheological parameters can be reliably identified without prescribing stress values on boundaries—or 
-    quantifying the sensitivity of parameter discovery to available stress boundary data—constitutes 
-    a critical research question that has not been systematically investigated.
-
-    \item \textbf{Parameter Identifiability and Coupling in Extended Rheological Regimes}: 
-    Existing studies have explored restricted parameter ranges (e.g., relaxation times $\lambda \le 0.15\,\mathrm{s}$, 
-    polymeric viscosities $\mu_p \le 0.025\,\mathrm{Pa\cdot s}$, and mobility $\alpha \le 0.20$). 
-    Extending the rheological domain toward higher relaxation times and viscosities tests the limits 
-    of model identifiability, where cross-talk between convective stress terms and viscous dissipation 
-    can lead to parameter degeneracies. 
-    Investigating whether PINNs can uniquely disentangle fluid relaxation times, polymeric viscosities, 
-    and non-linear mobility parameters ($\alpha, \varepsilon$) under mixed kinematics is a key scientific challenge.
-\end{enumerate}
-
-Recent investigations in computational rheology, including the work of Matos, Fernandes, and Alves \cite{matos2026simulation}, 
-confirm that physics-informed formulations for non-Newtonian flows represent an active, evolving research frontier. 
-Building upon these observations, this dissertation does not assume PINN superiority a priori, but rather investigates 
-the applicability, accuracy, and limitations of staged physics-informed neural network architectures for inverse 
-constitutive parameter identification within the four-roll mill geometry established in this work.
+In the subsequent chapter, these open questions are systematically tackled: we define the literature gap, formulate a stream-function PINN framework for the enclosed four-roll mill geometry, and evaluate its performance in forward simulation and inverse constitutive parameter discovery.

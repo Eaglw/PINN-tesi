@@ -11,14 +11,16 @@ simplifications characteristic of polymer solutions under creeping and low-inert
 flow conditions. The Oldroyd-B constitutive model is formulated by examining the
 Upper-Convected Time Derivative (UCTD), detailing its extensional kinematics and the
 origins of the High-Weissenberg Number Problem (HWNP). Non-linear closures,
-specifically the Giesekus and Phan-Thien--Tanner (PTT) models, are presented as
-distinct rheological extensions that account for anisotropic hydrodynamic drag and
-stress-dependent macromolecular entanglement breakdown while preserving the
-underlying linear structure. A viscous stress scaling procedure is introduced to
+specifically the Giesekus model (accounting for anisotropic hydrodynamic drag) and the
+Phan-Thien--Tanner (PTT) model (accounting for stress-dependent macromolecular entanglement
+breakdown), are presented to establish the theoretical continuum spectrum. Crucially, the
+active computational and PINN framework of this dissertation focuses specifically on the
+\textbf{Oldroyd-B} and \textbf{Giesekus} models, utilizing PTT as an exploratory theoretical
+counterpart in parameter identifiability analysis. A viscous stress scaling procedure is introduced to
 define the governing dimensionless groups ($Re_{\mathrm{scale}}$,
 $Re_{\mathrm{phys}}$, $Wi$, $\beta$). Finally, the four-roll mill benchmark is
-formalized through its local kinematics, flow classification, geometry, boundary
-conditions, and the definition of the forward and inverse problems.
+formalized through its local kinematics, flow classification, geometry, diagnostic
+verification cutlines, boundary conditions, and the definition of the forward and inverse problems.
 
 % ============================================================
 % 2.1 GENERAL CONSERVATION LAWS
@@ -293,13 +295,28 @@ rate of entanglement breakdown. When $\varepsilon = 0$, $f = 1$ and the model
 recovers Oldroyd-B. For $\varepsilon > 0$, the effective relaxation rate increases
 with stress, bounding the extensional viscosity.
 
-\subsubsection{Unified Framework for Inverse Identification}
-These constitutive closures share the common baseline structure of Oldroyd-B while
-differing through distinct non-linear mechanisms parameterized by $\alpha$ and
-$\varepsilon$. This common mathematical structure is particularly advantageous for
-inverse parameter identification, as the model can evaluate whether the response of a
-fluid flow aligns with quasi-linear dumbbell elasticity ($\alpha = 0, \varepsilon =
-0$), anisotropic drag ($\alpha > 0$), or network breakdown ($\varepsilon > 0$).
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.92\linewidth]{media/rheological_models_concept.png}
+    \caption{Conceptual comparison of constitutive model responses: (a) steady shear viscosity $\eta(\dot{\gamma})$, highlighting the constant viscosity of Oldroyd-B versus the shear-thinning behavior of Giesekus ($\alpha > 0$); (b) planar extensional viscosity $\eta_E(E)$, demonstrating the asymptotic stress divergence of Oldroyd-B at the critical strain rate $E_{\mathrm{crit}} = 1/(2\lambda)$ (origin of the High-Weissenberg Number Problem) versus the bounded extensional plateau captured by the non-linear Giesekus formulation.}
+    \label{fig:rheological_models_concept}
+\end{figure}
+
+\subsubsection{Focus of Present Investigation: Oldroyd-B and Giesekus Formulations}
+While the broader rheological literature encompasses a multitude of constitutive equations, 
+this dissertation intentionally focuses its computational and scientific investigation on two 
+representative viscoelastic archetypes:
+\begin{enumerate}
+    \item \textbf{The Oldroyd-B Model}: Serves as the fundamental linear benchmark of constant-viscosity 
+    elastic liquids (Boger fluids), embodying the purest manifestation of elastic normal stress growth 
+    and the High-Weissenberg Number Problem.
+    \item \textbf{The Giesekus Model}: Provides the primary non-linear extension, incorporating molecular 
+    mobility ($\alpha \in (0, 0.5]$) to capture shear-thinning and bounded extensional stresses 
+    characteristic of semi-dilute solutions.
+\end{enumerate}
+The linear PTT formulation is maintained in the governing differential expressions for theoretical generality, 
+but is set aside ($\varepsilon = 0$) during primary benchmarks, serving later as an exploratory case 
+for examining parameter identifiability limits in recirculating shear regimes.
 
 % ============================================================
 % 2.4 NONDIMENSIONALIZATION AND GOVERNING EQUATIONS
@@ -375,7 +392,7 @@ four cylindrical rollers placed symmetrically inside a square domain.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.68\linewidth]{media/4roll_mill_geometry_thesis.pdf}
+    \includegraphics[width=0.68\linewidth]{media/4roll_mill_geometry_thesis.png}
     \caption{Schematic representation of the four-roll mill geometry, illustrating
     the square cavity of side $L$, cylindrical rollers of radius $R$ at offset
     $d_{\mathrm{roll}}$, Cartesian axes $(x,y)$, rotation directions with angular
@@ -423,7 +440,7 @@ Figure~\ref{fig:four_roll_flow_regimes}):
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{media/four_roll_flow_regimes.pdf}
+    \includegraphics[width=\linewidth]{media/four_roll_flow_regimes.png}
     \caption{Streamline patterns of the two-dimensional linear flow field in
     Equation~\eqref{eq:kinematic_general} for the three canonical regimes of the flow
     classification parameter $\chi$: (a) pure planar extension ($\chi = +1$), (b)
@@ -493,6 +510,29 @@ Table~\ref{tab:physical_parameters}.
         \hline
     \end{tabular}
 \end{table}
+
+\subsection{Diagnostic Verification Cutlines}
+\label{subsec:diagnostic_cutlines}
+To enable rigorous, high-resolution validation of kinematic and stress profiles across the domain, 
+three representative diagnostic cutlines are established (Figure~\ref{fig:four_roll_cutlines_schema}):
+\begin{enumerate}
+    \item \textbf{Horizontal Cutline} ($y = 0, \, -L/2 \le x \le L/2$): Traversing the central extensional 
+    outflow axis through the hyperbolic stagnation point $(0, 0)$. Along this path, fluid accelerates outward, 
+    forming intense elongational stress tails.
+    \item \textbf{Vertical Cutline} ($x = 0, \, -L/2 \le y \le L/2$): Traversing the compressive inflow axis, 
+    capturing fluid deceleration into the central stagnation zone.
+    \item \textbf{Oblique Diagonal Cutline} ($y = x$): Connecting opposite cavity corners and passing directly 
+    through the narrow roller nip gaps, where steep localized shear and velocity gradients reach their physical peaks.
+\end{enumerate}
+These diagnostic trajectories serve as the spatial evaluation baselines for both the reference CFD mesh convergence 
+study and the PINN field validation detailed in Chapter~\ref{chap:results_discussion}.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.72\linewidth]{media/four_roll_cutlines_schema.png}
+    \caption{Schematic of the four-roll mill geometry depicting the four counter-rotating cylinders, the central extensional stagnation point $(0,0)$, and the three diagnostic verification cutlines: Horizontal ($y=0$, blue), Vertical ($x=0$, red dashed), and Oblique Diagonal ($y=x$, green dash-dot).}
+    \label{fig:four_roll_cutlines_schema}
+\end{figure}
 
 \subsection{Boundary Conditions and Pressure Point Anchoring}
 \label{subsec:boundary_conditions}
@@ -567,6 +607,7 @@ across the two problem formulations.
     \caption{Classification of physical fields and parameters across forward and
     inverse problem formulations.}
     \label{tab:variable_roles}
+    \resizebox{\textwidth}{!}{%
     \begin{tabular}{lccc}
         \hline
         \textbf{Physical Quantity} & \textbf{Symbol} & \textbf{Forward Problem} & \textbf{Inverse Problem} \\
@@ -580,7 +621,8 @@ across the two problem formulations.
         Giesekus Mobility & $\alpha$ & Known parameter & \textbf{Unknown parameter / Model selection} \\
         PTT Extensibility & $\varepsilon$ & Known parameter & \textbf{Unknown parameter / Model selection} \\
         \hline
-    \end{tabular}
+    \end{tabular}%
+    }
 \end{table}
 
 \subsection{Transition to Physics-Informed Neural Networks}

@@ -1,0 +1,29 @@
+% !TEX root = ../main.tex
+\chapter{Introduction}
+\label{chap:introduction}
+
+Non-Newtonian and viscoelastic fluid flows are ubiquitous across modern industrial, chemical, and biomedical engineering, from polymer processing, extrusion, and injection molding to microfluidic lab-on-a-chip devices and physiological biofluid transport. Unlike classical Newtonian fluids, polymer solutions and macromolecular melts exhibit fading memory, non-linear stress-strain relationships, and intense elasticity. These characteristics give rise to remarkable hydrodynamic phenomena, such as rod climbing (the Weissenberg effect), die swell, and purely elastic flow instabilities occurring even in the vanishing Reynolds number regime where inertia is negligible.
+
+Modeling and simulating these complex flows computationally represents a longstanding challenge in continuum mechanics. Conventional numerical discretization techniques—principally the Finite Element Method (FEM) and Finite Volume Method (FVM)—are severely hindered by the celebrated High Weissenberg Number Problem (HWNP), wherein hyperbolic stress advection produces exponential boundary layers and steep localized gradients near stagnation points and solid walls, frequently causing catastrophic numerical divergence. Furthermore, while standard computational fluid dynamics (CFD) packages excel at forward predictive simulations when all constitutive rheological parameters are precisely known, extracting unknown fluid properties from experimental observations (such as velocity measurements) requires computationally prohibitive outer-loop optimization workflows.
+
+Over the past decade, Scientific Machine Learning (SciML) and Physics-Informed Neural Networks (PINNs) have emerged as a transformative computational paradigm. By embedding the governing continuous partial differential equations (PDEs) directly into neural network loss formulations via automatic differentiation (AD), PINNs seamlessly bridge forward continuum simulation and inverse parameter discovery within a continuous, mesh-free framework. While early benchmark investigations have demonstrated promising results in idealized open-channel flows with net through-flow, the applicability, accuracy, and optimization stability of PINNs in enclosed, recirculating geometries characterized by mixed kinematic regimes remain largely unexplored.
+
+This dissertation investigates the formulation, performance, and physical identifiability boundaries of physics-informed neural network architectures applied to the four-roll mill geometry—a canonical hydrodynamic system featuring a central hyperbolic planar extensional stagnation point surrounded by intense shear layers adjacent to rotating cylinders.
+
+\section{Structure of the Dissertation}
+\label{sec:dissertation_structure}
+
+The remainder of this dissertation is organized into four sequential chapters:
+\begin{itemize}
+    \item \textbf{Chapter~\ref{chap:fluidodynamic_background} (Viscoelastic Fluid Mechanics and the Four-Roll Mill)}: Establishes the continuum mechanics foundation, governing Navier--Stokes equations, and constitutive closures for Oldroyd-B and Giesekus fluids. It formally characterizes the four-roll mill cavity, its kinematic flow classification, and the stream-function parameterization.
+    \item \textbf{Chapter~\ref{chap:pinn_literature} (Physics-Informed Neural Networks in Complex Rheology)}: Reviews deep feedforward neural architectures, automatic differentiation, and the foundational PINN paradigm. It contrasts traditional machine learning generalization with continuous PDE boundary-value solving, and surveys prior literature benchmarks in computational rheology.
+    \item \textbf{Chapter~\ref{chap:results_discussion} (Results and Discussion: Four-Roll Mill PINN Solver)}: Formulates the stream-function PINN solver for the four-roll mill and details the staged optimization strategy. It presents rigorous forward validations against high-fidelity COMSOL FEM solutions, inverse parameter estimation across linear and non-linear rheologies, grid independence analyses, transfer learning stability, and the mathematical origin of PTT shear flow degeneracies.
+    \item \textbf{Chapter~\ref{chap:conclusions} (Conclusions and Future Perspectives)}: Synthesizes the core scientific findings of this research, reviews operational limitations regarding boundary stress supervision, and outlines promising future research directions.
+\end{itemize}
+
+% ============================================================
+% PLACEHOLDER NOTE FOR FUTURE EXPANSION
+% ============================================================
+% [NOTE: This introductory chapter serves as an initial structural foundation. 
+% Additional sections covering broader industrial context, historical perspectives, 
+% and detailed project motivation can be inserted here.]
