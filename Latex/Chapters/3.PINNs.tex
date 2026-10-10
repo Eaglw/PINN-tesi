@@ -3,7 +3,7 @@
 \label{chap:pinn_literature}
 
 Feedforward deep networks, commonly known as Multi-Layer Perceptrons (MLPs),
-represent the quintessential architecture of deep learning \cite{goodfellow2016deep}.
+represent the foundational architecture of deep learning \cite{goodfellow2016deep}.
 Conceptually, an MLP is a parametric function defined by composing together a
 sequence of simpler parametric functions. Each of these constituent functions has
 multiple inputs and outputs, and in neural network terminology is called a
@@ -13,10 +13,9 @@ mathematical mapping of its inputs, chaining them in succession allows the netwo
 a whole to express continuous functions of arbitrary complexity.
 
 The structural dimensions of a network are conventionally characterized by its
-\textit{width}—the number of units in a given layer—and its \textit{depth}—the total
-number of layers. Having significant width and depth provides deep architectures with
-remarkable representational power, making them the foundational technology behind
-modern machine learning applications.
+\textit{width}, defined as the number of units in a given layer, and its \textit{depth}, the total
+number of layers. Sufficient width and depth provide these architectures with
+high approximation capacity, making them widely adopted across scientific computing.
 
 To appreciate the paradigm shift introduced by deep neural networks, it is useful to
 contrast them with traditional machine learning algorithms, such as linear
@@ -74,8 +73,8 @@ linear layers would simply collapse mathematically into another single linear
 mapping, eliminating the expressive advantage of deep architectures.
 
 In standard deep learning applications such as image recognition, piecewise-linear
-activations—most notably the Rectified Linear Unit ($\text{ReLU}(z) = \max(0,
-z)$)—are widely adopted due to their computational simplicity. However, in scientific
+activations, such as the Rectified Linear Unit ($\text{ReLU}(z) = \max(0,
+z)$), are widely adopted due to their computational simplicity. However, in scientific
 computing and fluid mechanics, the network's outputs represent continuous physical
 fields governed by partial differential equations (PDEs), such as velocities,
 pressures, and stresses. These governing laws involve spatial derivatives of first,
@@ -151,8 +150,8 @@ by two practical reasons:
     \item \textbf{Suppression of Numerical Shocks}: If output weights were randomly
         initialized, initial stress predictions would exhibit high-frequency spatial
         noise across the domain. Evaluating these random fluctuations inside
-        non-linear constitutive equations—which contain quadratic stress products and
-        convective gradients—would cause initial residual losses to spike violently,
+        non-linear constitutive equations, which contain quadratic stress products and
+        convective gradients, would cause initial residual losses to spike sharply,
         destabilizing the optimization. Initializing the output layer to zero ensures
         smooth, bounded initial residuals.
 \end{enumerate}
@@ -188,8 +187,8 @@ In this work, training is carried out using a two-stage optimization strategy:
         the early stages of training.
     \item \textbf{Second-Order Quasi-Newton Optimization (L-BFGS)}: Once the solution
         is close to a minimum, the Limited-memory Broyden--Fletcher--Goldfarb--Shanno
-        (L-BFGS) algorithm uses curvature information to achieve faster, super-linear
-        convergence. In scientific problems, L-BFGS is crucial for refining the
+        (L-BFGS) algorithm uses curvature information to achieve super-linear
+        convergence. In scientific applications, L-BFGS is effective for refining the
         solution and driving physical residuals down to high accuracy ($10^{-5} -
         10^{-7}$).
 \end{enumerate}
@@ -255,14 +254,14 @@ to fluid mechanics and non-Newtonian rheology reveals fundamental limitations:
     \item \textbf{Violation of Fundamental Conservation Laws}: Purely data-driven models 
     minimize statistical discrepancy over discrete training points without enforcing physical principles. 
     Consequently, their predictions routinely violate mass conservation ($\nabla \cdot \boldsymbol{u} \neq 0$), 
-    linear momentum balance, and constitutive relationships, leading to unphysical artifacts—particularly 
+    linear momentum balance, and constitutive relationships, leading to unphysical artifacts, particularly 
     when interpolating across sparse regions or extrapolating beyond observed conditions.
     \item \textbf{Overfitting and Spurious Oscillations}: In low-data regimes, over-parameterized networks 
     can readily fit experimental noise or sparse sensor readings with minimal training error, 
     while developing high-frequency, non-physical oscillations in unmonitored subdomains.
     \item \textbf{Inability to Identify Governing Parameters}: Black-box architectures fit mapping functions 
-    between inputs and outputs, but cannot infer underlying physical material properties—such as fluid relaxation 
-    times or polymeric viscosities—that govern the flow dynamics.
+    between inputs and outputs, but cannot infer underlying physical material properties, such as fluid relaxation 
+    times or polymeric viscosities, that govern the flow dynamics.
 \end{itemize}
 
 These fundamental shortcomings emphasize that data alone are insufficient for scientific modeling in rheology, 
@@ -296,7 +295,7 @@ Substituting $\hat{\boldsymbol{u}}$ into the governing equations defines the dif
     \boldsymbol{f}(\boldsymbol{x}; \boldsymbol{\theta}, \boldsymbol{\lambda}) \equiv \mathcal{F}[\hat{\boldsymbol{u}}(\boldsymbol{x}; \boldsymbol{\theta}); \boldsymbol{\lambda}] .
     \label{eq:pde_residual_def}
 \end{equation}
-The network parameters $\boldsymbol{\theta}$—and, in inverse problems, the unknown physical parameters $\boldsymbol{\lambda}$—are 
+The network parameters $\boldsymbol{\theta}$, alongside the unknown physical parameters $\boldsymbol{\lambda}$ in inverse problems, are 
 optimized by minimizing a composite multi-objective loss function:
 \begin{equation}
     \mathcal{L}_{\mathrm{total}}(\boldsymbol{\theta}, \boldsymbol{\lambda}) = w_{\mathrm{data}} \mathcal{L}_{\mathrm{data}} + w_{\mathrm{bc}} \mathcal{L}_{\mathrm{bc}} + w_{\mathrm{pde}} \mathcal{L}_{\mathrm{pde}} ,

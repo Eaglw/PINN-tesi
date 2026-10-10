@@ -7,28 +7,25 @@ In this dissertation, a comprehensive Physics-Informed Neural Network (PINN) fra
 \section{Summary of Key Findings and Contributions}
 \label{sec:conclusions_summary}
 
-The main scientific and computational contributions of this work are summarized below:
+The main scientific and computational findings of this work are summarized below:
 \begin{enumerate}
-    \item \textbf{Exact Analytic Incompressibility via Stream-Function Formulation}: 
-    By parameterizing flow kinematics through a continuous scalar stream function $\psi(x, y)$, mass conservation ($\nabla \cdot \boldsymbol{u} \equiv 0$) is satisfied analytically to machine precision. This eliminates artificial mass leakage in closed recirculating streamlines and removes continuity penalty hyperparameters from the loss function.
-
     \item \textbf{Staged Decoupled Optimization Strategy}: 
-    Addressing the severe gradient interference and optimization pathologies reported in coupled Navier--Stokes and constitutive systems, we demonstrated the necessity of a two-stage training schedule: Phase 1 (kinematics and rheology) followed by Phase 2 (hydrodynamic pressure recovery). Crucially, retaining an active, trainable stream function $\psi$ during Phase 2 was shown to be physically necessary to compensate for irrotational velocity components that scalar pressure gradients cannot balance.
+    Addressing the gradient interference reported in coupled Navier--Stokes and constitutive systems, we demonstrated the effectiveness of a two-stage training schedule: Phase 1 (kinematics and rheology) followed by Phase 2 (hydrodynamic pressure recovery). Retaining an active, trainable stream function $\psi$ during Phase 2 was shown to be necessary to compensate for irrotational velocity components that scalar pressure gradients cannot balance.
 
     \item \textbf{High-Precision Forward Field Reconstruction}: 
-    Validated against dense 125k-node finite element COMSOL solutions for the Oldroyd-B fluid, the PINN achieved sub-percent relative $L_2$ errors on velocity fields ($0.98\%$ for $u$, $0.93\%$ for $v$) and accurately captured localized extra-stress peaks in roller gaps ($1.21\%$ on $\tau_{xy}$, $1.80\%$ on $\tau_{xx}$). Proper gauge-pressure calibration successfully resolved the hydrostatic offset, yielding a $3.42\%$ relative error on pressure.
+    Validated against dense 125k-node finite element COMSOL solutions for the Oldroyd-B fluid, the PINN achieved sub-percent relative $L_2$ errors on velocity fields ($0.98\%$ for $u$, $0.93\%$ for $v$) and accurately captured localized extra-stress peaks in roller gaps ($1.21\%$ on $\tau_{xy}$, $1.80\%$ on $\tau_{xx}$). Gauge-pressure calibration successfully resolved the hydrostatic offset, yielding a $3.42\%$ relative error on pressure.
 
     \item \textbf{Inverse Rheological Parameter Discovery}: 
     In inverse discovery benchmarks operating without internal stress measurements, the framework accurately identified physical relaxation times $\lambda$ and polymeric viscosities $\mu_p$ (errors $<1.3\%$ for Oldroyd-B). In the non-linear Giesekus model, the network simultaneously discovered mobility $\alpha$, relaxation time $\lambda$, and viscosity $\mu_p$ within $6.7\%$ error even from deliberately biased blind initializations.
 
     \item \textbf{Collocation Robustness and Inductive Regularization}: 
-    A systematic collocation grid study revealed that parameter estimation accuracy remains robust across a 25-fold variation in node density (from 5k to 125k nodes), demonstrating that sparse collocation point distributions provide a natural inductive bias against overfitting.
+    A systematic collocation grid study revealed that parameter estimation accuracy remains consistent across a 25-fold variation in node density (from 5k to 125k nodes), demonstrating that sparse collocation point distributions provide a natural inductive bias against overfitting.
 
-    \item \textbf{Universal Invariant: Preservation of the Elastic Shear Modulus ($G$)}: 
-    Across all constitutive models and parameter sweeps, the network rigorously preserved the macroscopic elastic plateau modulus $G = \mu_p / \lambda$ with errors under $1.0\%$, showing that the physics-informed loss prioritizes global elastic stiffness before disentangling individual relaxation timescales.
+    \item \textbf{Preservation of the Elastic Shear Modulus ($G$)}: 
+    Across all constitutive models and parameter sweeps, the network preserved the macroscopic elastic plateau modulus $G = \mu_p / \lambda$ with errors under $1.0\%$, showing that the physics-informed loss prioritizes global elastic stiffness before disentangling individual relaxation timescales.
 
     \item \textbf{Analysis of the PTT Shear-Flow Degeneracy}: 
-    We uncovered a fundamental physical limitation of boundary-supervised rheometry for the Phan-Thien--Tanner (PTT) model, where simple shear kinematics near rotating solid walls cause severe mathematical collinearity between $\lambda$ and $\varepsilon$, collapsing the model toward an effective linear Oldroyd-B fluid.
+    We analyzed a physical limitation of boundary-supervised rheometry for the Phan-Thien--Tanner (PTT) model, where simple shear kinematics near rotating solid walls cause mathematical collinearity between $\lambda$ and $\varepsilon$, yielding an effective response equivalent to a linear Oldroyd-B fluid.
 \end{enumerate}
 
 \section{Operational Limitations}
