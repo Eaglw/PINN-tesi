@@ -2,7 +2,19 @@
 \chapter{Results and Discussion: Four-Roll Mill PINN Solver}
 \label{chap:results_discussion}
 
-In this chapter, the quantitative performance of the physics-informed neural network framework developed for the four-roll mill geometry is systematically evaluated. The investigation is organized into nine sequential sections. First, we identify the key literature gaps and formulate the specific research objectives that motivate this study, contrasting our setup with prior open-channel benchmarks. Second, we provide a mathematical and algorithmic recap of the ViscoelasticNet formulation adapted to the four-roll mill, detailing the stream function architecture, explicit PDE residuals, composite loss weights, and staged optimization protocol. Third, we present the high-fidelity finite element method (FEM) reference solutions generated in COMSOL Multiphysics and conduct a mesh convergence analysis along representative cutlines. Fourth, we validate the forward (direct) solver, demonstrating high-precision field reconstruction for velocity kinematics, extra-stress tensors, and calibrated hydrodynamic pressure. Fifth, we examine the inverse discovery problem, presenting four canonical parameter estimation benchmarks spanning linear Oldroyd-B and non-linear Giesekus fluids. Sixth, we analyze collocation grid independence, highlighting how sparse collocation distributions provide a natural inductive regularization. Seventh, we quantify the computational acceleration and optimization stability afforded by transfer learning. Eighth, we dissect physical identifiability boundaries, explaining the insensitivity to solvent viscosity in creeping flow and uncovering the mathematical origin of the Phan-Thien--Tanner (PTT) shear flow degeneracy. Finally, we discuss engineering implications and operational boundary condition limitations.
+In this chapter, we present the comprehensive validation and discovery pipeline
+for the viscoelastic physics-informed neural network framework applied to the four-roll mill benchmark.
+We first establish the research context, specific contributions, and the two-stage computational solver
+(\S\ref{sec:literature_gap_objectives}--\ref{sec:recap_computational_setup}).
+Next, we verify the reference CFD solution through mesh convergence and evaluate the forward solver
+on full-field reconstructions (\S\ref{sec:cfd_mesh_convergence}--\ref{sec:direct_problem_validation}).
+The core of the study examines inverse rheological parameter discovery across linear and non-linear constitutive models,
+assessing collocation sensitivity and transfer learning performance
+(\S\ref{sec:inverse_parameter_discovery}--\ref{sec:transfer_learning_analysis}).
+Finally, we analyze the consistent recovery of the elastic shear modulus,
+investigate physical identifiability boundaries in creeping flow and PTT fluids,
+and discuss computational engineering implications
+(\S\ref{sec:elastic_modulus_invariant}--\ref{sec:pathways_forward_implications}).
 
 % ============================================================
 % 3.1 LITERATURE GAP AND DISSERTATION OBJECTIVES
@@ -13,28 +25,52 @@ In this chapter, the quantitative performance of the physics-informed neural net
 \subsection{Why PINNs for Viscoelastic Flows in Complex Geometries}
 \label{subsec:why_pinns_complex_rheology}
 
-In complex polymeric flows, conventional computational fluid dynamics methods (Finite Element and Finite Volume Methods) encounter well-documented bottlenecks:
+In complex polymeric flows, conventional computational fluid dynamics methods (FEM and FVM)
+face two primary bottlenecks:
 \begin{enumerate}
-    \item \textbf{The High Weissenberg Number Problem}: Hyperbolic stress advection creates steep localized gradients and thin boundary layers near walls and stagnation points, causing convergence loss in standard discretizations.
-    \item \textbf{Complexity of Inverse Parameter Estimation}: Standard CFD packages function primarily as forward predictive solvers; extracting unknown rheological parameters from kinematic observations requires computationally expensive outer-loop optimization iterations.
+    \item \textbf{High Weissenberg Number Problem}:
+    Hyperbolic stress transport generates steep localized gradients near solid surfaces and stagnation points,
+    which often causes convergence breakdown in traditional spatial discretizations unless stabilized.
+    \item \textbf{Inverse parameter estimation complexity}:
+    Standard CFD solvers are primarily forward predictive tools;
+    extracting unknown constitutive parameters from kinematic measurements requires costly outer-loop optimization iterations.
 \end{enumerate}
 
-Physics-informed neural networks offer an alternative paradigm by treating simulation and parameter identification as a continuous, mesh-free optimization problem. However, their applicability, robustness, and accuracy in complex viscoelastic flows cannot be assumed a priori. The transfer of findings from simple open channels to recirculating configurations with mixed kinematics raises fundamental questions regarding training stability, field coupling, and parameter identifiability.
+Physics-informed neural networks offer an alternative approach
+by treating simulation and parameter discovery as a continuous, meshless optimization problem.
+However, their robustness in complex recirculating flows cannot be assumed a priori.
+Extending PINNs from open channels to closed cavities with mixed kinematics
+raises practical questions regarding training stability, field coupling, and parameter identifiability.
 
-\subsection{Advancing Beyond ViscoelasticNet: Specific Dissertation Contributions}
+\subsection{Advancing Beyond ViscoelasticNet: Specific Contributions}
 \label{subsec:gap_vs_viscoelasticnet}
 
-While ViscoelasticNet demonstrated the potential of PINNs for viscoelastic stress discovery, a critical examination of the literature reveals several essential gaps that motivate this dissertation:
+While ViscoelasticNet demonstrated the potential of PINNs for viscoelastic stress discovery,
+the literature leaves two key questions open:
 
 \begin{enumerate}
-    \item \textbf{Enclosed Recirculating Domains with Mixed Kinematics}: 
-    Existing viscoelastic PINN studies have focused predominantly on open channel configurations (such as planar stenosis or cross-slot channels) governed by net pressure drops and convective through-flow. In contrast, enclosed recirculating flows, such as the four-roll mill benchmark established in Chapter~\ref{chap:fluidodynamic_background}, feature closed streamlines with zero net flux, driven entirely by rotating boundaries. This domain combines a central hyperbolic extensional stagnation point with intense shear layers adjacent to rotating surfaces. Resolving closed stress orbits and mixed kinematic regimes in such enclosed configurations without unphysical stress accumulation represents an open research problem addressed in this work.
+    \item \textbf{Enclosed recirculating domains with mixed kinematics}:
+    Prior viscoelastic PINN studies focused primarily on open channel configurations
+    (such as planar stenosis or cross-slots) driven by net pressure drops and convective through-flow.
+    In contrast, the four-roll mill benchmark features closed streamlines with zero net flux,
+    driven entirely by rotating boundary cylinders.
+    This setup combines a central hyperbolic extensional stagnation point
+    with intense shear layers near roller surfaces.
+    Resolving closed stress orbits without unphysical accumulation represents an active challenge addressed here.
 
-    \item \textbf{Parameter Identifiability in Extended Rheological Ranges (Oldroyd-B and Giesekus)}: 
-    Prior viscoelastic PINN benchmarks have explored restricted parameter regimes (typically relaxation times $\lambda \le 0.15\,\mathrm{s}$, polymeric viscosities $\mu_p \le 0.025\,\mathrm{Pa\cdot s}$, and mobility $\alpha \le 0.20$). Extending the rheological investigation toward higher relaxation times and viscosities tests the limits of model identifiability, where cross-talk between convective stress terms and viscous dissipation can lead to parameter degeneracies. This dissertation investigates whether PINNs can uniquely disentangle fluid relaxation times $\lambda$, polymeric viscosities $\mu_p$, and non-linear mobility $\alpha$ within the four-roll mill geometry, focusing on \textbf{Oldroyd-B} and \textbf{Giesekus} models. (The operational question of boundary stress supervision is analyzed in Section~\ref{subsec:boundary_stress_limitation} as a boundary condition limitation).
+    \item \textbf{Parameter identifiability in extended rheological regimes}:
+    Prior viscoelastic PINN benchmarks explored relatively restricted parameter ranges
+    (typically $\lambda \le 0.15\,\mathrm{s}$, $\mu_p \le 0.025\,\mathrm{Pa\cdot s}$, and mobility $\alpha \le 0.20$).
+    Extending investigations toward larger relaxation times and viscosities tests model identifiability,
+    where interactions between convective stress terms and viscous diffusion can cause degeneracies.
+    We examine whether PINNs can uniquely identify relaxation times $\lambda$,
+    polymeric viscosities $\mu_p$, and mobility $\alpha$ within the four-roll mill geometry.
 \end{enumerate}
 
-Recent investigations in computational rheology, including the work of Matos, Fernandes, and Alves \cite{matos2026simulation}, confirm that physics-informed formulations for non-Newtonian flows represent an active research frontier. Building upon these observations, this chapter investigates the applicability, accuracy, and limitations of staged physics-informed neural network architectures for inverse constitutive parameter identification within the four-roll mill geometry.
+Recent work in computational rheology \cite{matos2026simulation} confirms
+that physics-informed models for non-Newtonian fluids represent an active research area.
+Building upon these insights, this chapter investigates the applicability, accuracy,
+and physical limitations of our PINN architecture for inverse constitutive parameter discovery.
 
 % ============================================================
 % 3.2 MATHEMATICAL RECAP AND COMPUTATIONAL SETUP
@@ -42,15 +78,21 @@ Recent investigations in computational rheology, including the work of Matos, Fe
 \section{Mathematical Recap and Computational Architecture}
 \label{sec:recap_computational_setup}
 
-To ensure complete clarity and reproducibility, the mathematical formulation and neural network infrastructure adapted from ViscoelasticNet \cite{thakur2024viscoelasticnet} are detailed below.
+To ensure complete clarity and reproducibility,
+we summarize below the mathematical formulation and neural network setup
+adapted from the ViscoelasticNet framework \cite{thakur2024viscoelasticnet}.
 
 \subsection{Stream Function and Field Parameterization}
 \label{subsec:stream_function_recap}
-In two-dimensional steady incompressible flow, conservation of mass requires $\nabla \cdot \boldsymbol{u} = 0$. Rather than predicting velocity components $(u, v)$ independently and enforcing continuity via an artificial soft penalty term, the kinematics are parameterized via the continuous scalar stream function $\psi(x, y)$ through the exact differential relations established in Chapter~\ref{chap:fluidodynamic_background} (Eq.~\eqref{eq:stream_function_def}):
+In two-dimensional steady incompressible flow, conservation of mass requires $\nabla \cdot \boldsymbol{u} = 0$.
+Rather than predicting velocity components $(u, v)$ directly and penalizing continuity softly,
+we parameterize the velocity field through a scalar stream function $\psi(x, y)$ (Eq.~\eqref{eq:stream_function_def}):
 \begin{equation}
     u = \frac{\partial \psi}{\partial y}, \qquad v = -\frac{\partial \psi}{\partial x} .
 \end{equation}
-As proven by Schwarz's theorem on mixed partial derivatives, the divergence of $\boldsymbol{u}$ vanishes identically to machine precision ($\nabla \cdot \boldsymbol{u} \equiv 0$). This eliminates the continuity equation from the optimization objective, guaranteeing mass conservation everywhere without parameter tuning.
+Because mixed partial derivatives commute,
+mass conservation holds identically everywhere ($\nabla \cdot \boldsymbol{u} \equiv 0$),
+eliminating the continuity equation from the optimization objective.
 
 The physical state is partitioned into three dedicated neural network heads:
 \begin{equation}
@@ -69,9 +111,17 @@ The global objective function minimized during training is a composite multi-obj
     \mathcal{L}_{\mathrm{total}} = w_{\mathrm{data}} \mathcal{L}_{\mathrm{data}} + w_{\mathrm{bc}} \mathcal{L}_{\mathrm{bc}} + w_{\mathrm{con}} \mathcal{L}_{\mathrm{con}} + w_{\mathrm{mom}} \mathcal{L}_{\mathrm{mom}} + w_{\mathrm{roll\_stress}} \mathcal{L}_{\mathrm{roll\_stress}} + w_{\mathrm{pin}} \mathcal{L}_{\mathrm{pin}} .
     \label{eq:global_loss_expression}
 \end{equation}
-In this computational framework, internal stress measurements are never supplied to the network inside the fluid domain $\Omega$ (neither in forward validation nor in inverse discovery). Extra-stress fields are reconstructed entirely from the governing constitutive equations, following non-intrusive experimental protocols where internal stresses cannot be probed. Boundary stress data are prescribed exclusively along the rotating roller perimeters ($\mathcal{L}_{\mathrm{roll\_stress}}$) to set the physical stress scale.
 
-The individual loss terms are defined as follows:
+In our framework, internal stress measurements are never supplied inside the fluid domain $\Omega$.
+Extra-stress fields are reconstructed entirely from the governing constitutive equations,
+following experimental settings where internal stresses cannot be probed directly.
+
+However, in creeping flow ($Re \ll 1$), kinematic velocity observations alone determine only dimensionless groups ($Wi, \beta$),
+but cannot set the absolute dimensional viscosity scale without an anchoring reference of stress, torque, or pressure.
+To provide this physical anchor, auxiliary extra-stress supervision is prescribed exclusively along the rotating roller perimeters ($\mathcal{L}_{\mathrm{roll\_stress}}$).
+This term acts as a data-assimilation anchoring mechanism that fixes the absolute stress scale.
+
+The individual loss terms are defined as:
 \begin{align}
     \mathcal{L}_{\mathrm{data}} &= \frac{1}{N_{\mathrm{data}}} \sum_{i=1}^{N_{\mathrm{data}}} \left( |u_i - u_i^{\mathrm{ref}}|^2 + |v_i - v_i^{\mathrm{ref}}|^2 \right) , \label{eq:loss_data_eval} \\
     \mathcal{L}_{\mathrm{bc}} &= \frac{1}{N_{\mathrm{walls}}} \sum_{j=1}^{N_{\mathrm{walls}}} \left( |u_j|^2 + |v_j|^2 \right) + \frac{1}{N_{\mathrm{rolls}}} \sum_{k=1}^{N_{\mathrm{rolls}}} \left\| \boldsymbol{u}_k - \boldsymbol{\Omega}_k \times (\boldsymbol{x}_k - \boldsymbol{x}_{\mathrm{center}, k}) \right\|_2^2 , \label{eq:loss_bc_eval} \\
@@ -89,39 +139,61 @@ The explicit differential residuals evaluated at collocation points $\boldsymbol
         f_u &= Re_{\mathrm{scale}} \left( u \frac{\partial u}{\partial x} + v \frac{\partial u}{\partial y} \right) + \frac{\partial p}{\partial x} - \mu_s^* \left( \frac{\partial^2 u}{\partial x^2} + \frac{\partial^2 u}{\partial y^2} \right) - \left( \frac{\partial \tau_{xx}}{\partial x} + \frac{\partial \tau_{xy}}{\partial y} \right) , \label{eq:residual_fu} \\
         f_v &= Re_{\mathrm{scale}} \left( u \frac{\partial v}{\partial x} + v \frac{\partial v}{\partial y} \right) + \frac{\partial p}{\partial y} - \mu_s^* \left( \frac{\partial^2 v}{\partial x^2} + \frac{\partial^2 v}{\partial y^2} \right) - \left( \frac{\partial \tau_{xy}}{\partial x} + \frac{\partial \tau_{yy}}{\partial y} \right) , \label{eq:residual_fv}
     \end{align}
-    representing the balance among inertial convective acceleration, hydrodynamic pressure gradient, Newtonian solvent viscous diffusion, and the divergence of the elastic polymeric extra-stress tensor.
+    representing the balance among convective inertia, pressure gradient, solvent viscous diffusion, and polymeric stress divergence.
 
     \item \textbf{Viscoelastic Constitutive Residuals} ($f_{\tau_{xx}}, f_{\tau_{xy}}, f_{\tau_{yy}}$):
     \begin{align}
-        f_{\tau_{xx}} &= \tau_{xx} + Wi \, \overset{\triangledown}{\tau}_{xx} + \frac{\alpha Wi}{\mu_p^*} \left( \tau_{xx}^2 + \tau_{xy}^2 \right) - 2\mu_p^* \frac{\partial u}{\partial x} , \label{eq:residual_ftxx} \\
-        f_{\tau_{yy}} &= \tau_{yy} + Wi \, \overset{\triangledown}{\tau}_{yy} + \frac{\alpha Wi}{\mu_p^*} \left( \tau_{xy}^2 + \tau_{yy}^2 \right) - 2\mu_p^* \frac{\partial v}{\partial y} , \label{eq:residual_ftyy} \\
-        f_{\tau_{xy}} &= \tau_{xy} + Wi \, \overset{\triangledown}{\tau}_{xy} + \frac{\alpha Wi}{\mu_p^*} \tau_{xy} (\tau_{xx} + \tau_{yy}) - \mu_p^* \left( \frac{\partial u}{\partial y} + \frac{\partial v}{\partial x} \right) , \label{eq:residual_ftxy}
+        f_{\tau_{xx}} &= \tau_{xx} + Wi \, \overset{\nabla}{\tau}_{xx} + \frac{\alpha Wi}{\mu_p^*} \left( \tau_{xx}^2 + \tau_{xy}^2 \right) - 2\mu_p^* \frac{\partial u}{\partial x} , \label{eq:residual_ftxx} \\
+        f_{\tau_{yy}} &= \tau_{yy} + Wi \, \overset{\nabla}{\tau}_{yy} + \frac{\alpha Wi}{\mu_p^*} \left( \tau_{xy}^2 + \tau_{yy}^2 \right) - 2\mu_p^* \frac{\partial v}{\partial y} , \label{eq:residual_ftyy} \\
+        f_{\tau_{xy}} &= \tau_{xy} + Wi \, \overset{\nabla}{\tau}_{xy} + \frac{\alpha Wi}{\mu_p^*} \tau_{xy} (\tau_{xx} + \tau_{yy}) - \mu_p^* \left( \frac{\partial u}{\partial y} + \frac{\partial v}{\partial x} \right) , \label{eq:residual_ftxy}
     \end{align}
-    where $\overset{\triangledown}{\tau}_{ij}$ denotes the components of the upper-convected time derivative (Eq.~\eqref{eq:uctd_definition}):
+    where $\overset{\nabla}{\tau}_{ij}$ denotes the components of the upper-convected time derivative (Eq.~\eqref{eq:uctd_definition}):
     \begin{align}
-        \overset{\triangledown}{\tau}_{xx} &= u \frac{\partial \tau_{xx}}{\partial x} + v \frac{\partial \tau_{xx}}{\partial y} - 2 \frac{\partial u}{\partial x} \tau_{xx} - 2 \frac{\partial u}{\partial y} \tau_{xy} , \\
-        \overset{\triangledown}{\tau}_{yy} &= u \frac{\partial \tau_{yy}}{\partial x} + v \frac{\partial \tau_{yy}}{\partial y} - 2 \frac{\partial v}{\partial x} \tau_{xy} - 2 \frac{\partial v}{\partial y} \tau_{yy} , \\
-        \overset{\triangledown}{\tau}_{xy} &= u \frac{\partial \tau_{xy}}{\partial x} + v \frac{\partial \tau_{xy}}{\partial y} - \frac{\partial u}{\partial x} \tau_{xy} - \frac{\partial u}{\partial y} \tau_{yy} - \tau_{xx} \frac{\partial v}{\partial x} - \tau_{xy} \frac{\partial v}{\partial y} .
+        \overset{\nabla}{\tau}_{xx} &= u \frac{\partial \tau_{xx}}{\partial x} + v \frac{\partial \tau_{xx}}{\partial y} - 2 \frac{\partial u}{\partial x} \tau_{xx} - 2 \frac{\partial u}{\partial y} \tau_{xy} , \\
+        \overset{\nabla}{\tau}_{yy} &= u \frac{\partial \tau_{yy}}{\partial x} + v \frac{\partial \tau_{yy}}{\partial y} - 2 \frac{\partial v}{\partial x} \tau_{xy} - 2 \frac{\partial v}{\partial y} \tau_{yy} , \\
+        \overset{\nabla}{\tau}_{xy} &= u \frac{\partial \tau_{xy}}{\partial x} + v \frac{\partial \tau_{xy}}{\partial y} - \frac{\partial u}{\partial x} \tau_{xy} - \frac{\partial u}{\partial y} \tau_{yy} - \tau_{xx} \frac{\partial v}{\partial x} - \tau_{xy} \frac{\partial v}{\partial y} .
     \end{align}
-    For Oldroyd-B fluids, the quadratic mobility parameter is set to $\alpha = 0$, recovering the linear Hookean dumbbell closure. For Giesekus fluids, $\alpha > 0$ introduces the non-linear quadratic stress dissipation that bounds extensional stress growth.
+    For Oldroyd-B fluids, $\alpha = 0$, recovering the linear Hookean dumbbell closure.
+    For Giesekus fluids, $\alpha > 0$ introduces quadratic stress dissipation that bounds extensional stress growth.
 \end{enumerate}
 
 \subsection{Decoupled Two-Stage Training Protocol}
 \label{subsec:two_stage_training_protocol}
 
-Attempting simultaneous, end-to-end optimization of coupled momentum and viscoelastic constitutive equations leads to severe optimization failure. As analyzed by Wang et al. \cite{wang2021understanding}, multi-operator loss landscapes exhibit severe gradient stiffness and spectral imbalance: gradient norms originating from stiff, non-linear hyperbolic stress transport terms can be orders of magnitude larger than those of elliptic momentum operators, causing catastrophic gradient cancellation. In computational rheology, Thakur et al. \cite{thakur2024viscoelasticnet} demonstrated that optimizing velocity, pressure, and extra-stresses simultaneously prevents convergence in complex viscoelastic flows.
+Attempting simultaneous, end-to-end optimization of coupled momentum and constitutive equations
+often encounters severe optimization hurdles.
+As analyzed by Wang et al. \cite{wang2021understanding}, multi-operator loss landscapes exhibit spectral imbalance:
+gradient norms from stiff hyperbolic stress transport terms can dominate those of elliptic momentum terms.
+In computational rheology, Thakur et al. \cite{thakur2024viscoelasticnet} demonstrated that
+optimizing velocity, pressure, and extra-stresses simultaneously can lead to optimization stagnation.
 
-To ensure numerical stability, training is split into two sequentially decoupled stages:
+To improve training stability, we decouple optimization into two sequential phases:
 \begin{enumerate}
     \item \textbf{Phase 1: Kinematics and Rheology (Stress Network Optimization)}:
-    In this stage, the linear momentum equation is disabled ($w_{\mathrm{mom}} = 0$), and the hydrodynamic pressure network $p$ is frozen. The optimizer focuses exclusively on fitting the kinematic velocity field and solving the non-linear constitutive equations. The stream function $\psi$ and stress tensor $\boldsymbol{\tau}$ are trained jointly. In inverse mode, the unknown rheological parameters $(\lambda, \mu_p, \alpha)$ are learned online by driving $\mathcal{L}_{\mathrm{con}} \to 0$. This isolates the hyperbolic stress dynamics from pressure gradient interference, allowing the network to capture the topological stress distribution and fluid elasticity cleanly.
+    The momentum equation is disabled ($w_{\mathrm{mom}} = 0$), and the pressure network $p$ is frozen.
+    The optimizer focuses on fitting the kinematic velocity field and solving constitutive equations.
+    The stream function $\psi$ and stress tensor $\boldsymbol{\tau}$ are trained jointly.
+    In inverse mode, the unknown rheological parameters $(\lambda, \mu_p, \alpha)$ are learned online by driving $\mathcal{L}_{\mathrm{con}} \to 0$.
+    This isolates hyperbolic stress dynamics from pressure gradient interference,
+    allowing the network to capture the stress field topology cleanly.
 
     \item \textbf{Phase 2: Hydrodynamics and Pressure Recovery (Momentum Optimization)}:
-    Once the stress tensor field $\boldsymbol{\tau}$ has converged, it is frozen. Its divergence $\nabla \cdot \boldsymbol{\tau} = (\partial \tau_{xx}/\partial x + \partial \tau_{xy}/\partial y, \, \partial \tau_{xy}/\partial x + \partial \tau_{yy}/\partial y)$ is precomputed and acts as a fixed spatial body force field. The momentum equation is activated ($w_{\mathrm{mom}} = 1.0$) alongside a pressure gauge anchoring loss ($w_{\mathrm{pin}} = 10.0$) to train the pressure network $p$.
+    Once the stress tensor field $\boldsymbol{\tau}$ has converged, it is frozen.
+    Its divergence acts as a fixed body force field.
+    The momentum equation is activated ($w_{\mathrm{mom}} = 1.0$) alongside a pressure gauge anchoring loss ($w_{\mathrm{pin}} = 10.0$)
+    to train the pressure network $p$.
 
     \item \textbf{Physical Working Hypothesis: Mobile Stream Function in Phase 2}:
-    A central design principle of our framework is that the stream function network $\psi$ is \textit{never rigidly frozen in Phase 2}; it remains trainable under a reduced learning rate. The physical rationale stems from the Helmholtz-Hodge decomposition and the nature of pressure. Taking the curl of the linear momentum balance (Eq.~\eqref{eq:momentum_reduced}) eliminates pressure identically, because pressure is a scalar potential and can generate only irrotational forces ($\nabla \times \nabla p \equiv \boldsymbol{0}$). 
-    Consequently, the pressure gradient cannot compensate for any residual rotational incompatibility (vorticity mismatch) between the viscous term $\mu_s \nabla^2 \boldsymbol{u}$ and the stress divergence $\nabla \cdot \boldsymbol{\tau}$ inherited from Phase 1. If $\psi$ were rigidly locked, any slight rotational discrepancy in the Phase 1 velocity field would present an insurmountable mathematical contradiction in momentum conservation that no scalar pressure field $p$ could resolve. Keeping $\psi$ mobile enables subtle solenoidal adjustments that reconcile kinematics with the momentum balance, even though this slight adaptation may introduce a minor trade-off in velocity metrics (\textit{flagged as a working hypothesis subject to ongoing investigation}).
+    A central design feature of our protocol is that the stream function network $\psi$
+    \textit{remains trainable under a reduced learning rate in Phase 2}.
+    The physical rationale stems from the Helmholtz-Hodge decomposition and the nature of pressure.
+    Taking the curl of the linear momentum balance (Eq.~\eqref{eq:momentum_reduced}) eliminates pressure identically,
+    because pressure is a scalar potential that generates only irrotational forces ($\nabla \times \nabla p \equiv \boldsymbol{0}$).
+    Consequently, the pressure gradient cannot compensate for any residual rotational incompatibility
+    between viscous diffusion $\mu_s \nabla^2 \boldsymbol{u}$ and stress divergence $\nabla \cdot \boldsymbol{\tau}$ from Phase 1.
+    If $\psi$ were rigidly locked, any slight rotational discrepancy in the Phase 1 velocity field
+    would present an incompatible momentum balance that no scalar pressure field $p$ could resolve.
+    Keeping $\psi$ mobile enables subtle solenoidal adjustments that reconcile kinematics with momentum conservation.
 \end{enumerate}
 
 Table~\ref{tab:staged_training_summary} summarizes the operational parameters, active losses, and component weights across both training phases.
@@ -142,10 +214,35 @@ Table~\ref{tab:staged_training_summary} summarizes the operational parameters, a
     }
 \end{table}
 
+To ensure complete experimental reproducibility, Table~\ref{tab:information_supplied_summary} details the exact supervision data supplied to the PINN across all investigated computational experiments.
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \caption{Information and boundary data supplied to the PINN framework across all experimental benchmarks.}
+    \label{tab:information_supplied_summary}
+    \begin{tabular}{p{3.2cm} p{2.5cm} p{2.5cm} p{2.2cm} p{2.2cm} c}
+        \hline
+        \textbf{Benchmark} & \textbf{Domain Velocity} ($\mathcal{L}_{\mathrm{data}}$) & \textbf{Wall/Roll BCs} ($\mathcal{L}_{\mathrm{bc}}$) & \textbf{Roll Stress Anchor} ($\mathcal{L}_{\mathrm{roll\_stress}}$) & \textbf{Pressure Pin} ($\mathcal{L}_{\mathrm{pin}}$) & \textbf{Internal Stress} ($\boldsymbol{\tau}_{\mathrm{interior}}$) \\
+        \hline
+        \textbf{Direct Problem} & None ($w_{\mathrm{data}}=0$) & No-slip kinematic BC & Prescribed on rolls & At $\boldsymbol{x}_0$ (Phase 2) & \textbf{None (Latent)} \\
+        \textbf{Inverse (Cases 1--4)} & Distributed $(u, v)$ & No-slip kinematic BC & Prescribed on rolls & At $\boldsymbol{x}_0$ (Phase 2) & \textbf{None (Latent)} \\
+        \textbf{Grid Study} & Distributed at $N_{\mathrm{col}}$ & No-slip kinematic BC & Prescribed on rolls & At $\boldsymbol{x}_0$ (Phase 2) & \textbf{None (Latent)} \\
+        \textbf{PTT Degeneracy} & Distributed $(u, v)$ & No-slip kinematic BC & Prescribed on rolls & At $\boldsymbol{x}_0$ (Phase 2) & \textbf{None (Latent)} \\
+        \hline
+    \end{tabular}
+\end{table}
+
 \subsection{Neural Architecture and Staged Precision Solvers}
 \label{subsec:architecture_solvers_recap}
 
-Figure~\ref{fig:pinn_three_head_architecture} illustrates the modular three-head architecture. Each head is parameterized as a deep Multi-Layer Perceptron consisting of 8 hidden layers with 128 neurons per layer, utilizing smooth SiLU activation functions. Network weights are initialized using the Xavier Normal (Glorot) scheme, with the output linear layers of $p$ and $\boldsymbol{\tau}$ zero-initialized to facilitate stable initial gradient propagation.
+Figure~\ref{fig:pinn_three_head_architecture} illustrates the modular three-head architecture.
+Each head is parameterized as a deep Multi-Layer Perceptron.
+Each network comprises 8 hidden layers with 128 neurons per layer,
+employing smooth SiLU activation functions.
+Network weights are initialized using the Xavier Normal (Glorot) scheme.
+The output linear layers of $p$ and $\boldsymbol{\tau}$ are zero-initialized
+to ensure stable initial gradient propagation.
 
 \begin{figure}[htbp]
     \centering
@@ -154,13 +251,22 @@ Figure~\ref{fig:pinn_three_head_architecture} illustrates the modular three-head
     \label{fig:pinn_three_head_architecture}
 \end{figure}
 
-The optimization protocol combines first-order exploration with second-order deterministic refinement across two numerical precision tiers:
+The optimization protocol combines first-order exploration with second-order deterministic refinement
+across two numerical precision tiers:
 \begin{enumerate}
     \item \textbf{Tier 1: Global Exploration via Adam in FP32}:
-    During the initial phase of optimization, the loss landscape exhibits multiple steep valleys, saddle points, and localized local minima. The Adam optimizer, operating in single-precision floating-point arithmetic (standard IEEE 754 FP32), utilizes adaptive moment estimation to traverse the landscape efficiently and escape suboptimal local traps. A base learning rate of $\eta_0 = 2.5 \times 10^{-3}$ is decayed via a Cosine Annealing schedule down to $\eta_{\min} = 2.5 \times 10^{-6}$.
+    During early training, the loss landscape exhibits steep valleys, saddle points, and local minima.
+    The Adam optimizer operates in single-precision floating-point arithmetic (standard IEEE 754 FP32).
+    It utilizes adaptive moment estimation to traverse the landscape efficiently and escape suboptimal traps.
+    A base learning rate of $\eta_0 = 2.5 \times 10^{-3}$ decays via a Cosine Annealing schedule
+    down to $\eta_{\min} = 2.5 \times 10^{-6}$.
     
     \item \textbf{Tier 2: Asymptotic Refinement via L-BFGS in FP64}:
-    Once Adam brings the parameters into the basin of attraction of the physical solution, the optimizer switches to the Limited-memory Broyden–Fletcher–Goldfarb–Shanno (L-BFGS) algorithm. Operating in double-precision floating-point arithmetic (\texttt{torch.float64}) with a Strong Wolfe line search, L-BFGS leverages second-order curvature approximations to achieve asymptotic scientific convergence without stochastic jitter.
+    Once Adam guides the parameters into the basin of attraction of the physical solution,
+    the optimizer switches to the Limited-memory Broyden--Fletcher--Goldfarb--Shanno (L-BFGS) algorithm.
+    Operating in double-precision floating-point arithmetic (\texttt{torch.float64}) with a Strong Wolfe line search,
+    L-BFGS leverages second-order curvature approximations.
+    This enables asymptotic convergence toward scientific accuracy without stochastic jitter.
 \end{enumerate}
 
 Table~\ref{tab:optimization_hyperparameters} outlines the detailed hyperparameters and iteration budgets for both precision tiers.
@@ -172,10 +278,10 @@ Table~\ref{tab:optimization_hyperparameters} outlines the detailed hyperparamete
     \resizebox{\textwidth}{!}{%
     \begin{tabular}{lccccc}
         \hline
-        \textbf{Tier} & \textbf{Algorithm} & \textbf{Precision} & \textbf{Iterations (Ex-Novo / TL)} & \textbf{Learning Rate ($\eta$)} & \textbf{Line Search / Decay} \\
+        \textbf{Tier} & \textbf{Algorithm} & \textbf{Precision} & \textbf{Iterations (Ex-Novo / TL)} & \textbf{Learning Rate ($\eta$) / Step Length} & \textbf{Line Search / Decay} \\
         \hline
         \textbf{Tier 1} & Adam & FP32 (Single) & 40{,}000 / 20{,}000 & $2.5 \times 10^{-3} \to 2.5 \times 10^{-6}$ & Cosine Annealing \\
-        \textbf{Tier 2} & L-BFGS & FP64 (Double) & 10{,}000 / 5{,}000 & $1.0$ (step multiplier) & Strong Wolfe line search \\
+        \textbf{Tier 2} & L-BFGS & FP64 (Double) & 10{,}000 / 5{,}000 & $\alpha_0 = 1.0$ (unit initial step length) & Strong Wolfe line search \\
         \hline
     \end{tabular}%
     }
@@ -187,20 +293,37 @@ Table~\ref{tab:optimization_hyperparameters} outlines the detailed hyperparamete
 \section{High-Fidelity Reference CFD and Mesh Convergence}
 \label{sec:cfd_mesh_convergence}
 
-Reference datasets were generated using COMSOL Multiphysics, solving steady incompressible viscoelastic flows on unstructured triangular finite-element meshes refined near roller boundaries.
+We generated reference datasets using COMSOL Multiphysics.
+The software solves steady incompressible viscoelastic flows on unstructured triangular finite-element meshes,
+refined systematically in the vicinity of roller boundaries.
 
-To verify that reference data are free from discretization artifacts, the mesh convergence study was conducted on the Oldroyd-B benchmark with $\lambda = 1.0\,\mathrm{s}$. From a computational standpoint, this represents the most demanding condition: because the linear Oldroyd-B model lacks non-linear stress saturation, extensional stresses grow rapidly near the central stagnation point. Establishing grid convergence for Oldroyd-B at $\lambda = 1.0\,\mathrm{s}$ therefore confirms numerical reliability across the investigated parameter space.
+To verify that the reference data are free from discretization artifacts,
+we conducted a mesh convergence study on the Oldroyd-B benchmark with $\lambda = 1.0\,\mathrm{s}$.
+Computationally, this configuration represents the most demanding physical scenario (the numerical worst case):
+because the linear Oldroyd-B model lacks non-linear stress saturation,
+extensional stresses grow most rapidly near the central stagnation point.
+Establishing grid independence for Oldroyd-B at $\lambda = 1.0\,\mathrm{s}$
+thus provides a strong proxy and guideline across the investigated flow conditions,
+supporting the numerical reliability of the M125k reference solution.
+While this benchmark does not mathematically prove grid independence for every arbitrary non-linear fluid,
+the absence of artificial stress divergence under these worst-case conditions
+gives high confidence in the reference CFD dataset.
 
-Five mesh resolutions were systematically investigated:
+We evaluated five mesh resolutions systematically:
 \begin{itemize}
-    \item \textbf{M5k (Coarse Grid)}: 5{,}086 nodes, capturing macro-scale flow topologies.
+    \item \textbf{M5k (Coarse Grid)}: 5{,}086 nodes, capturing macroscopic flow topologies.
     \item \textbf{M12k (Light Grid)}: 12{,}760 nodes.
     \item \textbf{M29k (Intermediate Grid)}: 29{,}392 nodes.
     \item \textbf{M52k (Fine Grid)}: 52{,}648 nodes.
     \item \textbf{M125k (Dense Baseline)}: 125{,}456 nodes, resolving sub-millimeter stress boundary layers in roller nips.
 \end{itemize}
 
-Figure~\ref{fig:mesh_convergence_cutlines} displays the spatial profiles of all velocity and extra-stress tensor components ($u, v, \tau_{xx}, \tau_{xy}, \tau_{yy}$) along the three diagnostic cutlines defined in Section~\ref{subsec:diagnostic_cutlines}. As demonstrated across all panels, the coarse M5k mesh already matches the ultra-dense M125k reference solution with remarkable fidelity: spatial velocity profiles between M52k and M125k deviate by less than $0.05\%$, while peak shear stresses in roller gaps differ by under $0.3\%$. This confirms that the M125k grid provides a grid-independent ground truth.
+Figure~\ref{fig:mesh_convergence_cutlines} displays the spatial profiles of velocity and extra-stress tensor components
+($u, v, \tau_{xx}, \tau_{xy}, \tau_{yy}$) along the three diagnostic cutlines defined in Section~\ref{subsec:diagnostic_cutlines}.
+Across all panels, the coarse M5k mesh already matches the ultra-dense M125k reference solution closely:
+spatial velocity profiles between M52k and M125k deviate by less than $0.05\%$,
+while peak shear stresses in roller gaps differ by under $0.3\%$.
+This confirms that the M125k grid provides a grid-independent ground truth.
 
 \begin{figure}[htbp]
     \centering
@@ -215,16 +338,21 @@ Figure~\ref{fig:mesh_convergence_cutlines} displays the spatial profiles of all 
 \section{Direct Problem Validation: Kinematics, Stresses, and Pressure Reconstruction}
 \label{sec:direct_problem_validation}
 
-We first validate the forward PINN solver on the canonical Oldroyd-B benchmark ($Wi = 0.0833$, $Re = 0.0417$, $\lambda = 0.05\,\mathrm{s}$, $\mu_p = 0.90\,\mathrm{Pa\cdot s}$, $\mu_s = 0.10\,\mathrm{Pa\cdot s}$). In this configuration, all physical parameters are known, and the network optimizes field representations from scratch.
+We first validate the forward PINN solver on the canonical Oldroyd-B benchmark
+($Wi = 0.0833$, $Re = 0.0417$, $\lambda = 0.05\,\mathrm{s}$, $\mu_p = 0.90\,\mathrm{Pa\cdot s}$, $\mu_s = 0.10\,\mathrm{Pa\cdot s}$).
+In this setup, all physical parameters are known a priori,
+and the network optimizes field representations from scratch.
 
 \subsection{Global Field Accuracy Metrics}
-Field accuracy is quantified using the relative global $L_2$ error norm defined over all discrete spatial evaluation nodes:
+We quantify field accuracy using the relative global $L_2$ error norm
+evaluated over all discrete spatial nodes:
 \begin{equation}
     \epsilon_{L_2}(\phi) = \frac{\|\hat{\phi} - \phi^{\mathrm{ref}}\|_2}{\|\phi^{\mathrm{ref}}\|_2} = \frac{\sqrt{\sum_{i=1}^N |\hat{\phi}(\boldsymbol{x}_i) - \phi^{\mathrm{ref}}(\boldsymbol{x}_i)|^2}}{\sqrt{\sum_{i=1}^N |\phi^{\mathrm{ref}}(\boldsymbol{x}_i)|^2}} .
     \label{eq:error_metrics_def}
 \end{equation}
 
-Table~\ref{tab:direct_problem_metrics} summarizes the quantitative validation across all 125{,}456 spatial evaluation nodes.
+Table~\ref{tab:direct_problem_metrics} summarizes the quantitative validation
+evaluated across all 125{,}456 spatial mesh nodes.
 
 \begin{table}[htbp]
     \centering
@@ -247,7 +375,11 @@ Table~\ref{tab:direct_problem_metrics} summarizes the quantitative validation ac
     }
 \end{table}
 
-As illustrated in Figure~\ref{fig:direct_kinematics}, the predicted velocity components $(u, v)$ achieve sub-percent relative $L_2$ error ($0.98\%$ for $u$, $0.93\%$ for $v$). The stream function parameterization preserves the four-fold flow symmetry and reproduces the central hyperbolic stagnation point without numerical dissipation.
+As illustrated in Figure~\ref{fig:direct_kinematics},
+the predicted velocity components $(u, v)$ achieve sub-percent relative $L_2$ error
+($0.98\%$ for $u$, $0.93\%$ for $v$).
+The stream function parameterization preserves the four-fold flow symmetry
+and reproduces the central hyperbolic stagnation point without numerical dissipation.
 
 \begin{figure}[htbp]
     \centering
@@ -257,7 +389,14 @@ As illustrated in Figure~\ref{fig:direct_kinematics}, the predicted velocity com
 \end{figure}
 
 \subsection{Viscoelastic Extra-Stress Tensor Resolution}
-Resolving extra-stress tensor fields in viscoelastic flows requires resolving sharp gradients in roller gaps and along outflow streamlines. As shown in Figure~\ref{fig:direct_stress}, the PINN captures the full tensor field $(\tau_{xx}, \tau_{xy}, \tau_{yy})$, achieving relative $L_2$ errors of $1.21\%$ on shear stress $\tau_{xy}$ and $1.80\%$ on axial normal stress $\tau_{xx}$. Localized peak stresses in the gaps between counter-rotating rollers are resolved without spurious oscillations or artificial diffusion.
+Resolving extra-stress tensor fields in viscoelastic flows requires capturing sharp gradients
+in roller gaps and along outflow streamlines.
+As shown in Figure~\ref{fig:direct_stress},
+the PINN captures the full tensor field $(\tau_{xx}, \tau_{xy}, \tau_{yy})$,
+achieving relative $L_2$ errors of $1.21\%$ on shear stress $\tau_{xy}$
+and $1.80\%$ on axial normal stress $\tau_{xx}$.
+Localized peak stresses in the gaps between counter-rotating rollers are resolved cleanly
+without spurious oscillations or artificial numerical diffusion.
 
 \begin{figure}[htbp]
     \centering
@@ -267,19 +406,31 @@ Resolving extra-stress tensor fields in viscoelastic flows requires resolving sh
 \end{figure}
 
 \subsection{Hydrodynamic Pressure Recovery and Gauge Calibration}
-In incompressible fluid mechanics, the absolute pressure $p$ is determined only up to an arbitrary hydrostatic constant $C$, because pressure enters the governing momentum equations solely through its spatial gradient $\nabla p$. In discrete numerical simulations, different solvers adopt different reference datum offsets: COMSOL sets an arbitrary boundary or average gauge, whereas the PINN is pinned at a discrete point $\boldsymbol{x}_0$. Consequently, an uncalibrated comparison between raw PINN predictions and COMSOL data yields an apparently large discrepancy ($47.4\%$) that reflects purely a uniform vertical offset rather than a physical error.
+In incompressible fluid mechanics, absolute pressure $p$ is determined only up to an arbitrary hydrostatic constant $C$.
+This occurs because pressure enters the governing momentum equations solely through its spatial gradient $\nabla p$.
+In discrete numerical simulations, different solvers adopt different reference datum offsets:
+COMSOL sets an arbitrary boundary or average gauge,
+whereas the PINN is pinned at a discrete coordinate $\boldsymbol{x}_0$.
+Consequently, comparing raw PINN predictions directly with COMSOL data yields an apparently large discrepancy ($47.4\%$).
+This offset reflects purely a uniform vertical shift rather than an error in flow physics.
 
-To evaluate genuine physical agreement, the pressure field is calibrated by subtracting the domain mean discrepancy:
+To evaluate genuine physical agreement, we calibrate the pressure field
+by subtracting the domain mean discrepancy:
 \begin{equation}
     p_{\mathrm{cal}}(\boldsymbol{x}) = \hat{p}(\boldsymbol{x}) - \frac{1}{|\Omega|} \int_{\Omega} \left( \hat{p}(\boldsymbol{x}) - p^{\mathrm{ref}}(\boldsymbol{x}) \right) \mathrm{d}\Omega .
     \label{eq:pressure_calibration}
 \end{equation}
-Equation~\eqref{eq:pressure_calibration} aligns the hydrostatic reference levels of both fields without altering the spatial gradient $\nabla p_{\mathrm{cal}} \equiv \nabla \hat{p}$. As shown in Figure~\ref{fig:direct_pressure}, the calibrated pressure field exhibits close physical agreement with COMSOL ($L_2$ error of $3.42\%$), confirming that the reconstructed pressure gradient exactly balances viscous dissipation and polymeric stress divergence across all 125{,}456 mesh nodes.
+Equation~\eqref{eq:pressure_calibration} aligns the hydrostatic reference levels of both fields
+without altering the spatial gradient: $\nabla p_{\mathrm{cal}} \equiv \nabla \hat{p}$.
+As shown in Figure~\ref{fig:direct_pressure},
+the calibrated pressure field exhibits close physical agreement with COMSOL ($L_2$ error of $3.42\%$).
+This confirms that the reconstructed pressure gradient balances viscous dissipation and polymeric stress divergence
+across all 125{,}456 mesh nodes.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\linewidth]{media/fig2_diretto_pressione.png}
-    \caption{Hydrodynamic pressure field reconstruction: COMSOL ground truth, raw and gauge-calibrated PINN predictions, and spatial error distributions, demonstrating exact gradient matching.}
+    \caption{Hydrodynamic pressure field reconstruction: COMSOL ground truth, raw and gauge-calibrated PINN predictions, and spatial error distributions, demonstrating close agreement with reference pressure gradients ($L_2$ error of $3.42\%$ upon hydrostatic offset calibration).}
     \label{fig:direct_pressure}
 \end{figure}
 
@@ -289,19 +440,34 @@ Equation~\eqref{eq:pressure_calibration} aligns the hydrostatic reference levels
 \section{Inverse Problem: Rheological Parameter Discovery Benchmarks}
 \label{sec:inverse_parameter_discovery}
 
-In inverse discovery mode, the PINN operates as a "virtual rheometer": \textit{no internal stress measurements are supplied to the network}. The model receives exclusively kinematic boundary velocity data on the rotating cylinders (mimicking experimental PIV), while the interior stress fields and governing physical parameters are simultaneously inferred via PDE residual minimization.
+In inverse discovery mode, the PINN operates as a "virtual rheometer":
+\textit{we supply no internal stress measurements to the network}.
+The model assimilates kinematic velocity data across the domain (representing planar PIV measurements),
+kinematic boundary conditions on solid surfaces,
+and the auxiliary wall-stress anchor on rotating cylinders ($\mathcal{L}_{\mathrm{roll\_stress}}$).
+Crucially, internal polymeric extra-stresses $(\tau_{xx}, \tau_{xy}, \tau_{yy})$ and hydrodynamic pressure $p$
+remain entirely latent and unobserved.
+They are inferred simultaneously alongside governing fluid parameters via PDE residual minimization.
 
 \subsection{The Four Canonical Benchmarks}
 We evaluate four challenging inverse benchmarks spanning linear and non-linear constitutive regimes:
 \begin{itemize}
-    \item \textbf{Benchmark 1 (Canonical Oldroyd-B from Scratch)}: Modest elasticity ($Wi = 0.08$), trained ex-novo for 50{,}000 iterations.
-    \item \textbf{Benchmark 2 (High-Elasticity Oldroyd-B via Transfer Learning)}: Elevated elasticity ($Wi = 1.17$, $\lambda = 0.70\,\mathrm{s}$), initialized using weights from a lower-$Wi$ checkpoint and fine-tuned for 25{,}000 iterations.
-    \item \textbf{Benchmark 3 (Non-linear Giesekus with Blind Guess from Scratch)}: Fluid with non-linear mobility ($\alpha^{\mathrm{true}} = 0.35$), initialized with a blind guess $\alpha_0 = 0.25$ and trained for 50{,}000 iterations.
-    \item \textbf{Benchmark 4 (Extreme-Mobility Giesekus via Transfer Learning)}: Maximum physical mobility ($\alpha^{\mathrm{true}} = 0.50$, $\lambda = 0.30\,\mathrm{s}$, $\mu_p = 0.05\,\mathrm{Pa\cdot s}$), fine-tuned via Transfer Learning for 25{,}000 iterations.
+    \item \textbf{Benchmark 1 (Canonical Oldroyd-B from Scratch)}:
+    Modest elasticity ($Wi = 0.08$), trained ex-novo for 50{,}000 iterations.
+    \item \textbf{Benchmark 2 (High-Elasticity Oldroyd-B via Transfer Learning)}:
+    Elevated elasticity ($Wi = 1.17$, $\lambda = 0.70\,\mathrm{s}$),
+    initialized using weights from a lower-$Wi$ checkpoint and fine-tuned for 25{,}000 iterations.
+    \item \textbf{Benchmark 3 (Non-linear Giesekus with Blind Guess from Scratch)}:
+    Fluid with non-linear mobility ($\alpha^{\mathrm{true}} = 0.35$),
+    initialized with a blind guess $\alpha_0 = 0.25$ and trained for 50{,}000 iterations.
+    \item \textbf{Benchmark 4 (Extreme-Mobility Giesekus via Transfer Learning)}:
+    Maximum physical mobility ($\alpha^{\mathrm{true}} = 0.50$, $\lambda = 0.30\,\mathrm{s}$, $\mu_p = 0.05\,\mathrm{Pa\cdot s}$),
+    fine-tuned via Transfer Learning for 25{,}000 iterations.
 \end{itemize}
-Beyond these four canonical cases, an extensive exploration across alternative parameter combinations ($\lambda \in [0.05, 1.0]\,\mathrm{s}, \mu_p \in [0.05, 0.95]\,\mathrm{Pa\cdot s}, \alpha \in [0.1, 0.5]$) was conducted, consistently confirming the stability of the discovery pipeline.
+These four benchmarks cover both linear Hookean and non-linear shear-thinning response
+over relaxation times ranging from $0.05\,\mathrm{s}$ to $0.70\,\mathrm{s}$.
 
-Table~\ref{tab:inverse_benchmarks} summarizes the parameter estimation accuracy and kinematic errors across these benchmarks.
+Table~\ref{tab:inverse_benchmarks} summarizes parameter estimation accuracy and kinematic errors across these benchmarks.
 
 \begin{table}[htbp]
     \centering
@@ -331,10 +497,18 @@ Table~\ref{tab:inverse_benchmarks} summarizes the parameter estimation accuracy 
     }
 \end{table}
 
-As detailed in Table~\ref{tab:inverse_benchmarks}, parameter estimation errors for the linear Oldroyd-B model remain below $1.3\%$ across both low and high Weissenberg numbers ($Wi = 0.08$ and $Wi = 1.17$). For the non-linear Giesekus model, the network simultaneously inverts three coupled parameters $(\alpha, \lambda, \mu_p)$, identifying mobility $\alpha$ within $6.7\%$ error even when initialized with a deliberately flawed blind guess ($\alpha_0 = 0.25$ vs $\alpha^{\mathrm{true}} = 0.35$).
+As detailed in Table~\ref{tab:inverse_benchmarks},
+parameter estimation errors for the linear Oldroyd-B model remain below $1.3\%$
+across both low and high Weissenberg numbers ($Wi = 0.08$ and $Wi = 1.17$).
+For the non-linear Giesekus model, the network simultaneously inverts three coupled parameters $(\alpha, \lambda, \mu_p)$.
+It identifies mobility $\alpha$ within $6.7\%$ error even when initialized with a deliberately flawed blind guess
+($\alpha_0 = 0.25$ vs $\alpha^{\mathrm{true}} = 0.35$).
 
 \subsection{Convergence Trajectories During Optimization}
-Figure~\ref{fig:inverse_convergence} displays the parameter evolution during the two-tier Adam + L-BFGS training trajectory on the M125k grid. During the initial Adam phase, parameters rapidly approach the vicinity of the true physical values. Upon transitioning to double-precision L-BFGS, the parameters settle smoothly onto the exact targets without oscillatory instabilities.
+Figure~\ref{fig:inverse_convergence} displays parameter evolution during the two-tier Adam + L-BFGS training trajectory on the M125k grid.
+During the initial Adam phase, parameters rapidly approach the neighborhood of the true physical values.
+Upon transitioning to double-precision L-BFGS,
+the parameters settle smoothly toward the target values without oscillatory instabilities.
 
 \begin{figure}[htbp]
     \centering
@@ -349,23 +523,27 @@ Figure~\ref{fig:inverse_convergence} displays the parameter evolution during the
 \section{Grid Independence and Collocation Robustness}
 \label{sec:grid_independence_collocation}
 
-In classical finite element methods, refining the computational mesh monotonically improves solution accuracy as interpolation truncation errors decrease. To examine how collocation density impacts PINN optimization, we conducted a systematic grid independence study across five mesh resolutions: 5k, 12k, 29k, 52k, and 125k nodes.
+In classical finite element methods, refining the computational mesh monotonically improves solution accuracy
+as interpolation truncation errors diminish.
+To examine how collocation density impacts PINN optimization,
+we conducted a systematic grid independence study across five mesh resolutions:
+5k, 12k, 29k, 52k, and 125k nodes.
 
 \begin{table}[htbp]
     \centering
     \small
-    \caption{Grid independence and parameter estimation accuracy across five collocation resolutions ($\lambda^{\mathrm{true}} = 0.100\,\mathrm{s}, \mu_p^{\mathrm{true}} = 0.500\,\mathrm{Pa\cdot s}$).}
+    \caption{Collocation density sensitivity and parameter estimation accuracy across five resolutions ($\lambda^{\mathrm{true}} = 0.100\,\mathrm{s}, \mu_p^{\mathrm{true}} = 0.500\,\mathrm{Pa\cdot s}$).}
     \label{tab:grid_independence}
     \resizebox{\textwidth}{!}{%
     \begin{tabular}{lcccccc}
         \hline
-        \textbf{Mesh Resolution} & \textbf{Nodes} & $\lambda_{\mathrm{est}}$ [s] & $\lambda$ \textbf{Error} & $\mu_{p,\mathrm{est}}$ [Pa·s] & $\mu_p$ \textbf{Error} & \textbf{Velocity $L_2$} \\
+        \textbf{Mesh Resolution} & \textbf{Evaluation Nodes} & $\lambda_{\mathrm{est}}$ [s] & $\lambda$ \textbf{Error} & $\mu_{p,\mathrm{est}}$ [Pa·s] & $\mu_p$ \textbf{Error} & \textbf{Velocity $L_2$} \\
         \hline
-        \textbf{5k (Coarse)} & \textbf{5,095} & $\mathbf{0.1008}$ & $\mathbf{+0.79\%}$ & $\mathbf{0.5103}$ & $\mathbf{+2.06\%}$ & $\mathbf{0.15\%}$ \\
-        \textbf{12k} & 12,760 & $0.1071$ & $+7.10\%$ & $0.5389$ & $+7.78\%$ & $0.55\%$ \\
-        \textbf{29k} & 29,401 & $0.1088$ & $+8.79\%$ & $0.5455$ & $+9.10\%$ & $0.58\%$ \\
-        \textbf{52k} & 52,657 & $0.1062$ & $+6.18\%$ & $0.5323$ & $+6.46\%$ & $0.44\%$ \\
-        \textbf{125k (Dense)} & 125,456 & $0.1083$ & $+8.32\%$ & $0.5412$ & $+8.24\%$ & $0.50\%$ \\
+        \textbf{5k (Coarse)} & \textbf{5{,}086} & $\mathbf{0.1008}$ & $\mathbf{+0.79\%}$ & $\mathbf{0.5103}$ & $\mathbf{+2.06\%}$ & $\mathbf{0.15\%}$ \\
+        \textbf{12k} & 12{,}760 & $0.1071$ & $+7.10\%$ & $0.5389$ & $+7.78\%$ & $0.55\%$ \\
+        \textbf{29k} & 29{,}392 & $0.1088$ & $+8.79\%$ & $0.5455$ & $+9.10\%$ & $0.58\%$ \\
+        \textbf{52k} & 52{,}648 & $0.1062$ & $+6.18\%$ & $0.5323$ & $+6.46\%$ & $0.44\%$ \\
+        \textbf{125k (Dense)} & 125{,}456 & $0.1083$ & $+8.32\%$ & $0.5412$ & $+8.24\%$ & $0.50\%$ \\
         \hline
     \end{tabular}%
     }
@@ -374,13 +552,26 @@ In classical finite element methods, refining the computational mesh monotonical
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\linewidth]{media/fig5_inverso_mesh_independence.png}
-    \caption{Grid independence study: comparison of parameter estimation errors ($\lambda$ and $\mu_p$) and velocity $L_2$ errors across mesh resolutions from 5k to 125k collocation points.}
+    \caption{Collocation density study: comparison of parameter estimation errors ($\lambda$ and $\mu_p$) and velocity $L_2$ errors across resolutions from 5{,}086 to 125{,}456 collocation points.}
     \label{fig:inverse_mesh_convergence}
 \end{figure}
 
-As presented in Table~\ref{tab:grid_independence} and visualized in Figure~\ref{fig:inverse_mesh_convergence}, the parameter estimation error remains confined to a single-digit band (between $0.8\%$ and $8.8\%$) across a 25-fold increase in collocation density. Rather than indicating an intrinsic superiority of coarser grids, the minor variations observed between the 5k grid and the 125k grid represent statistical optimization noise.
+As presented in Table~\ref{tab:grid_independence} and visualized in Figure~\ref{fig:inverse_mesh_convergence},
+parameter estimation errors remain confined within a single-digit band (between $0.8\%$ and $8.8\%$)
+across a 25-fold increase in collocation density.
+Interestingly, accuracy does not improve monotonically with increasing point density:
+the coarse 5k dataset ($5{,}086$ points) achieves the lowest estimation error ($+0.79\%$ on $\lambda$, $+2.06\%$ on $\mu_p$),
+while denser sets stabilize around $6\text{--}8\%$ error. 
 
-A key outcome of this analysis is the grid robustness of the PINN solver: unlike traditional mesh-based CFD codes that require dense boundary-fitted grids to maintain numerical stability, the physics-informed loss identifies the governing rheological parameters consistently across the tested collocation densities, including the coarse 5k dataset.
+Rather than implying an intrinsic superiority of sparser grids,
+this non-monotonic behavior can be understood through network capacity and optimization dynamics.
+Our deep architecture possesses a fixed parameter budget (approximately $1.5 \times 10^5$ trainable weights across the three heads).
+Beyond a certain collocation threshold, adding further spatial points does not monotonically enhance resolution
+because the representation capacity of the network saturates.
+Furthermore, in high-density datasets, localized gradient norms in roller boundary layers can alter the balance of the composite loss.
+Crucially, the solver demonstrates robustness across the investigated sampling range:
+even with coarse collocation, the network recovers the rheological parameters
+and resolves the four-roll mill kinematics with high fidelity ($L_2(u,v) \le 0.58\%$).
 
 % ============================================================
 % 4.6 TRANSFER LEARNING EFFICIENCY AND STABILITY
@@ -388,38 +579,82 @@ A key outcome of this analysis is the grid robustness of the PINN solver: unlike
 \section{Transfer Learning Efficiency and Numerical Stability}
 \label{sec:transfer_learning_analysis}
 
-Training viscoelastic PINNs from scratch for each operating condition is computationally intensive (requiring approximately 50{,}000 iterations per run) and risks convergence toward suboptimal local minima at elevated Weissenberg numbers. 
+Training viscoelastic PINNs from scratch for each operating condition is computationally demanding
+(requiring approximately 50{,}000 iterations per run).
+Moreover, it risks convergence toward suboptimal local minima at elevated Weissenberg numbers. 
 
 To overcome these hurdles, we implemented a Transfer Learning (TL) pipeline:
 \begin{enumerate}
-    \item \textbf{Base Model Pre-training}: The network is pre-trained on a moderate baseline case (e.g., Oldroyd-B at $\lambda = 0.05\,\mathrm{s}, Wi = 0.08$).
-    \item \textbf{Weight Transfer and Fine-Tuning}: Pre-trained weights are transferred as initial conditions for target simulations characterized by high elasticity ($\lambda = 0.70\,\mathrm{s}, Wi = 1.17$) or strong non-linear mobility ($\alpha = 0.50$).
+    \item \textbf{Base Model Pre-training}:
+    We pre-train the network on a moderate baseline case (e.g., Oldroyd-B at $\lambda = 0.05\,\mathrm{s}, Wi = 0.08$).
+    \item \textbf{Weight Transfer and Fine-Tuning}:
+    We transfer the pre-trained weights as initial conditions for target simulations characterized by high elasticity
+    ($\lambda = 0.70\,\mathrm{s}, Wi = 1.17$) or strong non-linear mobility ($\alpha = 0.50$).
 \end{enumerate}
 
-The advantages of this workflow are substantial:
+The advantages of this workflow are two-fold:
 \begin{itemize}
-    \item \textbf{50\% Reduction in Optimization Epochs}: Fine-tuning converges in 25{,}000 iterations (vs. 50{,}000 iterations from scratch), halving computational training time.
-    \item \textbf{High-Weissenberg Stability}: High-$Wi$ runs initialized from scratch frequently stall in local minima where stress gradients explode. Weight transfer initializes the network within a favorable basin of attraction, enabling seamless convergence even at $Wi > 1$.
+    \item \textbf{50\% Reduction in Optimization Epochs}:
+    Fine-tuning converges in 25{,}000 iterations (compared to 50{,}000 iterations from scratch),
+    halving computational training duration.
+    \item \textbf{High-Weissenberg Numerical Stability}:
+    High-$Wi$ runs initialized from scratch frequently stall in local minima where stress gradients surge.
+    Weight transfer initializes the network within a favorable basin of attraction,
+    facilitating stable convergence even at $Wi > 1$.
 \end{itemize}
 
 % ============================================================
 % 4.7 GENERAL PHYSICAL INVARIANT: PRESERVATION OF ELASTIC SHEAR MODULUS
 % ============================================================
-\section{General Physical Invariant: Preservation of the Elastic Shear Modulus ($G$)}
+\section{Consistent Recovery of the Elastic Shear Modulus ($G$)}
 \label{sec:elastic_modulus_invariant}
 
-A critical and ubiquitous finding observed across the inverse problem training runs is the \textbf{rigid preservation of the Elastic Shear Modulus} $G$:
+A central physical feature observed across all inverse benchmarks is the
+\textbf{consistent recovery of the composite Elastic Shear Modulus} $G$:
 \begin{equation}
     G = \frac{\mu_p}{\lambda} .
     \label{eq:elastic_modulus_def}
 \end{equation}
-In dilute and semi-dilute polymer solutions, kinetic theory identifies $G = n k_B T$ as the macroscopic elastic plateau modulus governing the reversible energy storage capacity of macromolecular chains. 
+In dilute and semi-dilute polymeric systems, kinetic theory identifies $G = n k_B T$
+as the macroscopic plateau modulus governing the reversible elastic energy storage capacity of macromolecular conformations.
+Dividing the linear constitutive equation by $\lambda$ reveals that $G$ enters directly
+as the leading scaling prefactor of the rate-of-strain tensor ($2G \boldsymbol{D}$),
+representing the primary mechanical stiffness of the fluid continuum.
 
-Remarkably, across all Oldroyd-B and Giesekus benchmarks, the optimization pipeline consistently identifies the exact composite modulus $G$ with sub-percent error, even when individual convergence rates for $\lambda$ and $\mu_p$ fluctuate during early epochs. Furthermore, as detailed in the subsequent discussion on non-linear parameter degradation, even when severe parameter coupling arises, the estimated ratio:
-\begin{equation}
-    G_{\mathrm{est}} = \frac{\mu_{p,\mathrm{est}}}{\lambda_{\mathrm{est}}} \approx G^{\mathrm{true}} = \frac{\mu_p^{\mathrm{true}}}{\lambda^{\mathrm{true}}} ,
-\end{equation}
-remains preserved within an error of under $1.0\%$. This robust physical invariant indicates that the physics-informed loss architecture inherently enforces the global elastic stiffness of the fluid before decoupling individual relaxation timescales and viscous coefficients.
+\begin{table}[htbp]
+    \centering
+    \small
+    \caption{Identification of the macroscopic elastic shear modulus $G = \mu_p / \lambda$ across inverse benchmarks.}
+    \label{tab:elastic_modulus_table}
+    \begin{tabular}{lcccc}
+        \hline
+        \textbf{Benchmark Scenario} & $G^{\mathrm{true}}$ [Pa] & $G_{\mathrm{est}}$ [Pa] & \textbf{Relative Error} & \textbf{Individual Errors} ($\lambda, \mu_p$) \\
+        \hline
+        \textbf{B1: Oldroyd-B} ($Wi=0.08$) & $18.000$ & $18.026$ & $\mathbf{+0.14\%}$ & $+0.41\%, +0.54\%$ \\
+        \textbf{B2: Oldroyd-B} ($Wi=1.17$) & $0.714$ & $0.708$ & $\mathbf{-0.88\%}$ & $+1.27\%, +0.38\%$ \\
+        \textbf{B3: Giesekus} ($\alpha=0.35$, blind) & $5.000$ & $5.142$ & $\mathbf{+2.85\%}$ & $+3.16\%, +6.14\%$ \\
+        \textbf{B4: Giesekus} ($\alpha=0.50$, extreme) & $0.167$ & $0.170$ & $\mathbf{+1.79\%}$ & $+2.57\%, +4.40\%$ \\
+        \textbf{PTT Case 1} ($\lambda=1.0, \varepsilon=0.3$) & $0.500$ & $0.506$ & $\mathbf{+1.19\%}$ & $-57.89\%, -57.44\%$ \\
+        \textbf{PTT Case 2} ($\lambda=0.7, \varepsilon=0.5$) & $1.357$ & $1.367$ & $\mathbf{+0.70\%}$ & $-61.43\%, -61.19\%$ \\
+        \hline
+    \end{tabular}
+\end{table}
+
+As detailed in Table~\ref{tab:elastic_modulus_table},
+the composite modulus $G_{\mathrm{est}} = \mu_{p,\mathrm{est}} / \lambda_{\mathrm{est}}$
+is consistently identified with errors bounded within approximately $3\%$ across all test cases.
+For linear Oldroyd-B benchmarks, the error remains below $1\%$,
+while for non-linear Giesekus benchmarks it reaches $+2.85\%$ and $+1.79\%$. 
+
+Most remarkably, as highlighted by the PTT benchmark,
+even when non-linear parameter degradation causes the individual relaxation time $\lambda$
+and viscosity $\mu_p$ to collapse by over $57\text{--}61\%$,
+their ratio $G = \mu_p / \lambda$ remains preserved to within $1.2\%$.
+We hypothesize that the physics-informed loss landscape is structured such that
+the composite modulus $G = \mu_p / \lambda$ directly sets the primary elastic stiffness required to sustain the momentum balance.
+Consequently, the optimizer locks onto this macroscopic mechanical ratio with high fidelity,
+even when the loss surface becomes flat along the $G$-preserving manifold
+and impairs the individual identification of molecular relaxation and dissipative coefficients.
 
 % ============================================================
 % 4.8 PHYSICAL IDENTIFIABILITY LIMITS AND THEORETICAL DEGRADATION
@@ -427,23 +662,36 @@ remains preserved within an error of under $1.0\%$. This robust physical invaria
 \section{Physical Identifiability Limits and Theoretical Degradation Analysis}
 \label{sec:identifiability_limits}
 
-While the PINN framework achieves outstanding results across linear and non-linear regimes, thorough scientific investigation reveals two fundamental physical identifiability boundaries as well as an operational boundary condition limitation.
+While the PINN framework achieves accurate reconstructions across linear and non-linear regimes,
+thorough scientific investigation reveals two physical identifiability boundaries
+alongside an operational boundary condition requirement.
 
 \subsection{Phase 2 Solvent Viscosity Invariance in Creeping Flow}
 \label{subsec:solvent_viscosity_invariance}
-In Phase 2, estimating the solvent viscosity $\mu_s$ alongside hydrodynamic pressure $p$ by minimizing momentum residuals reveals an identifiability bottleneck. In the four-roll mill operating regime, the Reynolds number is very small:
+In Phase 2, estimating solvent viscosity $\mu_s$ alongside hydrodynamic pressure $p$
+by minimizing momentum residuals reveals an identifiability bottleneck.
+In the four-roll mill operating regime, the Reynolds number is very small:
 \begin{equation}
     Re = 0.0417 \ll 1 .
 \end{equation}
-In this creeping Stokes regime, inertial convective terms $\rho (\boldsymbol{u} \cdot \nabla \boldsymbol{u})$ are virtually negligible. The steady momentum equation reduces to:
+In this creeping Stokes regime, inertial convective terms $\rho (\boldsymbol{u} \cdot \nabla \boldsymbol{u})$ are virtually negligible.
+The steady momentum equation reduces to:
 \begin{equation}
     -\nabla p + \mu_s \nabla^2 \boldsymbol{u} + \nabla \cdot \boldsymbol{\tau} = \boldsymbol{0} .
 \end{equation}
-Under fixed boundary velocities, variations in $\mu_s$ produce negligible alterations in the solenoidal velocity kinematics, shifting instead the scalar pressure gradient $\nabla p$. Consequently, the sensitivity $\partial \mathcal{L}_{\mathrm{mom}} / \partial \mu_s$ becomes nearly flat, causing gradient-based optimizers to suffer from parameter stagnation.
+Under fixed boundary velocities, variations in $\mu_s$ produce negligible alterations in the solenoidal velocity kinematics,
+shifting instead the scalar pressure gradient $\nabla p$.
+Consequently, the sensitivity $\partial \mathcal{L}_{\mathrm{mom}} / \partial \mu_s$ becomes nearly flat,
+causing gradient-based optimizers to suffer from parameter stagnation.
 
 \subsection{Theoretical Degradation Hypotheses in PTT Fluids}
 \label{subsec:ptt_degeneracy_analysis}
-When applying the inverse PINN solver to synthetic data generated from the Phan-Thien--Tanner (PTT) model, an unexpected parameter degradation occurs. As reported in Table~\ref{tab:ptt_degeneracy}, the extensibility parameter collapses toward zero ($\varepsilon_{\mathrm{est}} \approx 10^{-4}$), while the relaxation time $\lambda$ and polymeric viscosity $\mu_p$ are underestimated by approximately $58-61\%$. Despite these parameter discrepancies, the predicted velocity field remains in close agreement with the reference solution, with relative $L_2$ error below $0.9\%$.
+When applying the inverse PINN solver to synthetic data generated from the Phan-Thien--Tanner (PTT) model,
+an unexpected parameter degradation occurs.
+As reported in Table~\ref{tab:ptt_degeneracy}, the extensibility parameter collapses toward zero ($\varepsilon_{\mathrm{est}} \approx 10^{-4}$),
+while relaxation time $\lambda$ and polymeric viscosity $\mu_p$ are underestimated by approximately $58-61\%$.
+Despite these parameter discrepancies, the predicted velocity field remains in close agreement with the reference solution,
+with relative $L_2$ error below $0.9\%$.
 
 \begin{table}[htbp]
     \centering
@@ -468,24 +716,49 @@ When applying the inverse PINN solver to synthetic data generated from the Phan-
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\linewidth]{media/fig6_ptt_degeneracy_insight.png}
-    \caption{The PTT parameter degeneracy: comparison of offline PDE loss landscape versus network convergence, highlighting the parameter trajectory under boundary velocity supervision.}
+    \caption{PTT model identifiability analysis under boundary velocity supervision:
+    (left) effective relaxation rate $1/\lambda_{\mathrm{est}}$ as a function of nominal extensibility $\varepsilon_{\mathrm{true}}$ in wall shear flow, compared with the affine shift law ($C \approx 3.12\,\mathrm{s}^{-1}$);
+    (right) preservation of the composite elastic shear modulus $G = \mu_p / \lambda = 0.50\,\mathrm{Pa}$ (relative error $< 1\%$) across all tested PTT extensibility levels, demonstrating macroscopic stiffness conservation despite individual parameter degradation.}
     \label{fig:ptt_degeneracy}
 \end{figure}
 
-To elucidate the mathematical origin of this failure mode, we propose the following \textit{working theoretical hypotheses}:
+To elucidate the physical origin of this behavior, we propose the following \textit{working theoretical hypotheses}:
 \begin{enumerate}
-    \item \textbf{Verification of Differential Formulation}: Evaluating the PTT residual offline using exact COMSOL ground-truth fields confirms a sharp global minimum precisely at the true physical values ($\lambda = 1.0\,\mathrm{s}, \varepsilon = 0.3$), exhibiting a loss 25 times deeper than the network's attractor. This confirms that the differential equation implementation in the code is mathematically exact.
-    \item \textbf{Wall Shear Flow Degeneracy (Theoretical Conjecture)}: In our virtual rheometer setup, velocity supervision is restricted to the rotating roller boundaries. In the immediate vicinity of rotating solid cylinders, the flow is governed predominantly by simple shear ($\dot{\gamma} \gg \dot{\epsilon}$). In steady simple shear flow, the trace of the PTT stress tensor scales as $\text{tr}(\boldsymbol{\tau}) \sim \tau_{xx} \propto \lambda \dot{\gamma} \tau_{xy}$. Substituting this scaling into the PTT relaxation function yields an effective linear frequency shift:
+    \item \textbf{Mathematical Consistency of the Differential Operator}:
+    Evaluating the PTT constitutive residual offline over the parameter space using the high-fidelity COMSOL ground-truth fields confirms a distinct minimum
+    precisely at the true physical parameters ($\lambda = 1.0\,\mathrm{s}, \varepsilon = 0.3$),
+    exhibiting a residual loss approximately 25 times lower than that achieved at the network's online attractor.
+    This offline diagnostic confirms that the differential residual operator correctly admits the physical parameters as a minimizer.
+    This supports our hypothesis that failure during online training stems from the loss landscape conditioning and kinematic degeneracy under boundary supervision,
+    rather than an inconsistency in the residual formulation.
+
+    \item \textbf{Wall Shear Flow Degeneracy (Theoretical Working Hypothesis)}:
+    In our virtual rheometer setup, velocity supervision is heavily anchored near the rotating cylinder boundaries.
+    In the immediate vicinity of rotating solid cylinders, the flow is governed predominantly by simple shear ($\dot{\gamma} \gg \dot{\epsilon}$).
+    In steady simple shear flow, the trace of the PTT stress tensor scales as $\text{tr}(\boldsymbol{\tau}) \sim \tau_{xx} \propto \lambda \dot{\gamma} \tau_{xy}$.
+    Substituting this scaling into the PTT relaxation function yields an effective linear frequency shift:
     \begin{equation}
-        \frac{1}{\lambda_{\mathrm{eff}}} \approx \frac{1}{\lambda_{\mathrm{true}}} + C \cdot \varepsilon_{\mathrm{true}} .
+        \frac{1}{\lambda_{\mathrm{eff}}} \approx \frac{1}{\lambda_{\mathrm{true}}} + C \cdot \varepsilon_{\mathrm{true}} ,
         \label{eq:ptt_shear_degeneracy}
     \end{equation}
-    Consequently, we hypothesize that an effective linear Oldroyd-B fluid ($\varepsilon = 0, \lambda_{\mathrm{eff}} \approx 0.42\,\mathrm{s}$) and a non-linear PTT fluid ($\varepsilon = 0.3, \lambda = 1.0\,\mathrm{s}$) produce virtually identical kinematic velocity fields and wall shear stresses.
+    where $C \approx 3.12\,\mathrm{s}^{-1}$ represents a characteristic shear scaling prefactor related to the wall shear rate in the boundary layer ($\dot{\gamma} \sim U_{\mathrm{roll}} / R$).
+    Consequently, an effective linear Oldroyd-B fluid ($\varepsilon = 0, \lambda_{\mathrm{eff}} \approx 0.42\,\mathrm{s}$)
+    and a non-linear PTT fluid ($\varepsilon = 0.3, \lambda = 1.0\,\mathrm{s}$) produce virtually indistinguishable kinematic velocity fields
+    and wall shear stresses.
+    Under velocity-dominated supervision, the optimizer is driven toward the simpler, degenerate Oldroyd-B attractor.
 \end{enumerate}
 
-\subsection{Operational Limitation: Dependence on Stress Boundary Data}
+\subsection{Operational Requirement: Physical Necessity of Stress Supervision in Creeping Flow}
 \label{subsec:boundary_stress_limitation}
-A key operational limitation identified in this research concerns the reliance on stress boundary conditions ($\mathcal{L}_{\mathrm{roll\_stress}}$) on the rotating cylinders. While internal stresses are never provided, prescribing boundary stress values on solid walls anchors the absolute scale of the stress tensor. In laboratory settings, measuring wall stresses directly is challenging. Systematically evaluating whether parameter discovery can succeed using solely velocity field observations, or determining the minimal boundary stress instrumentation required, represents an important objective for future developments in viscoelastic PINNs.
+A key operational insight of this work concerns the role of the auxiliary stress supervision term ($\mathcal{L}_{\mathrm{roll\_stress}}$) on the rotating cylinders.
+While internal stresses are never supplied to the network,
+prescribing boundary stress values on the rollers is physically required in creeping Stokes flow ($Re \ll 1$):
+scaling $\mu_s, \mu_p, p$, and $\boldsymbol{\tau}$ by an arbitrary constant leaves the velocity kinematics $\boldsymbol{u}$ unchanged
+to within inertial corrections of order $O(Re) \sim 0.04$.
+Consequently, purely kinematic velocity data cannot uniquely isolate absolute dimensional viscosities
+without a macroscopic stress, torque, or pressure anchoring scale.
+In practical experimental applications where direct wall-stress measurements are challenging,
+identifying alternative global anchors (such as total motor torque or pressure drop) represents an essential direction for applied viscoelastic PINNs.
 
 % ============================================================
 % 4.9 PATHWAYS FORWARD AND COMPUTATIONAL IMPLICATIONS
@@ -494,16 +767,33 @@ A key operational limitation identified in this research concerns the reliance o
 \label{sec:pathways_forward_implications}
 
 \subsection{Proposals to Overcome Identifiability Boundaries}
-Based on the physical degradation mechanisms identified above, we outline three concrete proposals:
+Based on the physical degradation mechanisms identified above,
+we outline three concrete proposals for future investigations:
 \begin{enumerate}
-    \item \textbf{Inertial Regime ($Re > 1$)}: Operating the four-roll mill at higher Reynolds numbers amplifies the role of inertial convective acceleration $\rho (\boldsymbol{u} \cdot \nabla \boldsymbol{u})$, sharpening loss gradients with respect to $\mu_s$ and breaking the Stokes invariance.
-    \item \textbf{Central Stagnation Data Assimilation}: Supplementing boundary observations with localized kinematic or birefringence stress measurements around the central stagnation point $(0, 0)$ would provide extensional constraints capable of breaking the PTT shear degeneracy.
-    \item \textbf{Stochastic Perturbation and Flow Modification}: Introducing moderate noise into synthetic observations or altering roll speed ratios to introduce mixed shear-rotational kinematics breaks the rotational symmetry, broadening the kinematic state space.
+    \item \textbf{Inertial Regime ($Re > 1$)}:
+    Operating the four-roll mill at higher Reynolds numbers amplifies the role of inertial convective acceleration $\rho (\boldsymbol{u} \cdot \nabla \boldsymbol{u})$,
+    sharpening loss gradients with respect to $\mu_s$ and breaking the creeping Stokes scaling invariance.
+    In practice, reaching $Re > 1$ in an experimental four-roll mill with millimeter-scale dimensions
+    would require significantly higher roller speeds or lower-viscosity solutions,
+    which must be balanced against potential three-dimensional or unsteady flow transitions.
+    \item \textbf{Central Stagnation Data Assimilation}:
+    Supplementing boundary observations with localized kinematic or birefringence stress measurements around the central extensional stagnation point $(0, 0)$
+    would introduce extensional constraints capable of breaking the PTT shear degeneracy.
+    \item \textbf{Experimental Noise Assimilation and Asymmetric Roll Kinematics}:
+    While prior literature has demonstrated that viscoelastic PINNs can remain stable under synthetic velocity noise up to $10\%$ \cite{thakur2024viscoelasticnet},
+    our study focused on deterministic high-fidelity reference data.
+    A natural future step is the systematic testing of robustness under simulated experimental measurement noise.
+    Furthermore, altering roller angular speed ratios to break four-fold symmetry would enrich the kinematic state space
+    and help decouple multi-parameter models.
 \end{enumerate}
 
 \subsection{Method Positioning in Computational Fluid Dynamics}
 It is essential to clarify the operational role of PINNs within computational fluid dynamics:
 \begin{itemize}
-    \item PINNs do not aim to replace mature, highly optimized forward CFD solvers (such as finite volume or finite element codes) for routine forward flow simulations.
-    \item Rather, PINNs act as an \textit{integrative bridge}: a mesh-free "virtual rheometer" capable of assimilating sparse, incomplete experimental measurements (such as 2D PIV velocity fields) and reconstructing unmeasurable latent physical variables (full extra-stress tensors and pressure fields) while discovering the governing constitutive parameters.
+    \item PINNs do not aim to replace mature, highly optimized forward CFD solvers
+    (such as finite volume or finite element codes) for routine forward flow simulations.
+    \item Rather, PINNs act as an \textit{integrative bridge}:
+    a mesh-free "virtual rheometer" capable of assimilating kinematic velocity fields
+    (such as planar PIV velocity maps) and reconstructing unmeasurable latent physical variables
+    (full extra-stress tensors and pressure fields) while discovering the governing constitutive parameters.
 \end{itemize}
