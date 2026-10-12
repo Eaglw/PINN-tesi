@@ -17,10 +17,6 @@ scratch/
 !Latex/media/*.png
 !Latex/media/**/*.jpg
 !Latex/media/*.jpg
-!Latex/images/**/*.png
-!Latex/images/*.png
-!Latex/images/**/*.jpg
-!Latex/images/*.jpg
 .DS_Store
 *.mph.lock
 train_log.txt
@@ -259,4 +255,6 @@ Latex/.aux/
 *.toc
 *.log
 *.out
+*.fls
+*.fdb_latexmk
 *.synctex.gz

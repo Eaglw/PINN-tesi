@@ -196,7 +196,25 @@ When writing or editing thesis text, adhere strictly to these scientific writing
 
 ---
 
-## 9. Step-by-Step Skill Workflow
+## 9. Surgical & Minimal Text Editing Protocol (Strict Rule)
+
+When revising, correcting, or updating LaTeX chapters, text modifications must adhere strictly to the principle of **minimal, surgical intervention**:
+
+1. **Targeted, Localized Modifications Only**:
+   - Interventions must be strictly confined to the specific sentences, paragraphs, equations, or environments explicitly mentioned by the user or identified as erroneous.
+   - **Never rewrite entire sections or whole files** when addressing localized requests. Keep changes focused and surgically precise.
+2. **Preservation of Established Text and Content**:
+   - Existing prose, phrasing, definitions, mathematical notation, sectioning, citations, and figure/table labels that are not part of the requested change must remain completely untouched.
+   - Do not perform unsolicited paraphrasing, stylistic overhauls, or "beautification" of surrounding paragraphs.
+3. **Limit Modifications to the Minimum Necessary**:
+   - Modify only what is strictly required to achieve correctness, coherence, and consistency with the user's instructions.
+   - Ensure the edited sentences blend naturally into the adjacent unchanged text without altering the surrounding structure or tone.
+4. **Use Granular Line-Level Edits**:
+   - Always prefer targeted line/block replacement tools (`replace_file_content`) over whole-file overwriting (`write_to_file`). This guarantees that diffs remain minimal, transparent, and easy to review.
+
+---
+
+## 10. Step-by-Step Skill Workflow
 
 When invoked by the user (e.g., "Antigravity, review chapter 2", "Write introduction for LaTeX thesis", "Run quality check on thesis files"):
 

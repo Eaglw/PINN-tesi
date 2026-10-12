@@ -104,6 +104,47 @@ The physical state is partitioned into three dedicated neural network heads:
     \end{cases}
 \end{equation}
 
+\subsection{Forward and Inverse Problem Formulations}
+\label{subsec:forward_inverse_definitions}
+The physical laws, constitutive closures, and boundary constraints define two complementary operational settings:
+\begin{itemize}
+    \item \textbf{Forward (Direct) Problem}:
+    Given a complete set of known fluid parameters ($\lambda, \mu_p, \mu_s, \alpha, \varepsilon$)
+    and prescribed kinematic boundary conditions on rolls and walls,
+    determine the velocity field $\boldsymbol{u}(x, y)$, pressure field $p(x, y)$,
+    and polymeric extra-stress tensor $\boldsymbol{\tau}(x, y)$ that satisfy momentum balance
+    and constitutive closure throughout the domain $\Omega$ with zero internal data supervision.
+    \item \textbf{Inverse (Parameter Identification) Problem}:
+    Given sparse kinematic observations of the velocity field within the cavity,
+    reconstruct the latent internal fields $(p, \boldsymbol{\tau})$
+    and discover the unknown physical parameters governing the fluid
+    ($\lambda, \mu_p, \mu_s$, alongside non-linear parameters $\alpha$ or $\varepsilon$).
+\end{itemize}
+
+Table~\ref{tab:variable_roles} classifies the operational role of each variable and parameter across the two problem formulations.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Classification of physical fields and parameters across forward and inverse problem formulations.}
+    \label{tab:variable_roles}
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{lccc}
+        \hline
+        \textbf{Physical Quantity} & \textbf{Symbol} & \textbf{Forward Problem} & \textbf{Inverse Problem} \\
+        \hline
+        Velocity Field & $\boldsymbol{u} = (u, v)$ & Primary unknown (via $\psi$) & Observed / Supervised \\
+        Pressure Field & $p$ & Primary unknown & Latent (unobserved) \\
+        Polymeric Stress & $\boldsymbol{\tau} = (\tau_{xx}, \tau_{xy}, \tau_{yy})$ & Primary unknown & Latent (unobserved) \\
+        Relaxation Time & $\lambda$ ($Wi$) & Known parameter & \textbf{Unknown physical parameter} \\
+        Polymeric Viscosity & $\mu_p$ & Known parameter & \textbf{Unknown physical parameter} \\
+        Solvent Viscosity & $\mu_s$ & Known parameter & \textbf{Unknown physical parameter} \\
+        Giesekus Mobility & $\alpha$ & Known parameter & \textbf{Unknown parameter / Model selection} \\
+        PTT Extensibility & $\varepsilon$ & Known parameter & \textbf{Unknown parameter / Model selection} \\
+        \hline
+    \end{tabular}%
+    }
+\end{table}
+
 \subsection{Composite Multi-Objective Loss and Explicit PDE Residuals}
 \label{subsec:loss_formulation_recap}
 The global objective function minimized during training is a composite multi-objective loss:
@@ -318,8 +359,32 @@ We evaluated five mesh resolutions systematically:
     \item \textbf{M125k (Dense Baseline)}: 125{,}456 nodes, resolving sub-millimeter stress boundary layers in roller nips.
 \end{itemize}
 
+\subsection{Diagnostic Verification Cutlines}
+\label{subsec:diagnostic_cutlines}
+To enable rigorous, high-resolution validation of kinematic and stress profiles across the domain,
+we define three representative diagnostic cutlines (illustrated in Figure~\ref{fig:four_roll_cutlines_schema}):
+\begin{enumerate}
+    \item \textbf{Horizontal Cutline} ($y = 0, \, -L/2 \le x \le L/2$):
+    Traverses the central extensional outflow axis through the hyperbolic stagnation point $(0, 0)$.
+    Along this trajectory, fluid elements accelerate outward, forming intense elongational normal stress tails.
+    \item \textbf{Vertical Cutline} ($x = 0, \, -L/2 \le y \le L/2$):
+    Traverses the compressive inflow axis, capturing fluid deceleration into the central stagnation zone.
+    \item \textbf{Oblique Diagonal Cutline} ($y = x$):
+    Connects opposite cavity corners ($[-L/2, -L/2]$ to $[L/2, L/2]$) across the diagonal sectors.
+    Because this trajectory intersects the solid cores of the top-right and bottom-left rollers
+    (centered at $(\pm 10, \pm 10)\,\mathrm{mm}$), spatial evaluations are sampled strictly within the active fluid domain,
+    capturing the transition from the central extensional core into the high-shear boundary layers adjacent to roller surfaces.
+\end{enumerate}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.68\linewidth]{media/four_roll_cutlines_schema.png}
+    \caption{Schematic representation of the four-roll mill geometry depicting the four rotating cylinders (with adjacent rolls counter-rotating and diagonal rolls co-rotating to generate planar extensional flow), the central extensional stagnation point $(0,0)$ marked by the red circle at the origin, and the three diagnostic verification cutlines: Horizontal ($y=0$, outflow axis, blue solid line), Vertical ($x=0$, inflow axis, red dashed line), and Oblique Diagonal ($y=x$, roller nips, green dash-dot line).}
+    \label{fig:four_roll_cutlines_schema}
+\end{figure}
+
 Figure~\ref{fig:mesh_convergence_cutlines} displays the spatial profiles of velocity and extra-stress tensor components
-($u, v, \tau_{xx}, \tau_{xy}, \tau_{yy}$) along the three diagnostic cutlines defined in Section~\ref{subsec:diagnostic_cutlines}.
+($u, v, \tau_{xx}, \tau_{xy}, \tau_{yy}$) along the three diagnostic cutlines.
 Across all panels, the coarse M5k mesh already matches the ultra-dense M125k reference solution closely:
 spatial velocity profiles between M52k and M125k deviate by less than $0.05\%$,
 while peak shear stresses in roller gaps differ by under $0.3\%$.

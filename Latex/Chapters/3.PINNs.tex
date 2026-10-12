@@ -19,9 +19,16 @@ and cannot infer latent material properties on their own.
 
 Physics-Informed Neural Networks (PINNs) address these challenges
 by embedding governing partial differential equations directly into the training objective.
-In this chapter, we establish the mathematical foundations of neural networks and their optimization,
-discuss why continuous neural surrogates are suitable for transport phenomena,
-formulate the PINN paradigm, and review foundational benchmarks in complex fluid mechanics.
+The differential system formulated in Chapter~\ref{chap:fluidodynamic_background}—governed by mass conservation,
+viscoelastic momentum balance, and frame-indifferent constitutive transport—represents a tightly coupled,
+non-linear set of partial differential equations that poses substantial numerical challenges to classical grid-based schemes.
+In this chapter, we translate this continuous physical boundary-value problem into a Scientific Machine Learning (SciML) framework.
+By embedding the momentum and constitutive residuals directly into the network optimization objective via automatic differentiation,
+the PINN framework enables both forward state simulation and inverse rheological parameter discovery without requiring spatial discretization meshes.
+
+We systematically review the mathematical foundations of deep feedforward networks,
+examine continuous neural representations for transport phenomena,
+formulate the physics-informed loss architecture, and discuss foundational benchmarks and state-of-the-art developments in complex viscoelastic rheology.
 
 % ============================================================
 % 3.1 FUNDAMENTALS OF DEEP LEARNING
