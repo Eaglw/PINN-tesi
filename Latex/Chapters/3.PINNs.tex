@@ -9,22 +9,20 @@ Each layer maps its inputs through a linear transformation followed by a non-lin
 With these layers in series, the network can represent continuous functional mappings
 of arbitrary complexity without requiring explicit basis functions.
 
-In scientific computing, neural networks offer an intresting feature:
-they represent fields as continuous, globally defined functions over spatial coordinates.
-Rather than storing state variables at discrete grid vertices,
-the network parameterizes physical fields everywhere in the field.
-However, using purely data-driven neural networks for fluid mechanics presents fundamental challenges:
+In scientific computing, neural networks represent physical fields directly as
+continuous functions over spatial coordinates, rather than storing discrete state variables on a mesh.
+However, using purely data-driven networks for fluid mechanics presents clear limits:
 they require large amounts of labeled data, can violate conservation laws,
 and cannot infer latent material properties on their own.
 
-Physics-Informed Neural Networks (PINNs) address these challenges
-by embedding governing partial differential equations directly into the training.
+Physics-Informed Neural Networks (PINNs) address these limits
+by embedding governing partial differential equations directly into the training loss.
 The differential system formulated in Chapter~\ref{chap:fluidodynamic_background}, governed by mass conservation,
-viscoelastic momentum balance, and frame-indifferent constitutive transport,represents a tightly coupled,
-non-linear set of partial differential equations that has substantial numerical challenges to classical mesh-based schemes.
-In this chapter, we translate this continuous physical boundary-value problem into a Scientific Machine Learning (SciML) framework.
-By embedding the momentum and constitutive balances directly into the network optimization objective via automatic differentiation,
-the PINN framework enables both forward state simulation and inverse rheological parameter discovery without requiring spatial discretization meshes.
+viscoelastic momentum balance, and frame-indifferent constitutive transport,
+represents a coupled set of non-linear equations that poses well-known challenges to traditional mesh-based methods.
+In this chapter, we formulate this continuous boundary-value problem within a Scientific Machine Learning (SciML) framework.
+By embedding momentum and constitutive balances into the optimization objective through automatic differentiation,
+the PINN framework enables both forward state simulation and inverse rheological parameter discovery without spatial discretization meshes.
 
 % ============================================================
 % 3.1 FUNDAMENTALS OF DEEP LEARNING
@@ -33,7 +31,7 @@ the PINN framework enables both forward state simulation and inverse rheological
 \label{sec:dl_fundamentals}
 
 Deep learning models approximate continuous mathematical functions
-by learning it directly from data \cite{goodfellow2016deep}.
+by learning parameters directly from data \cite{goodfellow2016deep}.
 In this section, we review the fundamental building blocks of feedforward networks:
 the artificial neuron, activation functions, multi-layer architectures,
 loss functions, optimization algorithms, and gradient computation.
@@ -50,8 +48,7 @@ a neuron computes a linear combination of the inputs followed by a non-linear ac
 \end{equation}
 where $\boldsymbol{w}$ is the weight vector, $b$ is a scalar bias, $\sigma(\cdot)$ is the activation function and $a$ is the output.
 Non-linear activations are essential:
-without them, composing multiple linear layers collapses into a single linear function,
-making the network architecture pointless.
+without them, composing multiple linear layers simply collapses into a single linear transformation.
 
 In classical machine learning, piecewise-linear functions such as the Rectified Linear Unit,
 $\text{ReLU}(z) = \max(0, z)$, are widely favored for their computational efficiency.
@@ -110,9 +107,9 @@ or that spatial derivatives will match the physical solution with equal fidelity
 \label{subsubsec:weight_initialization}
 
 The initialization of network parameters strongly conditions the resulting optimization dynamics.
-Because deep architectures compose multiple affine transformations and non-linearities, inappropriate initial weight magnitudes can cause layer activations and backpropagated gradients to either exponentially vanish or explode across depth \cite{goodfellow2016deep}.
+Because deep architectures compose multiple transformations and non-linearities, inappropriate initial weight magnitudes can cause layer activations and backpropagated gradients to either vanish or explode across depth \cite{goodfellow2016deep}.
 In scientific computing and differential problems, where non-linear convective terms and tensor couplings are evaluated, uncalibrated initial weights can trigger extreme initial residual spikes that immediately destabilize gradient descent.
-Careful variance-preserving initialization schemes—such as scaling parameter distributions inversely with layer widths—are therefore crucial to preserve stable gradient flow and promote optimization convergence from the outset.
+Appropriate variance-preserving initialization schemes, such as scaling parameter distributions inversely with layer widths, help preserve stable gradient flow and avoid optimization divergence.
 Specific configuration choices regarding hidden and output layer initialization adopted in this work are detailed in Chapter~\ref{chap:results_discussion}.
 
 \subsection{Loss Functions and Optimization Algorithms}
@@ -131,7 +128,7 @@ Parameters are iteratively updated along descent directions derived from the los
 \end{equation}
 where $\eta > 0$ represents the learning rate (step size) and $\boldsymbol{d}_k$ denotes the search direction at iteration $k$.
 
-In scientific machine learning and physics-informed modeling, optimization algorithms are tasked with navigating complex, highly non-convex loss surfaces. Two of the most widely adopted gradient-based algorithms in this domain are:
+In scientific machine learning, gradient-based solvers must navigate non-convex loss surfaces characterized by ill-conditioned curvature and local minima. Two widely adopted algorithms in this setting are:
 \begin{enumerate}
     \item \textbf{First-order adaptive optimization (Adam)}:
     The Adaptive Moment Estimation algorithm \cite{kingma2014adam} computes individual adaptive learning rates for each parameter by maintaining exponentially decaying running averages of past gradients (first moment) and squared gradients (uncentered second moment). This moment-based scaling renders Adam particularly robust against ill-conditioned curvature and saddle points, making it highly effective for early-stage exploration across rugged non-convex landscapes.
@@ -195,8 +192,8 @@ to fluid mechanics and non-Newtonian rheology reveals fundamental limitations:
     while non-intrusive measurements of internal extra-stress components are very hard to obtain in complex geometries.
     \item \textbf{Absence of physical grounding}:
     Purely data-driven models minimize empirical loss on discrete observations without physical constraints.
-    Consequently, their predictions could, and probably will, violate incompressibility ($\nabla \cdot \boldsymbol{u} \neq 0$),
-    momentum balance, and constitutive laws, producing non-physical artifacts when interpolating or extrapolating.
+    Consequently, their predictions often violate incompressibility ($\nabla \cdot \boldsymbol{u} \neq 0$),
+    momentum balance, and constitutive laws, generating non-physical artifacts when interpolating or extrapolating.
     \item \textbf{Overfitting}:
     In sparse-data regimes, over-parameterized networks can easily fit measurement noise,
     obtaining low training errors while losing accuracy in unmonitored regions.
@@ -300,14 +297,15 @@ Several operational features distinguish physics-informed training from conventi
     In standard supervised training, the network is unconstrained between data points.
     In PINNs, evaluating differential residuals $\mathcal{L}_{\mathrm{pde}}$ across interior collocation points
     penalizes non-physical gradients and curvatures, restricting the admissible solution space.
-    However, balancing the competing loss terms ($w_{\mathrm{data}}, w_{\mathrm{bc}}, w_{\mathrm{pde}}$) is fundamentally non-trivial.
-    As rigorously analyzed by Wang, Teng, and Perdikaris \cite{wang2021understanding}, the backpropagated gradient magnitudes arising from PDE residuals and boundary constraints often differ by several orders of magnitude.
-    This gradient imbalance induces numerical stiffness and gradient pathologies, where steep boundary terms dominate and extinguish the learning signal of interior PDE residuals (or vice versa).
-    Consequently, calibrated or adaptive weighting between data, boundary, and differential components is indispensable to prevent optimization stalls and ensure stable convergence.
+    However, balancing the competing loss terms ($w_{\mathrm{data}}, w_{\mathrm{bc}}, w_{\mathrm{pde}}$) presents practical challenges.
+    As analyzed by Wang, Teng, and Perdikaris \cite{wang2021understanding}, the backpropagated gradient magnitudes arising from PDE residuals and boundary constraints often differ by several orders of magnitude.
+    This imbalance induces numerical stiffness, where boundary terms can dominate and suppress the learning signal of interior PDE residuals (or vice versa).
+    Calibrated weighting between data, boundary, and differential components is therefore needed to prevent optimization stalls and ensure stable convergence.
 
     \item \textbf{Coordinate Automatic Differentiation (AD)}:
-    In PINNs, the same reverse-mode automatic differentiation engine is employed, other than for computing the loss gradient,
-    spatial derivatives of the predicted state fields with respect to input spatial coordinates:
+    In PINNs, reverse-mode automatic differentiation serves a dual purpose:
+    beyond computing loss gradients with respect to network parameters, it evaluates exact 
+    spatial derivatives of the predicted physical fields with respect to coordinates:
     \begin{equation}
         \text{Coordinate AD (PINNs):} \quad \frac{\partial \hat{\boldsymbol{u}}}{\partial \boldsymbol{x}}, \quad \frac{\partial^2 \hat{\boldsymbol{u}}}{\partial \boldsymbol{x}^2} .
     \end{equation}
@@ -352,7 +350,7 @@ In their foundational paper, Raissi, Perdikaris, and Karniadakis \cite{raissi201
 demonstrated the capability of PINNs on laminar vortex past a cylinder at $Re = 100$.
 
 \subsubsection{Problem Formulation}
-The dimentionless incompressible Navier-Stokes equations were formulated as:
+The dimensionless incompressible Navier-Stokes equations were formulated as:
 \begin{align}
     u_t + \lambda_1 (u u_x + v u_y) &= -p_x + \lambda_2 (u_{xx} + u_{yy}) , \label{eq:cylinder_ns_u} \\
     v_t + \lambda_1 (u v_x + v v_y) &= -p_y + \lambda_2 (v_{xx} + v_{yy}) , \label{eq:cylinder_ns_v} \\
