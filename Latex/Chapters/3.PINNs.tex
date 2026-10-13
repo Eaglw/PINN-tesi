@@ -106,63 +106,39 @@ or that spatial derivatives will match the physical solution with equal fidelity
     \label{fig:deep_learning_mlp_diagram}
 \end{figure}
 
-\subsubsection{Weight Initialization: Xavier} % spostare questa sezione in cap 4, lasciare solo un accenno che è importante l'inizializzazione. 
+\subsubsection{Importance of Weight Initialization}
 \label{subsubsec:weight_initialization}
 
-The initialization of network weights strongly influences optimization dynamics.
-To prevent vanishing or exploding activations across deep layers,
-hidden layer weights are initialized using the Xavier normal distribution \cite{goodfellow2016deep},
-which scales parameter variances inversely with layer widths.
-
-For the final linear layers predicting the extra-stress tensor $\boldsymbol{\tau}$ and pressure $p$,
-we initialize weights and biases to zero ($\boldsymbol{W}^{(L)} = \boldsymbol{0}, \boldsymbol{b}^{(L)} = \boldsymbol{0}$).
-This choice provides two practical benefits:
-\begin{enumerate}
-    \item \textbf{Physical state of rest}:
-    In fluid mechanics, a fluid at rest carries zero extra-stress ($\boldsymbol{\tau} = \boldsymbol{0}$).
-    Zero-initialization ensures that at iteration zero,
-    the stress network starts from an unperturbed resting state.
-    \item \textbf{Suppression of initial gradient shocks}:
-    If output weights were initialized randomly,
-    initial stress predictions would contain high-frequency spatial fluctuations.
-    Evaluating these fluctuations inside non-linear constitutive equations,
-    which involve quadratic stress products and convective gradients,
-    would generate large initial residual spikes that can destabilize optimization.
-    Zero-initializing the output layer ensures bounded, well-behaved initial residuals.
-\end{enumerate}
+The initialization of network parameters strongly conditions the resulting optimization dynamics.
+Because deep architectures compose multiple affine transformations and non-linearities, inappropriate initial weight magnitudes can cause layer activations and backpropagated gradients to either exponentially vanish or explode across depth \cite{goodfellow2016deep}.
+In scientific computing and differential problems, where non-linear convective terms and tensor couplings are evaluated, uncalibrated initial weights can trigger extreme initial residual spikes that immediately destabilize gradient descent.
+Careful variance-preserving initialization schemes—such as scaling parameter distributions inversely with layer widths—are therefore crucial to preserve stable gradient flow and promote optimization convergence from the outset.
+Specific configuration choices regarding hidden and output layer initialization adopted in this work are detailed in Chapter~\ref{chap:results_discussion}.
 
 \subsection{Loss Functions and Optimization Algorithms}
 \label{subsec:optimization_solvers}
-%Voglio sfrittare lo Sfunction and Optimization algorithms e dire che la loss è normalmente mi square d'error, ma possiamo costruirla come vogliamo
-%e optimization algoritm presentiamo Adam lBFGS come due esempi e poi senza dire che è la cosa più usata
-Training an MLP consists of finding parameters $\boldsymbol{\theta} = \{ \boldsymbol{W}^{(l)}, \boldsymbol{b}^{(l)} \}$
-that minimize a scalar objective function $\mathcal{L}(\boldsymbol{\theta})$.
-In supervised regression, the discrepancy between predictions and reference values
-is commonly evaluated using the Mean Squared Error (MSE):
+
+Training an MLP consists of identifying a parameter set $\boldsymbol{\theta} = \{ \boldsymbol{W}^{(l)}, \boldsymbol{b}^{(l)} \}$ that minimizes a scalar objective function $\mathcal{L}(\boldsymbol{\theta})$.
+In supervised regression, the discrepancy between model predictions and target reference measurements is commonly quantified through the Mean Squared Error (MSE):
 \begin{equation}
     \mathcal{L}_{\mathrm{MSE}}(\boldsymbol{\theta}) = \frac{1}{N} \sum_{i=1}^N \left\| \hat{\boldsymbol{u}}(\boldsymbol{x}_i; \boldsymbol{\theta}) - \boldsymbol{u}_i^{\mathrm{target}} \right\|_2^2 .
     \label{eq:mse_loss}
 \end{equation}
-
-Parameters are updated iteratively along the negative gradient:
+Parameters are iteratively updated along descent directions derived from the loss gradient:
 \begin{equation}
-    \boldsymbol{\theta} \leftarrow \boldsymbol{\theta} - \eta \nabla_{\boldsymbol{\theta}} \mathcal{L} ,
+    \boldsymbol{\theta} \leftarrow \boldsymbol{\theta} - \eta \boldsymbol{d}_k ,
     \label{eq:gradient_descent_update}
 \end{equation}
-where $\eta > 0$ is the learning rate governing the step size.
+where $\eta > 0$ represents the learning rate (step size) and $\boldsymbol{d}_k$ denotes the search direction at iteration $k$.
 
-In scientific PINN applications, optimization commonly employs a two-tier strategy:
+In scientific machine learning and physics-informed modeling, optimization algorithms are tasked with navigating complex, highly non-convex loss surfaces. Two of the most widely adopted gradient-based algorithms in this domain are:
 \begin{enumerate}
     \item \textbf{First-order adaptive optimization (Adam)}:
-    The Adaptive Moment Estimation algorithm \cite{kingma2014adam} scales parameter updates
-    using running estimates of past gradient moments.
-    This enables Adam to traverse non-convex loss landscapes effectively during early exploration.
+    The Adaptive Moment Estimation algorithm \cite{kingma2014adam} computes individual adaptive learning rates for each parameter by maintaining exponentially decaying running averages of past gradients (first moment) and squared gradients (uncentered second moment). This moment-based scaling renders Adam particularly robust against ill-conditioned curvature and saddle points, making it highly effective for early-stage exploration across rugged non-convex landscapes.
     \item \textbf{Second-order quasi-Newton optimization (L-BFGS)}:
-    Once the parameters reach the basin of attraction of a minimum,
-    the Limited-memory Broyden--Fletcher--Goldfarb--Shanno (L-BFGS) algorithm
-    incorporates curvature approximations to achieve rapid, deterministic convergence,
-    driving PDE residuals to low tolerance levels.
+    The Limited-memory Broyden--Fletcher--Goldfarb--Shanno algorithm \cite{nocedal1980updating} incorporates local curvature information by constructing low-rank approximations of the inverse Hessian matrix using the history of recent gradient evaluations. While higher-order computation requires evaluation over full data batches, L-BFGS provides deterministic superlinear convergence in the vicinity of local minima, capable of driving differential equation residuals to strict numerical tolerances.
 \end{enumerate}
+Both algorithms share the common objective of driving the objective function toward an optimal stationary point, yet they exhibit distinct trade-offs: Adam offers robust stochastic exploration with modest per-iteration memory requirements, whereas L-BFGS delivers deterministic precision and rapid asymptotic convergence at the expense of curvature memory buffers.
 
 \subsection{Backpropagation}
 \label{subsec:backpropagation}
@@ -185,7 +161,7 @@ making deep network training feasible.
 \section{Neural Networks: Capabilities and Physical Limitations}
 \label{sec:why_neural_networks}
 
-\subsection{Universal Function Approximation}
+\subsection{Key Advantages}
 \label{subsec:capabilities_universal}
 
 Neural networks offer distinctive characteristics that make them attractive for continuous physical modeling:
@@ -245,35 +221,36 @@ by incorporating differential partial equations directly into the network traini
 \subsection{Physics-Constrained Loss Formulation}
 \label{subsec:pinn_loss_formulation}
 
-Consider a general non-linear differential operator $\mathcal{F}$ governing a physical state $\boldsymbol{u}(\boldsymbol{x})$
-over a spatial domain $\Omega$ bounded by $\partial \Omega$:
+Following the unified boundary-value problem (BVP) notation established in the scientific machine learning literature \cite{cuomo2022scientific}, consider a physical state described by a vector of continuous fields $\boldsymbol{u}(\boldsymbol{x})$ defined over a spatial domain $\Omega \subset \mathbb{R}^d$ bounded by $\partial \Omega$:
 \begin{align}
     \mathcal{F}[\boldsymbol{u}(\boldsymbol{x}); \boldsymbol{\lambda}] &= \boldsymbol{0} , \quad \boldsymbol{x} \in \Omega , \label{eq:general_pde_operator} \\
     \mathcal{B}[\boldsymbol{u}(\boldsymbol{x})] &= \boldsymbol{g}(\boldsymbol{x}) , \quad \boldsymbol{x} \in \partial \Omega , \label{eq:general_bc_operator}
 \end{align}
-where $\boldsymbol{\lambda}$ represents physical parameters (such as viscosities or relaxation times)
-and $\mathcal{B}$ denotes boundary operators.
+where:
+\begin{itemize}
+    \item $\boldsymbol{u}(\boldsymbol{x})$ denotes the physical state variables (in our viscoelastic framework, $\boldsymbol{u} = (\psi, p, \boldsymbol{\tau})$, comprising stream function, pressure, and extra-stress tensor components);
+    \item $\mathcal{F}$ is a general non-linear differential operator encoding the governing field equations (mass conservation, momentum balance, and constitutive transport equations);
+    \item $\boldsymbol{\lambda}$ denotes physical or constitutive parameters governing the flow dynamics (such as solvent viscosity, polymeric viscosity, and relaxation time);
+    \item $\mathcal{B}$ denotes the boundary operator enforcing kinematic constraints on the boundaries $\partial \Omega$ (such as no-slip conditions along solid walls and prescribed angular velocities on roller surfaces), with prescribed boundary values $\boldsymbol{g}(\boldsymbol{x})$.
+\end{itemize}
 
-In a PINN, the unknown physical fields $\boldsymbol{u}(\boldsymbol{x})$ are parameterized
-by a neural network $\hat{\boldsymbol{u}}(\boldsymbol{x}; \boldsymbol{\theta})$.
-Evaluating the governing equations on the network outputs defines the differential residual:
+In a PINN, the continuous solution fields are parameterized by a deep neural network surrogate $\hat{\boldsymbol{u}}(\boldsymbol{x}; \boldsymbol{\theta})$ parameterized by weights and biases $\boldsymbol{\theta}$. Evaluating the governing differential operator on the network outputs via automatic differentiation defines the pointwise differential residual:
 \begin{equation}
     \boldsymbol{f}(\boldsymbol{x}; \boldsymbol{\theta}, \boldsymbol{\lambda}) \equiv \mathcal{F}[\hat{\boldsymbol{u}}(\boldsymbol{x}; \boldsymbol{\theta}); \boldsymbol{\lambda}] .
     \label{eq:pde_residual_def}
 \end{equation}
-The network weights $\boldsymbol{\theta}$, alongside unknown physical parameters $\boldsymbol{\lambda}$ in inverse problems,
-are optimized by minimizing a composite multi-objective loss:
+The network parameters $\boldsymbol{\theta}$, alongside any unknown physical parameters $\boldsymbol{\lambda}$ in inverse problems, are optimized simultaneously by minimizing a composite multi-objective loss:
 \begin{equation}
     \mathcal{L}_{\mathrm{total}}(\boldsymbol{\theta}, \boldsymbol{\lambda}) = w_{\mathrm{data}} \mathcal{L}_{\mathrm{data}} + w_{\mathrm{bc}} \mathcal{L}_{\mathrm{bc}} + w_{\mathrm{pde}} \mathcal{L}_{\mathrm{pde}} ,
     \label{eq:composite_loss_pinn}
 \end{equation}
-where:
+where each individual loss component is evaluated as:
 \begin{align}
     \mathcal{L}_{\mathrm{data}} &= \frac{1}{N_{\mathrm{data}}} \sum_{i=1}^{N_{\mathrm{data}}} \left\| \hat{\boldsymbol{u}}(\boldsymbol{x}_i^{\mathrm{data}}) - \boldsymbol{u}_i^{\mathrm{data}} \right\|_2^2 , \label{eq:loss_data_comp} \\
     \mathcal{L}_{\mathrm{bc}} &= \frac{1}{N_{\mathrm{bc}}} \sum_{j=1}^{N_{\mathrm{bc}}} \left\| \mathcal{B}[\hat{\boldsymbol{u}}(\boldsymbol{x}_j^{\mathrm{bc}})] - \boldsymbol{g}(\boldsymbol{x}_j^{\mathrm{bc}}) \right\|_2^2 , \label{eq:loss_bc_comp} \\
     \mathcal{L}_{\mathrm{pde}} &= \frac{1}{N_{\mathrm{pde}}} \sum_{k=1}^{N_{\mathrm{pde}}} \left\| \boldsymbol{f}(\boldsymbol{x}_k^{\mathrm{pde}}; \boldsymbol{\theta}, \boldsymbol{\lambda}) \right\|_2^2 . \label{eq:loss_pde_comp}
 \end{align}
-Here, $\{ \boldsymbol{x}_i^{\mathrm{data}} \}$ denotes available empirical measurements,
+Here, $\{ \boldsymbol{x}_i^{\mathrm{data}} \}$ denotes available empirical observations or measurement locations,
 $\{ \boldsymbol{x}_j^{\mathrm{bc}} \}$ represents points sampled along physical boundaries $\partial \Omega$,
 and $\{ \boldsymbol{x}_k^{\mathrm{pde}} \}$ designates interior \textit{collocation points} scattered across $\Omega$.
 
@@ -301,7 +278,7 @@ but does not automatically guarantee unique parameter recovery.
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\linewidth]{media/pinn_workflow_concept.png}
-    \caption{The Physics-Informed Neural Network (PINN) architecture: coordinate inputs $(x, y)$ are mapped through a deep surrogate, spatial derivatives are evaluated via Automatic Differentiation (AD), and weights $\boldsymbol{\theta}$ alongside unknown physical parameters $\boldsymbol{\lambda}$ are updated iteratively by minimizing a composite loss combining PDE residuals, boundary conditions, and observed data.}
+    \caption{Schematic computational workflow of a Physics-Informed Neural Network (PINN): boundary coordinates $\{\boldsymbol{x}_j^{\mathrm{bc}}\}$ and measurements $\{\boldsymbol{x}_i^{\mathrm{data}}\}$ evaluate boundary adherence ($\mathcal{L}_{\mathrm{bc}}$) and empirical matching ($\mathcal{L}_{\mathrm{data}}$) (top branch), while interior collocation points $\{\boldsymbol{x}_k^{\mathrm{pde}}\}$ pass through Coordinate Automatic Differentiation (AD) to compute exact spatial derivatives and differential PDE residuals ($\mathcal{L}_{\mathrm{pde}}$, bottom branch). The composite loss $\mathcal{L}_{\mathrm{total}}$ drives gradient descent via reverse-mode backpropagation, jointly optimizing surrogate weights $\boldsymbol{\theta}$ and identifying unknown physical parameters $\boldsymbol{\lambda}$ in inverse settings.}
     \label{fig:pinn_workflow_concept}
 \end{figure}
 
@@ -319,13 +296,14 @@ Several operational features distinguish physics-informed training from conventi
     Available measurements $\mathcal{L}_{\mathrm{data}}$ act as an active data anchor that
     guides the network toward the true physical state.
 
-    \item \textbf{Physical regularization and inductive bias}:
+    \item \textbf{Physical regularization and dynamic loss weighting}:
     In standard supervised training, the network is unconstrained between data points.
     In PINNs, evaluating differential residuals $\mathcal{L}_{\mathrm{pde}}$ across interior collocation points
-    penalizes non-physical gradients and curvatures.
-    This analytical inductive bias restricts the admissible solution space.
-    However, proper weighting between data and PDE terms remains essential:
-    poorly tuned weights can still bias the optimization or slow down convergence.
+    penalizes non-physical gradients and curvatures, restricting the admissible solution space.
+    However, balancing the competing loss terms ($w_{\mathrm{data}}, w_{\mathrm{bc}}, w_{\mathrm{pde}}$) is fundamentally non-trivial.
+    As rigorously analyzed by Wang, Teng, and Perdikaris \cite{wang2021understanding}, the backpropagated gradient magnitudes arising from PDE residuals and boundary constraints often differ by several orders of magnitude.
+    This gradient imbalance induces numerical stiffness and gradient pathologies, where steep boundary terms dominate and extinguish the learning signal of interior PDE residuals (or vice versa).
+    Consequently, calibrated or adaptive weighting between data, boundary, and differential components is indispensable to prevent optimization stalls and ensure stable convergence.
 
     \item \textbf{Coordinate Automatic Differentiation (AD)}:
     In PINNs, the same reverse-mode automatic differentiation engine is employed, other than for computing the loss gradient,
@@ -383,8 +361,9 @@ The dimentionless incompressible Navier-Stokes equations were formulated as:
 where $\lambda_1 = 1.0$ governs convective acceleration
 and $\lambda_2 = 1/Re = 0.01$ represents kinematic viscosity.
 
-To satisfy incompressibility identically, the authors parameterized velocities % reference a capitolo 2
-via a stream function $\psi(t, x, y)$ ($u = \partial\psi/\partial y, v = -\partial\psi/\partial x$).
+To satisfy incompressibility identically without requiring an explicit divergence penalty, the authors adopted the stream function formulation
+established in Section~\ref{subsec:stream_function_formulation} (Eq.~\ref{eq:stream_function_def}),
+parameterizing velocity components through spatial derivatives of $\psi(t, x, y)$.
 A neural network with 9 hidden layers and 20 neurons per layer, activated by $\tanh$,
 predicted $(\psi, p)$ while treating $\lambda_1$ and $\lambda_2$ as learnable parameters.
 
@@ -392,7 +371,7 @@ predicted $(\psi, p)$ while treating $\lambda_1$ and $\lambda_2$ as learnable pa
 The network was trained on $N = 5{,}000$ spatio-temporal velocity points.
 The benchmark demonstrated two key capabilities:
 \begin{itemize}
-    \item \textbf{éressure recovery}:
+    \item \textbf{Pressure recovery}:
     Without any pressure measurements, the network reconstructed the pressure field $p(t, x, y)$
     exclusively relying on momentum balance, matching CFD reference data up to an arbitrary constant.
     \item \textbf{Parameter estimation under noise}:

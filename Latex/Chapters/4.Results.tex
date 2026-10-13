@@ -277,13 +277,12 @@ To ensure complete experimental reproducibility, Table~\ref{tab:information_supp
 \subsection{Neural Architecture and Staged Precision Solvers}
 \label{subsec:architecture_solvers_recap}
 
-Figure~\ref{fig:pinn_three_head_architecture} illustrates the modular three-head architecture.
-Each head is parameterized as a deep Multi-Layer Perceptron.
-Each network comprises 8 hidden layers with 128 neurons per layer,
-employing smooth SiLU activation functions.
-Network weights are initialized using the Xavier Normal (Glorot) scheme.
-The output linear layers of $p$ and $\boldsymbol{\tau}$ are zero-initialized
-to ensure stable initial gradient propagation.
+Figure~\ref{fig:pinn_three_head_architecture} illustrates the modular three-head architecture deployed in this work.
+Rather than employing a monolithic multi-output network, each physical field is decoupled into an independent deep Multi-Layer Perceptron:
+$\mathcal{N}_{\psi}(\boldsymbol{x}; \boldsymbol{\theta}_{\psi})$ for the scalar stream function $\psi$,
+$\mathcal{N}_{p}(\boldsymbol{x}; \boldsymbol{\theta}_{p})$ for hydrodynamic pressure $p$, and
+$\mathcal{N}_{\boldsymbol{\tau}}(\boldsymbol{x}; \boldsymbol{\theta}_{\boldsymbol{\tau}})$ for the three independent extra-stress tensor components $(\tau_{xx}, \tau_{xy}, \tau_{yy})$.
+Each subnet comprises 8 hidden layers with 128 neurons per layer, activated by smooth, non-monotonic SiLU (Swish) functions to preserve second- and third-order differential regularity during automatic differentiation.
 
 \begin{figure}[htbp]
     \centering
@@ -292,22 +291,29 @@ to ensure stable initial gradient propagation.
     \label{fig:pinn_three_head_architecture}
 \end{figure}
 
-The optimization protocol combines first-order exploration with second-order deterministic refinement
-across two numerical precision tiers:
+\subsubsection{Weight Initialization and Output Zero-Initialization}
+\label{subsubsec:weight_initialization_details}
+
+As introduced in Section~\ref{subsubsec:weight_initialization}, initializing network parameters appropriately is critical for stabilizing gradient flow across deep computational graphs. In our implementation, hidden layer weights are initialized using the Xavier/Glorot normal distribution \cite{goodfellow2016deep}, which normalizes parameter variances inversely with layer widths: $\mathcal{N}(0, 2 / (n_{\mathrm{in}} + n_{\mathrm{out}}))$.
+
+Crucially, for the final linear layers predicting the extra-stress tensor $\boldsymbol{\tau}$ and pressure $p$, weights and biases are initialized identically to zero ($\boldsymbol{W}^{(L)} = \boldsymbol{0}, \boldsymbol{b}^{(L)} = \boldsymbol{0}$). This design provides two decisive physical and numerical benefits:
+\begin{enumerate}
+    \item \textbf{Physical resting ground state}:
+    In continuum mechanics, a fluid at rest exhibits zero extra-stress ($\boldsymbol{\tau} = \boldsymbol{0}$) and a uniform reference pressure. Initializing the output projections to zero ensures that, at iteration zero, the surrogate represents an unperturbed physical state of rest before hydrodynamic shearing is applied.
+    \item \textbf{Suppression of initial gradient shocks}:
+    If final linear layer weights were sampled from random distributions, initial stress fields would exhibit spurious, high-frequency spatial oscillations across the cavity. Evaluating these oscillations inside non-linear constitutive equations—which feature quadratic stress terms in the Giesekus model ($\alpha \boldsymbol{\tau} \cdot \boldsymbol{\tau}$) and convective stress transport ($\boldsymbol{u} \cdot \nabla \boldsymbol{\tau}$)—would generate violent residual spikes at epoch zero, destabilizing optimizer moment trajectories and frequently causing numerical divergence. Zero-initializing output layers ensures strictly bounded, well-behaved initial residuals that grow smoothly as kinematics are resolved.
+\end{enumerate}
+
+\subsubsection{Two-Stage Optimization Strategy: Adam to L-BFGS}
+\label{subsubsec:staged_optimization_protocol}
+
+To optimize the composite multi-objective loss across both forward and inverse regimes, we operationalize a sequential two-tier strategy that combines first-order stochastic exploration with second-order deterministic refinement across two distinct floating-point precision tiers:
 \begin{enumerate}
     \item \textbf{Tier 1: Global Exploration via Adam in FP32}:
-    During early training, the loss landscape exhibits steep valleys, saddle points, and local minima.
-    The Adam optimizer operates in single-precision floating-point arithmetic (standard IEEE 754 FP32).
-    It utilizes adaptive moment estimation to traverse the landscape efficiently and escape suboptimal traps.
-    A base learning rate of $\eta_0 = 2.5 \times 10^{-3}$ decays via a Cosine Annealing schedule
-    down to $\eta_{\min} = 2.5 \times 10^{-6}$.
+    During the initial optimization phase, the parameter space is characterized by steep ravines, local saddle points, and competing loss gradients. The Adam optimizer operates in single-precision floating-point arithmetic (IEEE 754 FP32, exploiting TF32 tensor cores on modern GPUs). By maintaining running estimates of first and second gradient moments, Adam traverses the non-convex landscape effectively and escapes suboptimal local basins. Learning rates follow a Cosine Annealing schedule decaying from $\eta_0 = 2.5 \times 10^{-3}$ down to $\eta_{\min} = 2.5 \times 10^{-6}$, dampening stochastic oscillations as parameters settle near the global optimum.
     
-    \item \textbf{Tier 2: Asymptotic Refinement via L-BFGS in FP64}:
-    Once Adam guides the parameters into the basin of attraction of the physical solution,
-    the optimizer switches to the Limited-memory Broyden--Fletcher--Goldfarb--Shanno (L-BFGS) algorithm.
-    Operating in double-precision floating-point arithmetic (\texttt{torch.float64}) with a Strong Wolfe line search,
-    L-BFGS leverages second-order curvature approximations.
-    This enables asymptotic convergence toward scientific accuracy without stochastic jitter.
+    \item \textbf{Tier 2: Asymptotic Physical Refinement via L-BFGS in FP64}:
+    Once Adam has steered the parameters into the basin of attraction of the true physical solution, the solver transitions to the second-order quasi-Newton L-BFGS algorithm. Crucially, the entire model and computational graph are cast to double precision (\texttt{torch.float64}) to prevent catastrophic round-off cancellation in higher-order coordinate derivatives. Operating with a Strong Wolfe line search and history size $m=50$, L-BFGS constructs low-rank approximations of the inverse Hessian matrix, providing deterministic superlinear convergence that drives momentum and constitutive PDE residuals down to stringent scientific tolerances without residual jitter.
 \end{enumerate}
 
 Table~\ref{tab:optimization_hyperparameters} outlines the detailed hyperparameters and iteration budgets for both precision tiers.
