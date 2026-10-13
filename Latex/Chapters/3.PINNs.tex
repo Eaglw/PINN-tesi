@@ -305,7 +305,7 @@ but does not automatically guarantee unique parameter recovery.
     \label{fig:pinn_workflow_concept}
 \end{figure}
 
-\subsection{Standard Supervised Training vs. PINN Optimization}
+\subsection{PINN specific features}
 \label{subsec:deep_dive_training}
 
 Several operational features distinguish physics-informed training from conventional supervised learning:
@@ -315,9 +315,9 @@ Several operational features distinguish physics-informed training from conventi
     In classical machine learning, a model is trained on a sample set to generalize to unseen statistical distributions.
     In PINNs, \textit{training is the numerical solver}.
     The network is not designed to predict flows across arbitrary unseen geometries;
-    rather, optimization directly solves the boundary-value problem on the specified domain $\Omega$.
-    Available measurements $\mathcal{L}_{\mathrm{data}}$ act as an active data-assimilation anchor
-    guiding the network toward the true physical state.
+    rather, optimization directly solves the specific problem on the specified domain $\Omega$.
+    Available measurements $\mathcal{L}_{\mathrm{data}}$ act as an active data anchor that
+    guides the network toward the true physical state.
 
     \item \textbf{Physical regularization and inductive bias}:
     In standard supervised training, the network is unconstrained between data points.
@@ -328,29 +328,23 @@ Several operational features distinguish physics-informed training from conventi
     poorly tuned weights can still bias the optimization or slow down convergence.
 
     \item \textbf{Coordinate Automatic Differentiation (AD)}:
-    Classical deep learning uses backpropagation to differentiate the loss with respect to network parameters:
-    \begin{equation}
-        \text{Backpropagation (Classical DL):} \quad \frac{\partial \mathcal{L}}{\partial \boldsymbol{\theta}} .
-    \end{equation}
-    In PINNs, the same reverse-mode automatic differentiation engine computes spatial derivatives
-    of the predicted state fields with respect to input spatial coordinates:
+    In PINNs, the same reverse-mode automatic differentiation engine is employed, other than for computing the loss gradient,
+    spatial derivatives of the predicted state fields with respect to input spatial coordinates:
     \begin{equation}
         \text{Coordinate AD (PINNs):} \quad \frac{\partial \hat{\boldsymbol{u}}}{\partial \boldsymbol{x}}, \quad \frac{\partial^2 \hat{\boldsymbol{u}}}{\partial \boldsymbol{x}^2} .
     \end{equation}
-    As summarized in Table~\ref{tab:differentiation_comparison},
-    coordinate AD evaluates exact derivatives of the neural functional representation along the computational graph,
-    avoiding the spatial truncation error $\mathcal{O}(\Delta x^2)$ of finite-difference stencils.
+    %As summarized in Table~\ref{tab:differentiation_comparison}, coordinate AD evaluates exact derivatives of the neural functional representation along the computational graph, avoiding the spatial truncation error $\mathcal{O}(\Delta x^2)$ of finite-difference stencils.
     The accuracy of these derivatives with respect to the true physical field
     depends on how closely the network itself approximates the physical solution.
 
     \item \textbf{Collocation point sampling}:
-    Unlike traditional CFD solvers that require conforming meshes and element connectivity tables,
-    PINNs evaluate differential residuals at scattered collocation points $\{ \boldsymbol{x}_k^{\mathrm{pde}} \}$.
+    Unlike traditional CFD solvers that require meshes and element connectivity tables,
+    PINNs evaluate differential residuals at sparse collocation points $\{ \boldsymbol{x}_k^{\mathrm{pde}} \}$.
     This meshless feature simplifies domain representation,
-    though adequate point density remains necessary in boundary layers and near stagnation regions.
+    though sufficient point density remains necessary in boundary layers and near stagnation regions.
 \end{enumerate}
 
-\begin{table}[htbp]
+\begin{table}[htbp] %forse i termini vanno spiegati. non sono sicuro di volerla aggiungere. 
     \centering
     \caption{Comparison of differentiation paradigms in scientific computing and deep learning.}
     \label{tab:differentiation_comparison}
@@ -377,10 +371,10 @@ Several operational features distinguish physics-informed training from conventi
 \label{subsec:cylinder_benchmark}
 
 In their foundational paper, Raissi, Perdikaris, and Karniadakis \cite{raissi2019physics}
-demonstrated the capability of PINNs on laminar vortex shedding past a circular cylinder at $Re = 100$.
+demonstrated the capability of PINNs on laminar vortex past a cylinder at $Re = 100$.
 
-\subsubsection{Problem Formulation and Inverse Discovery}
-The non-dimensional incompressible Navier--Stokes equations were formulated as:
+\subsubsection{Problem Formulation}
+The dimentionless incompressible Navier-Stokes equations were formulated as:
 \begin{align}
     u_t + \lambda_1 (u u_x + v u_y) &= -p_x + \lambda_2 (u_{xx} + u_{yy}) , \label{eq:cylinder_ns_u} \\
     v_t + \lambda_1 (u v_x + v v_y) &= -p_y + \lambda_2 (v_{xx} + v_{yy}) , \label{eq:cylinder_ns_v} \\
@@ -389,18 +383,18 @@ The non-dimensional incompressible Navier--Stokes equations were formulated as:
 where $\lambda_1 = 1.0$ governs convective acceleration
 and $\lambda_2 = 1/Re = 0.01$ represents kinematic viscosity.
 
-To satisfy incompressibility identically, the authors parameterized velocities
+To satisfy incompressibility identically, the authors parameterized velocities % reference a capitolo 2
 via a stream function $\psi(t, x, y)$ ($u = \partial\psi/\partial y, v = -\partial\psi/\partial x$).
 A neural network with 9 hidden layers and 20 neurons per layer, activated by $\tanh$,
 predicted $(\psi, p)$ while treating $\lambda_1$ and $\lambda_2$ as learnable parameters.
 
-\subsubsection{Latent Field Discovery and Parameter Identification}
-The network was trained on $N = 5{,}000$ spatio-temporal velocity observations in the cylinder wake.
+\subsubsection{Field and Parameter Identification}
+The network was trained on $N = 5{,}000$ spatio-temporal velocity points.
 The benchmark demonstrated two key capabilities:
 \begin{itemize}
-    \item \textbf{Latent pressure recovery}:
+    \item \textbf{éressure recovery}:
     Without any pressure measurements, the network reconstructed the pressure field $p(t, x, y)$
-    solely by enforcing the momentum balance, matching CFD reference data up to an arbitrary constant.
+    exclusively relying on momentum balance, matching CFD reference data up to an arbitrary constant.
     \item \textbf{Parameter estimation under noise}:
     On clean data, parameter errors were $0.08\%$ for $\lambda_1$ and $4.67\%$ for $\lambda_2$.
     Under $1\%$ uncorrelated Gaussian noise, errors remained controlled at $0.17\%$ and $5.70\%$.
@@ -411,7 +405,7 @@ it was restricted to linear Newtonian fluids in an open domain.
 \subsection{The ViscoelasticNet Framework (Thakur et al., 2024)}
 \label{subsec:viscoelasticnet_benchmark}
 
-Extending physics-informed methods to non-Newtonian media,
+Extending physics-informed methods to non-Newtonian fluids,
 Thakur, Raissi, and Ardekani \cite{thakur2024viscoelasticnet} introduced \textit{ViscoelasticNet},
 applying PINNs to polymeric flows governed by differential constitutive equations.
 
@@ -427,10 +421,10 @@ Viscoelastic fluid simulation presents two major challenges:
     where steep stress boundary layers cause convergence breakdown unless stabilized numerically.
 \end{enumerate}
 
-\subsubsection{The Virtual Rheometer Concept}
-To address these bottlenecks, ViscoelasticNet proposed an inverse framework operating as a "virtual rheometer":
+\subsubsection{Virtual Rheometer}
+To address these limits, ViscoelasticNet proposed an inverse framework operating as a "virtual rheometer":
 \begin{itemize}
-    \item \textbf{Latent stress inference}:
+    \item \textbf{Stress inference}:
     Given velocity measurements $\boldsymbol{u}$, the network infers unobserved extra-stresses $\boldsymbol{\tau}$
     and pressure $p$ by enforcing constitutive and momentum residuals.
     \item \textbf{Unified constitutive formulation}:
