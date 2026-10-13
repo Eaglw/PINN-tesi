@@ -10,7 +10,8 @@ but integrates the entire kinematic history experienced by fluid elements.
 Accurately modeling such transport phenomena requires a continuum mechanics formulation
 where universal conservation laws are coupled with non-linear, frame-indifferent constitutive equations.
 
-In this chapter, we develop the continuum framework governing non-Newtonian viscoelastic flows within the four-roll mill geometry.
+In this chapter, we develop the continuum framework governing viscoelastic
+flows within the four-roll mill geometry.
 Starting from the foundational balance laws of mass and linear momentum,
 we introduce the kinematic reductions characteristic of confined, low-inertia polymeric flows.
 We then establish the constitutive formulation of viscoelasticity through the Upper-Convected Time Derivative,
@@ -140,7 +141,7 @@ the steady balance of linear momentum simplifies to:
 % ============================================================
 % 2.3 CONSTITUTIVE MODELING OF VISCOELASTIC FLUIDS
 % ============================================================
-\section{Constitutive Modeling of Viscoelastic Fluids}
+\section{Constitutive Modeling}
 \label{sec:constitutive_models}
 
 In two dimensions, the momentum balance~\eqref{eq:momentum_reduced_general} contains
@@ -233,8 +234,9 @@ Near extensional stagnation points, it generates steep stress layers that cause 
 \subsection{Giesekus Model}
 \label{subsec:giesekus_model}
 To overcome the unphysical stress singularity of Oldroyd-B, Giesekus \cite{giesekus1982simple, bird1987dynamics}
-introduced a non-linear quadratic stress term derived from the concept of configuration-dependent hydrodynamic drag.
-In semi-dilute solutions, stretching polymer chains align parallel to one another,
+introduced a quadratic non-linear stress contribution derived from
+configuration-dependent hydrodynamic drag.
+In semi-dilute solutions, stretching macromolecular chains align parallel to each other,
 reducing drag along the orientation direction relative to the transverse directions.
 This anisotropic friction is incorporated by modifying the stress relaxation rate:
 \begin{equation}
@@ -281,7 +283,7 @@ bounding extensional viscosity growth and preventing unbounded coil stretch near
 % ============================================================
 % 2.4 NONDIMENSIONALIZATION AND GOVERNING EQUATIONS
 % ============================================================
-\section{Nondimensionalization and Governing Equations}
+\section{Dimentionless sGoverning Equations}
 \label{sec:nondimensionalization}
 
 Nondimensionalization scales physical variables to order unity and establishes the
@@ -415,7 +417,7 @@ we define the physical dimensions and operating conditions of the apparatus:
 \begin{itemize}
     \item \textbf{Square cavity}: Side length $L = 50\,\mathrm{mm}$ spanning the domain $[-25, 25]\,\mathrm{mm}$.
     \item \textbf{Cylindrical rollers}: Radius $R = 5\,\mathrm{mm}$ ($H_{\mathrm{ref}} = R = 0.1 L$).
-    \item \textbf{Roller placement}: Symmetrically located at $(\pm 10, \pm 10)\,\mathrm{mm}$ ($d_{\mathrm{roll}} = 10\,\mathrm{mm}$).
+    \item \textbf{Roller centers}: Located symmetrically at $(\pm 10, \pm 10)\,\mathrm{mm}$ ($d_{\mathrm{roll}} = 10\,\mathrm{mm}$).
     \item \textbf{Roller surface speed}: Peripheral velocity $u_{\mathrm{roll}} = \Omega R = 8.333 \times 10^{-3}\,\mathrm{m/s}$.
     \item \textbf{Dimensionless domain}: In units of $H_{\mathrm{ref}} = R$, the computational domain spans $[-5, 5]^2$,
     with roller centers located at $(\pm 2.0, \pm 2.0)$ and non-dimensional roller radius $R^* = 1.0$.

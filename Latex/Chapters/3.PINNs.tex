@@ -208,7 +208,7 @@ motivating frameworks that embed physical conservation laws directly into the lo
 % ============================================================
 % 3.3 THE PINN PARADIGM: TRAINING, MESHLESS NATURE, AND NO OVERFITTING
 % ============================================================
-\section{Physics-Informed Neural Network Framework}
+\section{Physics-Informed Neural Network}
 \label{sec:pinn_paradigm}
 
 The Physics-Informed Neural Network (PINN) framework, formalized by Raissi, Perdikaris, and Karniadakis \cite{raissi2019physics},
@@ -297,7 +297,7 @@ Several operational features distinguish physics-informed training from conventi
     In standard supervised training, the network is unconstrained between data points.
     In PINNs, evaluating differential residuals $\mathcal{L}_{\mathrm{pde}}$ across interior collocation points
     penalizes non-physical gradients and curvatures, restricting the admissible solution space.
-    However, balancing the competing loss terms ($w_{\mathrm{data}}, w_{\mathrm{bc}}, w_{\mathrm{pde}}$) presents practical challenges.
+    However, balancing the competing loss weights ($w_{\mathrm{data}}$, $w_{\mathrm{bc}}$, and $w_{\mathrm{pde}}$) presents practical challenges.
     As analyzed by Wang, Teng, and Perdikaris \cite{wang2021understanding}, the backpropagated gradient magnitudes arising from PDE residuals and boundary constraints often differ by several orders of magnitude.
     This imbalance induces numerical stiffness, where boundary terms can dominate and suppress the learning signal of interior PDE residuals (or vice versa).
     Calibrated weighting between data, boundary, and differential components is therefore needed to prevent optimization stalls and ensure stable convergence.
@@ -379,7 +379,7 @@ The benchmark demonstrated two key capabilities:
 While this benchmark validated simultaneous field reconstruction and parameter identification,
 it was restricted to linear Newtonian fluids in an open domain.
 
-\subsection{The ViscoelasticNet Framework (Thakur et al., 2024)}
+\subsection[The ViscoelasticNet Framework]{The ViscoelasticNet Framework (Thakur et al., 2024)}
 \label{subsec:viscoelasticnet_benchmark}
 
 Extending physics-informed methods to non-Newtonian fluids,
