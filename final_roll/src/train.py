@@ -1011,7 +1011,8 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         optimizer = torch.optim.Adam(groups, eps=ADAM_EPS)
 
         steps_rem = max(ADAM_EPOCHS_PHASE2 - local_start, 1)
-        warmup_steps_phys = int(0.20 * steps_rem)
+        active_steps_phys = max(ADAM_EPOCHS_PHASE2 - warmup_ph2, 1)
+        warmup_steps_phys = int(0.20 * active_steps_phys)
 
         def net_lr_lambda(step):
             # Cosine decay standard per le reti (model_p e model_psi) da 1.0 a 1e-3
@@ -1019,14 +1020,20 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             return float(0.5 * (1.0 + np.cos(np.pi * prog)) * 0.999 + 0.001)
 
         def phys_lr_lambda(step):
-            # Warmup-Peak-Decay per parametro fisico:
-            # Primi 20% sale dolcemente dal 5% al 100% per far pre-formare p(x,y)
-            # Dal 20% al 100% discesa cosenoidale morbida
-            if warmup_steps_phys > 0 and step < warmup_steps_phys:
-                alpha = step / warmup_steps_phys
+            # Sincronizzato con WARMUP_PHASE2_EPOCHS:
+            # Finché il parametro è congelato per pre-formare p(x,y), mantiene il floor base (5%)
+            if step < warmup_ph2:
+                return 0.05
+            
+            # Dal momento dello sblocco:
+            # - Primi 20% dei passi attivi: warmup lineare progressivo dal 5% al 100%
+            # - Rimanente 80%: discesa cosenoidale morbida fino a 1e-3
+            step_active = step - warmup_ph2
+            if warmup_steps_phys > 0 and step_active < warmup_steps_phys:
+                alpha = step_active / max(warmup_steps_phys, 1)
                 return float(0.05 + 0.95 * alpha)
             else:
-                prog = min((step - warmup_steps_phys) / max(steps_rem - warmup_steps_phys, 1), 1.0)
+                prog = min((step_active - warmup_steps_phys) / max(active_steps_phys - warmup_steps_phys, 1), 1.0)
                 return float(0.5 * (1.0 + np.cos(np.pi * prog)) * 0.999 + 0.001)
 
         lr_lambdas = [net_lr_lambda, net_lr_lambda]
@@ -1054,12 +1061,10 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
         for epoch_idx in pbar:
             epoch = end_lbfgs1 + epoch_idx
 
-            # Sblocco viscosità solvente se warmup attivo in Fase 2 (SENZA ricreare l'ottimizzatore Adam)
+            # Sblocco viscosità solvente/totale se warmup attivo in Fase 2
             if physics.inverse_mode and warmup_ph2 > 0 and epoch_idx == warmup_ph2:
                 print(f"\n  [Warmup Stage 2] Pre-formazione pressione completata! Sblocco viscosità solvente/totale (epoca globale {epoch+1}, step locale {epoch_idx})")
-                physics.set_trainable("mu_s", True)
-                if len(optimizer.param_groups) > 2:
-                    optimizer.param_groups[2]["lr"] = BASE_LR * PARAM_LR_FACTOR
+                physics.set_trainable(train_name, True)
 
             model.train()
             optimizer.zero_grad(set_to_none=True)
@@ -1122,7 +1127,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                     curl_str = f" | Curl: {loss_curl_val:.4e}" if (loss_curl_val > 0.0 or getattr(builtins, "USE_CURL_CONSTRAINT", False)) else ""
                     print(f"\n[Epoch {epoch+1}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}{curl_str}")
                     if physics.inverse_mode:
-                        print(f"  Params -> mu_tot: {params['mu_tot']:.6f} Pa·s | mu_s: {params['mu_s']:.6f} Pa·s | beta: {params['beta']:.6f} | mu_p: {params['mu_p']:.6f} Pa·s")
+                        print(f"  Params -> mu_tot: {params['mu_tot']:.6f} Pa*s | mu_s: {params['mu_s']:.6f} Pa*s | beta: {params['beta']:.6f} | mu_p: {params['mu_p']:.6f} Pa*s")
                     model.eval()
                     with torch.no_grad():
                         l2_errs = compute_l2_errors(model, physics, data)
@@ -1266,6 +1271,9 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
             p.requires_grad = True
         for p in model.model_psi.parameters():
             p.requires_grad = True
+
+        if getattr(builtins, "USE_MU_TOT_PARAM", True) and physics.inverse_mode and not getattr(physics, "use_mu_tot_param", False):
+            physics.enable_phase2_mu_tot()
 
         if physics.inverse_mode:
             train_name = "mu_tot" if getattr(physics, "use_mu_tot_param", False) else "mu_s"
@@ -1417,7 +1425,7 @@ def train(model, physics, data, resume_checkpoint=None, save_dir=None, tb_writer
                 curl_str = f" | Curl: {curl_loss:.4e}" if (curl_loss > 0.0 or getattr(builtins, "USE_CURL_CONSTRAINT", False)) else ""
                 print(f"\n[L-BFGS Phase 2 - Iter {it2+1}/{iters_ph2}] Loss: {tot_loss:.4e} | Data: {d_loss_accum:.4e} | BC: {b_loss_val:.4e} | PDE: {p_loss_accum:.4e}{curl_str}")
                 if physics.inverse_mode:
-                    print(f"  Params -> mu_tot: {params['mu_tot']:.6f} Pa·s | mu_s: {params['mu_s']:.6f} Pa·s | beta: {params['beta']:.6f} | mu_p: {params['mu_p']:.6f} Pa·s")
+                    print(f"  Params -> mu_tot: {params['mu_tot']:.6f} Pa*s | mu_s: {params['mu_s']:.6f} Pa*s | beta: {params['beta']:.6f} | mu_p: {params['mu_p']:.6f} Pa*s")
                 print(f"  L2 Errors -> u: {l2_errs['u']:.4e} | v: {l2_errs['v']:.4e} | p: {l2_errs['p']:.4e}")
                 print(f"               tau_xx: {l2_errs['tau_xx']:.4e} | tau_xy: {l2_errs['tau_xy']:.4e} | tau_yy: {l2_errs['tau_yy']:.4e}")
                 print(f"  G_data(psi): {g_d_norm:.4e} | G_mom(psi): {g_m_norm:.4e} | Ratio (G_mom/G_data): {ratio_g:.4f}")

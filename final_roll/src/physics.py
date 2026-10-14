@@ -89,6 +89,7 @@ class Physics(nn.Module):
         self.register_parameter("_raw_lam", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32)))
         self.register_parameter("_raw_mu_p", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32)))
         self.register_parameter("_raw_mu_s", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32), requires_grad=False))
+        self.register_parameter("_raw_mu_s_phase2", nn.Parameter(torch.zeros(1, device=DEVICE, dtype=torch.float32), requires_grad=False))
 
         # Guess e parametri raw per modelli non-newtoniani non lineari (alpha: Giesekus, eps: PTT)
         # Regola metodologica: alpha ed eps partono SEMPRE dal guess cieco 0.25 (centro del range fisico [0, 0.5])
@@ -219,7 +220,11 @@ class Physics(nn.Module):
         dtype = self._raw_mu_p.dtype if hasattr(self, "_raw_mu_p") else torch.float32
         device = self._raw_mu_p.device if hasattr(self, "_raw_mu_p") else DEVICE
 
-        self._raw_mu_s_phase2 = nn.Parameter(torch.zeros(1, device=device, dtype=dtype), requires_grad=True)
+        if not hasattr(self, "_raw_mu_s_phase2") or self._raw_mu_s_phase2 is None:
+            self.register_parameter("_raw_mu_s_phase2", nn.Parameter(torch.zeros(1, device=device, dtype=dtype), requires_grad=True))
+        else:
+            self._raw_mu_s_phase2.data = self._raw_mu_s_phase2.data.to(device=device, dtype=dtype)
+            self._raw_mu_s_phase2.requires_grad_(True)
 
     def set_trainable(self, name, trainable=True):
         """Imposta requires_grad sul parametro raw sottostante."""
@@ -700,6 +705,12 @@ def evaluate_final_losses(model, physics, data, chunk_size=2000):
         "Constitutive Loss": metrics["loss_c"],
         "Total PDE Loss": pde_loss_val,
         "Total Loss": total_loss_val,
+        "data_loss": metrics["d_loss"],
+        "bc_loss": b_loss_val,
+        "pde_loss": pde_loss_val,
+        "total_loss": total_loss_val,
+        "momentum_loss": metrics["loss_m"],
+        "constitutive_loss": metrics["loss_c"],
         "Mean Abs f_u": metrics["abs_fu"],
         "Mean Abs f_v": metrics["abs_fv"],
         "Mean Abs f_txx": metrics["abs_ftxx"],

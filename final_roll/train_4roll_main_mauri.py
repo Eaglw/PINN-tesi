@@ -453,10 +453,10 @@ def main():
         "l2_tau_xy": float(errors.get('tau_xy', 0.0)),
         "l2_tau_yy": float(errors.get('tau_yy', 0.0)),
         "l2_tau_diag_mean": float(avg_l2_diag),
-        "final_loss_total": float(final_losses.get('total_loss', 0.0)),
-        "final_loss_data": float(final_losses.get('data_loss', 0.0)),
-        "final_loss_bc": float(final_losses.get('bc_loss', 0.0)),
-        "final_loss_pde": float(final_losses.get('pde_loss', 0.0))
+        "final_loss_total": float(final_losses.get('total_loss', final_losses.get('Total Loss', 0.0))),
+        "final_loss_data": float(final_losses.get('data_loss', final_losses.get('Data Loss', 0.0))),
+        "final_loss_bc": float(final_losses.get('bc_loss', final_losses.get('Boundary Loss', 0.0))),
+        "final_loss_pde": float(final_losses.get('pde_loss', final_losses.get('Total PDE Loss', 0.0)))
     }
     
     summary_json_path = OUTPUT_DIR / "metrics_summary.json"
@@ -470,7 +470,7 @@ def main():
     print(f"  >>> BENCHMARK METRICS SUMMARY [{MESH_TAG}] <<<")
     print(f"{'=' * 75}")
     print(f"  Mesh:                  {MESH_TAG} ({len(data.get('coords', data.get('points', []))):,} nodi)")
-    print(f"  Final Loss Totale:     {final_losses.get('total_loss', 0.0):.6e}")
+    print(f"  Final Loss Totale:     {final_losses.get('total_loss', final_losses.get('Total Loss', 0.0)):.6e}")
     print(f"  Errore L2 (u, v):      {avg_l2_uv*100:.4f}%  (u: {errors.get('u', 0.0)*100:.4f}%, v: {errors.get('v', 0.0)*100:.4f}%)")
     print(f"  Errore L2 tau_xy:      {errors.get('tau_xy', 0.0)*100:.4f}%")
     print(f"  Errore L2 tau_diag:    {avg_l2_diag*100:.4f}%  (xx: {errors.get('tau_xx', 0.0)*100:.4f}%, yy: {errors.get('tau_yy', 0.0)*100:.4f}%)")
