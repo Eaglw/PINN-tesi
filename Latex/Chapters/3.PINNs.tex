@@ -279,7 +279,7 @@ but does not automatically guarantee unique parameter recovery.
     \label{fig:pinn_workflow_concept}
 \end{figure}
 
-\subsection{PINN specific features}
+\subsection{PINN-Specific Features}
 \label{subsec:deep_dive_training}
 
 Several operational features distinguish physics-informed training from conventional supervised learning:
@@ -303,7 +303,7 @@ Several operational features distinguish physics-informed training from conventi
     Calibrated weighting between data, boundary, and differential components is therefore needed to prevent optimization stalls and ensure stable convergence.
 
     \item \textbf{Coordinate Automatic Differentiation (AD)}:
-    In PINNs, reverse-mode automatic differentiation serves a dual purpose:
+    Automatic differentiation serves a dual purpose in PINNs:
     beyond computing loss gradients with respect to network parameters, it evaluates exact 
     spatial derivatives of the predicted physical fields with respect to coordinates:
     \begin{equation}
@@ -329,7 +329,7 @@ Several operational features distinguish physics-informed training from conventi
         \hline
         \textbf{Method} & \textbf{Formulation} & \textbf{Truncation Error} & \textbf{Grid Dependence} \\
         \hline
-        Finite Differences (FDM) & $\frac{u(x+\Delta x) - u(x-\Delta x)}{2\Delta x}$ & $\mathcal{O}(\Delta x^2)$ & Structured Mesh Stencil \\
+        Finite Differences (FDM) & Discrete difference quotients (Taylor series) & $\mathcal{O}(\Delta x^2)$ & Structured Mesh Stencil \\
         Symbolic Differentiation & Closed-form analytical expression & None & Expression Growth \\
         \textbf{Automatic Differentiation (AD)} & Exact chain rule on computational graph & \textbf{None (Machine Precision)} & \textbf{Meshless / Continuous} \\
         \hline

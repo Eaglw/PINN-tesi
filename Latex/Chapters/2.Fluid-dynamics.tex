@@ -268,14 +268,14 @@ where the scalar function $f(\boldsymbol{\tau})$ is defined as:
     f(\boldsymbol{\tau}) = 1 + \frac{\varepsilon \lambda}{\mu_p} \text{tr}(\boldsymbol{\tau}) ,
     \label{eq:linear_ptt_softening}
 \end{equation}
-with $\text{tr}(\boldsymbol{\tau}) = \tau_{xx} + \tau_{yy}$ and $\varepsilon \ge 0$ representing the dimensionless extensibility parameter.
+with $\text{tr}(\boldsymbol{\tau}) = \tau_{xx} + \tau_{yy}$ (since $\tau_{zz} = 0$ under planar deformation for linear PTT) and $\varepsilon \ge 0$ representing the dimensionless extensibility parameter.
 When $\varepsilon = 0$, $f(\boldsymbol{\tau}) \equiv 1$ and the linear Oldroyd-B constitutive law is recovered.
 For $\varepsilon > 0$, high trace stresses accelerate stress relaxation,
 bounding extensional viscosity growth and preventing unbounded coil stretch near extensional stagnation points.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.92\linewidth]{media/rheological_models_concept.png}
+    \includegraphics[width=0.92\linewidth]{media/rheological_models_concept.pdf}
     \caption{Example comparison of rheological model responses: (a) steady shear viscosity $\eta(\dot{\gamma})$ as a function of shear rate, illustrating the constant Newtonian-like plateau of Oldroyd-B ($\alpha = 0$) versus the non-linear shear-thinning response of Giesekus ($\alpha > 0$); (b) planar extensional viscosity $\eta_E(E)$ as a function of extension rate, contrasting the unphysical asymptotic divergence of Oldroyd-B at the critical strain threshold $E_{\mathrm{crit}} = 1/(2\lambda)$ with the bounded saturation plateau provided by non-linear closures.}
     \label{fig:rheological_models_concept}
 \end{figure}
@@ -283,7 +283,7 @@ bounding extensional viscosity growth and preventing unbounded coil stretch near
 % ============================================================
 % 2.4 NONDIMENSIONALIZATION AND GOVERNING EQUATIONS
 % ============================================================
-\section{Dimentionless sGoverning Equations}
+\section{Dimensionless Governing Equations}
 \label{sec:nondimensionalization}
 
 Nondimensionalization scales physical variables to order unity and establishes the
@@ -475,10 +475,11 @@ To complete the mathematical formulation, boundary conditions are imposed along 
         \boldsymbol{u}|_{\Gamma_k} = \boldsymbol{\Omega}_k \times (\boldsymbol{x} - \boldsymbol{x}_k) ,
         \label{eq:bc_velocity_rolls}
     \end{equation}
-    where $\boldsymbol{x}_k$ is the roller center.
+    where $\boldsymbol{x}_k$ is the roller center and the angular velocity vector is directed along the out-of-plane axis, $\boldsymbol{\Omega}_k = (0, 0, \Omega_k)^T$.
     In the planar extensional regime ($\chi = +1$),
-    top-left (TL) and bottom-right (BR) cylinders rotate clockwise ($-\Omega$),
-    while top-right (TR) and bottom-left (BL) cylinders rotate counter-clockwise ($+\Omega$).
+    top-left (TL) and bottom-right (BR) cylinders rotate clockwise ($\Omega_k = -\Omega$),
+    while top-right (TR) and bottom-left (BL) cylinders rotate counter-clockwise ($\Omega_k = +\Omega$),
+    with peripheral angular speed $\Omega = u_{\mathrm{roll}} / R$.
 
     \item \textbf{No-Slip on Walls ($\Gamma_{\mathrm{outer}}$)}:
     Along the stationary external boundaries of the square cavity, the velocity vanishes identically:
