@@ -124,12 +124,16 @@ In two-dimensional incompressible flow, the solenoidal constraint $\nabla \cdot 
     u = \frac{\partial \psi}{\partial y}, \qquad v = -\frac{\partial \psi}{\partial x} .
     \label{eq:stream_function_def}
 \end{equation}
-Because mixed partial derivatives commute ($\frac{\partial^2 \psi}{\partial x \partial y} = \frac{\partial^2 \psi}{\partial y \partial x}$), the velocity divergence vanishes identically:
+Because mixed partial derivatives commute ($\frac{\partial^2 \psi}{\partial x
+\partial y} = \frac{\partial^2 \psi}{\partial y \partial x}$), the velocity
+divergence vanishes identically:
 \begin{equation}
     \nabla \cdot \boldsymbol{u} = \frac{\partial u}{\partial x} + \frac{\partial v}{\partial y} = \frac{\partial^2 \psi}{\partial x \partial y} - \frac{\partial^2 \psi}{\partial y \partial x} \equiv 0 .
     \label{eq:divergence_free_identity}
 \end{equation}
-Parameterizing the velocity through $\psi$ satisfies mass conservation everywhere by construction, replacing the two velocity components $(u, v)$ with a single scalar field.
+Parameterizing the velocity through $\psi$ satisfies mass conservation everywhere
+by construction, replacing the two velocity components $(u, v)$ with a single
+scalar field.
 
 Under these physical assumptions and kinematically reduced velocity representation,
 the steady balance of linear momentum simplifies to:
@@ -276,7 +280,14 @@ bounding extensional viscosity growth and preventing unbounded coil stretch near
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.92\linewidth]{media/rheological_models_concept.pdf}
-    \caption{Example comparison of rheological model responses: (a) steady shear viscosity $\eta(\dot{\gamma})$ as a function of shear rate, illustrating the constant Newtonian-like plateau of Oldroyd-B ($\alpha = 0$) versus the non-linear shear-thinning response of Giesekus ($\alpha > 0$); (b) planar extensional viscosity $\eta_E(E)$ as a function of extension rate, contrasting the unphysical asymptotic divergence of Oldroyd-B at the critical strain threshold $E_{\mathrm{crit}} = 1/(2\lambda)$ with the bounded saturation plateau provided by non-linear closures.}
+    \caption{Example comparison of rheological model responses: (a) steady shear
+    viscosity $\eta(\dot{\gamma})$ as a function of shear rate, illustrating the
+    constant Newtonian-like plateau of Oldroyd-B ($\alpha = 0$) versus the
+    non-linear shear-thinning response of Giesekus ($\alpha > 0$); (b) planar
+    extensional viscosity $\eta_E(E)$ as a function of extension rate, contrasting
+    the unphysical asymptotic divergence of Oldroyd-B at the critical strain
+    threshold $E_{\mathrm{crit}} = 1/(2\lambda)$ with the bounded saturation
+    plateau provided by non-linear closures.}
     \label{fig:rheological_models_concept}
 \end{figure}
 
@@ -357,7 +368,10 @@ As illustrated conceptually in Figure~\ref{fig:4roll_concept}, the setup compris
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.58\linewidth]{media/4roll_mill_concept.png}
-    \caption{Conceptual diagram of the four-roll mill geometry, illustrating the four rotating cylinders (adjacent rolls counter-rotate with angular velocity $\Omega$, diagonal rolls co-rotate), the central hyperbolic stagnation point $(0,0)$, and the resulting elongational inflow and outflow directions.}
+    \caption{Conceptual diagram of the four-roll mill geometry, illustrating the
+    four rotating cylinders (adjacent rolls counter-rotate with angular velocity
+    $\Omega$, diagonal rolls co-rotate), the central hyperbolic stagnation point
+    $(0,0)$, and the resulting elongational inflow and outflow directions.}
     \label{fig:4roll_concept}
 \end{figure}
 
@@ -407,33 +421,55 @@ In the planar extensional regime ($\chi = +1$), the velocity vanishes identicall
 \end{equation}
 Along the vertical inflow streamline ($x = 0$), incoming fluid parcels decelerate toward zero velocity,
 reaching asymptotically long residence times near the origin.
-This kinematics allows elastic strain to accumulate over durations comparable to or exceeding the polymer relaxation time $\lambda$,
-making the four-roll mill an ideal benchmark for probing strong extensional stresses far from solid walls.
+This kinematics allows elastic strain to accumulate over durations comparable to
+or exceeding the polymer relaxation time $\lambda$, making the four-roll mill
+an ideal benchmark for probing strong extensional stresses far from solid walls.
 
-\subsection{Geometric Setup and Operating Parameters}
-\label{subsec:geometry_params}
-Following the established benchmark setup of D'Avino et al. \cite{davino2017numerical},
-we define the physical dimensions and operating conditions of the apparatus:
+\subsection{Geometric Setup}
+\label{subsec:geometry_setup}
+
+Following the established benchmark setup of D'Avino et al.
+\cite{davino2017numerical}, we define the physical dimensions of the apparatus:
 \begin{itemize}
-    \item \textbf{Square cavity}: Side length $L = 50\,\mathrm{mm}$ spanning the domain $[-25, 25]\,\mathrm{mm}$.
-    \item \textbf{Cylindrical rollers}: Radius $R = 5\,\mathrm{mm}$ ($H_{\mathrm{ref}} = R = 0.1 L$).
-    \item \textbf{Roller centers}: Located symmetrically at $(\pm 10, \pm 10)\,\mathrm{mm}$ ($d_{\mathrm{roll}} = 10\,\mathrm{mm}$).
-    \item \textbf{Roller surface speed}: Peripheral velocity $u_{\mathrm{roll}} = \Omega R = 8.333 \times 10^{-3}\,\mathrm{m/s}$.
-    \item \textbf{Dimensionless domain}: In units of $H_{\mathrm{ref}} = R$, the computational domain spans $[-5, 5]^2$,
-    with roller centers located at $(\pm 2.0, \pm 2.0)$ and non-dimensional roller radius $R^* = 1.0$.
+    \item \textbf{Square cavity}: Side length $L = 50\,\mathrm{mm}$ spanning the
+        domain $[-25, 25]\,\mathrm{mm}$.
+    \item \textbf{Cylindrical rollers}: Radius $R = 5\,\mathrm{mm}$
+        ($H_{\mathrm{ref}} = R = 0.1 L$).
+    \item \textbf{Roller centers}: Located symmetrically at $(\pm 10, \pm
+        10)\,\mathrm{mm}$ ($d_{\mathrm{roll}} = 10\,\mathrm{mm}$).
+    \item \textbf{Dimensionless domain}: In units of $H_{\mathrm{ref}} = R$, the
+        computational domain spans $[-5, 5]^2$, with roller centers located at
+        $(\pm 2.0, \pm 2.0)$ and non-dimensional roller radius $R^* = 1.0$.
 \end{itemize}
 
-As shown in Figure~\ref{fig:4roll_geometry}, these dimensions define the operational space and solid boundaries of the cavity.
+As shown in Figure~\ref{fig:4roll_geometry}, these dimensions define the
+operational space and solid boundaries of the cavity.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.68\linewidth]{media/4roll_mill_geometry_thesis.png}
-    \caption{Detailed geometric dimensions and coordinate setup of the four-roll mill: square cavity side $L = 50\,\mathrm{mm}$, cylinder radii $R = 5\,\mathrm{mm}$, roller center offset $d_{\mathrm{roll}} = 10\,\mathrm{mm}$, Cartesian axes $(x, y)$, and peripheral rotation directions with angular velocity $\Omega$.}
+    \includegraphics[width=0.60\linewidth]{media/4roll_mill_geometry_thesis.png}
+    \caption{Detailed geometric dimensions and boundary partition of the four-roll
+    mill:
+    planar fluid domain $\Omega$, external stationary cavity boundary
+    $\Gamma_{\mathrm{outer}}$
+    with side length $L = 50\,\mathrm{mm}$, four cylinder boundaries 
+    $\Gamma_{\mathrm{rolls}} = \bigcup_{k} \Gamma_k$ ($k \in \{\mathrm{TL},
+    \mathrm{TR}, \mathrm{BL}, \mathrm{BR}\}$)
+    with radius $R = 5\,\mathrm{mm}$ and center offset $d_{\mathrm{roll}} =
+    10\,\mathrm{mm}$,
+    peripheral rotation directions with angular velocity $\Omega$, and central
+    extensional stagnation point $(0,0)$.}
     \label{fig:4roll_geometry}
 \end{figure}
 
-The geometric, fluid physical, and characteristic dimensionless parameters investigated in this work
-are organized systematically in Table~\ref{tab:physical_parameters}.
+\subsection{Operating Parameters}
+\label{subsec:operating_parameters}
+
+The flow is driven by the rotation of the four cylindrical rollers with peripheral
+surface velocity $u_{\mathrm{roll}} = \Omega R = 8.333 \times 10^{-3}\,\mathrm{m/s}$.
+The geometric, fluid physical, and characteristic dimensionless parameters
+investigated across the benchmark test cases are organized systematically in
+Table~\ref{tab:physical_parameters}.
 
 \begin{table}[htbp]
     \centering
@@ -466,34 +502,42 @@ are organized systematically in Table~\ref{tab:physical_parameters}.
 
 \subsection{Boundary Conditions}
 \label{subsec:boundary_conditions}
-To complete the mathematical formulation, boundary conditions are imposed along allrelevant domain boundaries:
-\begin{enumerate}
-    \item \textbf{No-Slip on Roller Surfaces ($\Gamma_{\mathrm{rolls}}$)}:
-    On the boundary of each cylinder $k \in \{\mathrm{TL}, \mathrm{TR}, \mathrm{BL}, \mathrm{BR}\}$,
-    the fluid velocity satisfies the no-slip Dirichlet condition with specified angular rotation:
-    \begin{equation}
-        \boldsymbol{u}|_{\Gamma_k} = \boldsymbol{\Omega}_k \times (\boldsymbol{x} - \boldsymbol{x}_k) ,
-        \label{eq:bc_velocity_rolls}
-    \end{equation}
-    where $\boldsymbol{x}_k$ is the roller center and the angular velocity vector is directed along the out-of-plane axis, $\boldsymbol{\Omega}_k = (0, 0, \Omega_k)^T$.
-    In the planar extensional regime ($\chi = +1$),
-    top-left (TL) and bottom-right (BR) cylinders rotate clockwise ($\Omega_k = -\Omega$),
-    while top-right (TR) and bottom-left (BL) cylinders rotate counter-clockwise ($\Omega_k = +\Omega$),
-    with peripheral angular speed $\Omega = u_{\mathrm{roll}} / R$.
 
-    \item \textbf{No-Slip on Walls ($\Gamma_{\mathrm{outer}}$)}:
-    Along the stationary external boundaries of the square cavity, the velocity vanishes identically:
-    \begin{equation}
-        \boldsymbol{u}|_{\Gamma_{\mathrm{outer}}} = \boldsymbol{0} .
-        \label{eq:bc_outer_walls}
-    \end{equation}
+Let $\Omega$ denote the planar fluid domain bounded
+externally by the square cavity walls $\Gamma_{\mathrm{outer}}$ and internally by
+the boundaries of the four cylindrical rollers $\Gamma_{\mathrm{rolls}} =
+\bigcup_{k} \Gamma_k$ ($k \in \{\mathrm{TL}, \mathrm{TR}, \mathrm{BL},
+\mathrm{BR}\}$), such that the total boundary is given by the union
+$\partial\Omega = \Gamma_{\mathrm{outer}} \cup \Gamma_{\mathrm{rolls}}$, as
+illustrated in Figure~\ref{fig:4roll_geometry}.
 
-    \item \textbf{Pressure Gauge Fixing}:
-    Because pressure appears in the momentum balance~\eqref{eq:dimless_momentum} exclusively through its spatial gradient $\nabla p$,
-    the pressure field is determined only up to an arbitrary additive constant ($p \to p + C$) under pure velocity Dirichlet conditions.
-    To eliminate this degree of freedom, pressure is anchored with a single reference point:
-    \begin{equation}
-        p(\boldsymbol{x}_0) = 0 .
-        \label{eq:pressure_point}
-    \end{equation}
-\end{enumerate}
+To close the dimensionless governing
+system~\eqref{eq:dimless_mass}--\eqref{eq:dimless_constitutive_unified}, kinematic
+Dirichlet conditions and a pressure reference point are prescribed:
+\begin{align}
+    \boldsymbol{u}(\boldsymbol{x}) &= \boldsymbol{0}, 
+        && \boldsymbol{x} \in \Gamma_{\mathrm{outer}}, \label{eq:bc_outer_walls} \\
+    \boldsymbol{u}(\boldsymbol{x}) &= \boldsymbol{\Omega}_k \times (\boldsymbol{x} - \boldsymbol{x}_k), 
+        && \boldsymbol{x} \in \Gamma_k \quad (k \in \{\mathrm{TL}, \mathrm{TR}, \mathrm{BL}, \mathrm{BR}\}), \label{eq:bc_velocity_rolls} \\
+    p(\boldsymbol{x}_0) &= 0, 
+        && \boldsymbol{x}_0 \in \Omega . \label{eq:pressure_point}
+\end{align}
+In the planar extensional regime ($\chi = +1$), the roller angular velocity
+vectors $\boldsymbol{\Omega}_k = (0, 0, \Omega_k)^T$ are oriented along the
+out-of-plane $z$-axis such that diagonal pairs co-rotate and adjacent pairs
+counter-rotate:
+\begin{equation}
+    \Omega_{\mathrm{TL}} = -\Omega, \quad \Omega_{\mathrm{TR}} = +\Omega, \quad
+    \Omega_{\mathrm{BL}} = +\Omega, \quad \Omega_{\mathrm{BR}} = -\Omega ,
+\end{equation}
+with peripheral angular speed $\Omega = u_{\mathrm{roll}} / R$.
+
+Because fluid cannot penetrate the impermeable solid boundaries ($\boldsymbol{u}
+\cdot \boldsymbol{n} = 0$ on $\partial\Omega$), the global mass conservation
+constraint $\oint_{\partial\Omega} \boldsymbol{u} \cdot \boldsymbol{n} \,
+\mathrm{d}\Gamma = 0$ is satisfied identically. 
+The condition~\eqref{eq:pressure_point} anchors the hydrostatic pressure
+field. Finally, because the four-roll mill constitutes a completely closed
+recirculating cavity without inflow boundaries ($\Gamma_{\mathrm{in}} =
+\emptyset$), no external Dirichlet conditions are mathematically required 
+for the extra-stress tensor $\boldsymbol{\tau}$.

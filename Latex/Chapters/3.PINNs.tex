@@ -128,14 +128,78 @@ Parameters are iteratively updated along descent directions derived from the los
 \end{equation}
 where $\eta > 0$ represents the learning rate (step size) and $\boldsymbol{d}_k$ denotes the search direction at iteration $k$.
 
-In scientific machine learning, gradient-based solvers must navigate non-convex loss surfaces characterized by ill-conditioned curvature and local minima. Two widely adopted algorithms in this setting are:
-\begin{enumerate}
-    \item \textbf{First-order adaptive optimization (Adam)}:
-    The Adaptive Moment Estimation algorithm \cite{kingma2014adam} computes individual adaptive learning rates for each parameter by maintaining exponentially decaying running averages of past gradients (first moment) and squared gradients (uncentered second moment). This moment-based scaling renders Adam particularly robust against ill-conditioned curvature and saddle points, making it highly effective for early-stage exploration across rugged non-convex landscapes.
-    \item \textbf{Second-order quasi-Newton optimization (L-BFGS)}:
-    The Limited-memory Broyden--Fletcher--Goldfarb--Shanno algorithm \cite{nocedal1980updating} incorporates local curvature information by constructing low-rank approximations of the inverse Hessian matrix using the history of recent gradient evaluations. While higher-order computation requires evaluation over full data batches, L-BFGS provides deterministic superlinear convergence in the vicinity of local minima, capable of driving differential equation residuals to strict numerical tolerances.
-\end{enumerate}
-Both algorithms share the common objective of driving the objective function toward an optimal stationary point, yet they exhibit distinct trade-offs: Adam offers robust stochastic exploration with modest per-iteration memory requirements, whereas L-BFGS delivers deterministic precision and rapid asymptotic convergence at the expense of curvature memory buffers.
+In scientific machine learning, gradient-based solvers must navigate non-convex
+loss surfaces characterized by ill-conditioned curvature and local minima.
+Two widely adopted algorithms in this setting are:
+
+\subsubsection{First-Order Adaptive Moment Estimation (Adam)}
+\label{subsubsec:adam_optimizer}
+
+The Adam optimizer~\cite{kingma2014adam} computes individual adaptive learning
+rates for each network parameter by tracking running estimates of the first
+and second moments of the loss gradient.
+At iteration $k$, given the gradient $\boldsymbol{g}_k = \nabla_{\boldsymbol{\theta}} \mathcal{L}(\boldsymbol{\theta}_k)$,
+the algorithm updates two vectors recursively:
+\begin{align}
+    \boldsymbol{m}_k &= \beta_1 \boldsymbol{m}_{k-1} + (1 - \beta_1) \boldsymbol{g}_k , \label{eq:adam_first_moment} \\
+    \boldsymbol{v}_k &= \beta_2 \boldsymbol{v}_{k-1} + (1 - \beta_2) \boldsymbol{g}_k^2 , \label{eq:adam_second_moment}
+\end{align}
+where the square $\boldsymbol{g}_k^2$ is evaluated component-wise, and $\beta_1, \beta_2 \in [0, 1)$
+are exponential decay factors (canonically set to $\beta_1 = 0.9$ and $\beta_2 = 0.999$).
+
+These two vectors have distinct physical and optimization roles:
+\begin{itemize}
+    \item \textbf{First moment vector $\boldsymbol{m}_k$ (Directional Momentum)}:
+        maintains an exponentially decaying average of past gradients.
+        It acts as a directional inertia, accelerating descent along persistent slopes
+        while dampening high-frequency oscillations across walls.
+    \item \textbf{Second uncentered moment vector $\boldsymbol{v}_k$ (Adaptive Scaling)}:
+        tracks the running magnitude of squared gradient components.
+        By dividing the update step by $\sqrt{\boldsymbol{v}_k}$, Adam rescales the effective
+        learning rate coordinate by coordinate, taking cautious smaller steps along steep,
+        noisy directions and bolder steps along flat plateaus.
+\end{itemize}
+
+Because both moment vectors are initialized to zero ($\boldsymbol{m}_0 = \boldsymbol{v}_0 = \boldsymbol{0}$),
+they initially exhibit a numerical bias toward zero.
+Kingma and Ba~\cite{kingma2014adam} rescale $\boldsymbol{m}_k$ and $\boldsymbol{v}_k$ by $(1 - \beta_1^k)$
+and $(1 - \beta_2^k)$ to correct this initial bias before updating the parameter vector $\boldsymbol{\theta}_{k+1}$.
+This adaptive mechanism makes Adam particularly robust on rugged, multi-objective loss landscapes
+characterized by disparate gradient scales, serving as an effective global explorer in early training.
+
+\subsubsection{Second-Order Quasi-Newton Optimization (L-BFGS)}
+\label{subsubsec:lbfgs_optimizer}
+
+While first-order methods explore the loss landscape robustly, refining physical
+solutions and satisfying stiff differential equations requires incorporating
+second-order curvature information.
+Classical Newton methods require forming and inverting the full Hessian matrix
+$\nabla_{\boldsymbol{\theta}}^2 \mathcal{L}$, which is computationally prohibitive
+for neural networks containing $N \sim 10^5\text{--}10^6$ parameters ($\mathcal{O}(N^2)$
+memory and $\mathcal{O}(N^3)$ inversion cost).
+
+Quasi-Newton methods overcome this limitation by iteratively approximating the inverse
+Hessian matrix $\boldsymbol{H}_k \approx (\nabla_{\boldsymbol{\theta}}^2 \mathcal{L})^{-1}$
+using only successive parameter displacements $\boldsymbol{s}_k = \boldsymbol{\theta}_{k+1} - \boldsymbol{\theta}_k$
+and gradient variations $\boldsymbol{y}_k = \nabla_{\boldsymbol{\theta}} \mathcal{L}_{k+1} - \nabla_{\boldsymbol{\theta}} \mathcal{L}_k$.
+The classic BFGS update formula is given by~\cite{nocedal1980updating}:
+\begin{equation}
+    \boldsymbol{H}_{k+1} = (\boldsymbol{I} - \rho_k \boldsymbol{s}_k \boldsymbol{y}_k^\top) \boldsymbol{H}_k (\boldsymbol{I} - \rho_k \boldsymbol{y}_k \boldsymbol{s}_k^\top) + \rho_k \boldsymbol{s}_k \boldsymbol{s}_k^\top , \qquad \rho_k = \frac{1}{\boldsymbol{y}_k^\top \boldsymbol{s}_k} .
+    \label{eq:bfgs_inverse_hessian_update}
+\end{equation}
+
+To avoid storing the dense $N \times N$ matrix $\boldsymbol{H}_{k+1}$, the
+Limited-memory BFGS (L-BFGS) algorithm~\cite{nocedal1980updating, liu1989limited}
+stores only the $m$ most recent vector pairs $\{ \boldsymbol{s}_i, \boldsymbol{y}_i \}_{i=k-m}^{k-1}$
+(typically $m \in [10, 50]$).
+The descent direction is then evaluated on the fly via an efficient two-loop recursion
+algorithm, dramatically reducing the memory footprint from $\mathcal{O}(N^2)$ to $\mathcal{O}(m N)$.
+The step length along this direction is calibrated through a line search ensuring
+sufficient decrease of the objective function.
+When evaluated over full collocation batches in double precision (FP64), L-BFGS exhibits
+fast superlinear asymptotic convergence, making it ideal for the final refinement stage
+of PINN solvers.
+
 
 \subsection{Backpropagation}
 \label{subsec:backpropagation}
