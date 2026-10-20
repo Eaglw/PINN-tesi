@@ -1,11 +1,11 @@
 % !TEX root = ../main.tex
-\chapter{Methodology and Numerical Results}
+\chapter{Numerical Results and Methodology}
 \label{chap:results_discussion}
 
 The previous chapters established the governing equations of viscoelastic flow
 (Chapter~\ref{chap:fluidodynamic_background}) and the physics-informed neural network
 framework (Chapter~\ref{chap:pinn_literature}). In this chapter, we evaluate that
-framework on the four-roll mill benchmark. The goal is twofold: first, to test
+framework on the four-roll mill benchmark. The goal is double: first, to test
 the forward predictive solver against high-fidelity numerical solutions; second,
 to assess the inverse PINN as a virtual rheometer capable of reconstructing
 hidden stress and pressure fields while extracting unknown constitutive
@@ -31,7 +31,7 @@ Most benchmark studies in scientific machine learning for non-Newtonian flows
 focus on open channels with net through-flow, such as planar contractions or
 cross-slots driven by pressure gradients. The four-roll mill
 \cite{davino2017numerical} is fundamentally different: it is a closed square
-cavity driven solely by four rotating cylinders, generating recirculating
+cavity driven only by four rotating cylinders, generating recirculating
 streamlines with zero net mass flux.
 
 This setup presents specific computational and physical challenges:
@@ -46,13 +46,6 @@ This setup presents specific computational and physical challenges:
         neural network must resolve localized stress boundary layers and thin
         strands without introducing spurious stress accumulation or artificial
         numerical diffusion.
-    \item \textbf{High-Weissenberg Regimes as a Stress Test}:
-        While many previous inverse studies restrict attention to small
-        relaxation times ($\lambda \le 0.15\,\mathrm{s}$), we intentionally test
-        higher values ($\lambda$ up to $1.0\,\mathrm{s}$, corresponding to $Wi >
-        1$). This pushes the solver into regimes where convective stress
-        derivatives become stiff and nonlinear elastic effects challenge
-        numerical stability.
 \end{itemize}
 
 \subsection{Forward and Inverse Modes}
@@ -60,15 +53,15 @@ This setup presents specific computational and physical challenges:
 
 The computational framework operates in two distinct modes:
 \begin{itemize}
-    \item \textbf{Direct Mode (Latent Field Reconstruction)}:
+    \item \textbf{Direct Mode}:
         All constitutive fluid parameters ($\lambda, \mu_p, \mu_s$, and nonlinear
         coefficients $\alpha$ or $\varepsilon$) are assumed known from prior
         characterization. Planar velocity observations (representative of
-        experimental PIV data) supervise the stream function $\hat{\psi}$ in the
-        interior alongside solid boundary conditions. The network then
-        autonomously reconstructs the unmeasured latent extra-stress tensor
-        $\hat{\boldsymbol{\tau}}(x, y)$ and hydrodynamic pressure $\hat{p}(x, y)$
-        enforcing the momentum and constitutive residuals without any interior
+        experimental PIV data) supervise the stream function $\psi$ in the
+        interior alongside boundary conditions. The network then
+        autonomously reconstructs the unmeasured extra-stress tensor
+        $\boldsymbol{\tau}(x, y)$ and hydrodynamic pressure $p(x, y)$
+        using the momentum and constitutive residuals without any interior
         stress or pressure supervision.
     \item \textbf{Inverse Mode (Virtual Rheometer)}:
         Kinematic velocity observations within the cavity are supplied together
@@ -116,19 +109,11 @@ parameter across both modes.
 Reference numerical solutions were generated using COMSOL Multiphysics
 \cite{comsol_multiphysics}, solving steady incompressible viscoelastic flow on
 unstructured triangular meshes. The governing momentum and continuity equations
-were discretized using Taylor-Hood mixed finite elements ($P_2$--$P_1$), combining
-quadratic Lagrange shape functions for velocity components with linear shape
-functions for pressure to satisfy the inf-sup (Ladyzhenskaya-Babu\v{s}ka-Brezzi)
-stability condition. Viscoelastic extra-stress tensor components were interpolated
-using quadratic elements. To overcome the high-Weissenberg-number problem (HWNP)
-and suppress spurious node-to-node oscillations in convective stress transport
-at $Wi = 1.667$, numerical stabilization was enforced using Streamline Upwind
-Petrov-Galerkin (SUPG) streamline diffusion coupled with the Discrete
-Elastic-Viscous Split Stress (DEVSS) formulation. To ensure that reference
-fields are free from discretization artifacts, we evaluated spatial mesh
-convergence.
+were discretized using finite elements method.
+To ensure that reference fields are free from discretization artifacts,
+we evaluated spatial mesh convergence.
 
-The canonical linear Oldroyd-B benchmark at $\lambda = 1.0\,\mathrm{s}$ ($Wi =
+The canonical Oldroyd-B benchmark at $\lambda = 1.0\,\mathrm{s}$ ($Wi =
 1.667$) was selected as the representative test case. Because linear Oldroyd-B
 lacks quadratic or exponential stress saturation mechanisms, normal stresses
 grow steeply near the central stagnation point, providing a conservative
@@ -219,7 +204,7 @@ As shown in Figure~\ref{fig:pinn_three_head_architecture}, the physical fields
 are predicted by three independent Multi-Layer Perceptron (MLP) branches rather
 than a single shared network:
 \begin{equation}
-    (x, y) \in \mathbb{R}^2 \longrightarrow 
+    (x, y) \longrightarrow 
     \begin{cases}
         \psi(x, y)  & \text{(Stream function, yielding } u, v\text{ via AD)}, \\
         p(x, y) & \text{(Hydrodynamic pressure)}, \\
@@ -254,7 +239,7 @@ and pressure network $\mathcal{N}_p$ are initialized to zero
 ($\boldsymbol{W}^{(L)} = \boldsymbol{0}, \boldsymbol{b}^{(L)} = \boldsymbol{0}$).
 This choice provides two practical benefits:
 \begin{enumerate}
-    \item \textbf{Quiescent Starting State}:
+    \item \textbf{Better Starting State}:
         At iteration zero, the model predicts zero extra-stress
         ($\boldsymbol{\tau} = \boldsymbol{0}$) and uniform pressure, reflecting
         a fluid initially at rest before deformation begins.
@@ -278,14 +263,15 @@ In the inverse problem, fluid viscosities $\mu_s$ and $\mu_p$ are unknown a prio
 To decouple the coordinate scaling from evolving parameter estimates, the solver
 sets a fixed reference viscosity scale $\eta_0 = 1.0\,\mathrm{Pa\cdot s}$:
 \begin{equation}
-    \mu_s^* = \frac{\mu_s}{\eta_0}, \quad \mu_p^* = \frac{\mu_p}{\eta_0}, \quad Re_{\mathrm{scale}} = \frac{\rho U_{\mathrm{ref}} H_{\mathrm{ref}}}{\eta_0}, \quad Wi = \frac{\lambda U_{\mathrm{ref}}}{H_{\mathrm{ref}}} .
+    \mu_s^* = \frac{\mu_s}{\eta_0}, \quad \mu_p^* = \frac{\mu_p}{\eta_0}, \quad Re_{\mathrm{scale}} = 
+    \frac{\rho U_{\mathrm{ref}} H_{\mathrm{ref}}}{\eta_0}, \quad Wi = \frac{\lambda U_{\mathrm{ref}}}{H_{\mathrm{ref}}} .
     \label{eq:nondim_scaling_implementation}
 \end{equation}
 
 Spatial coordinates are mapped to the unit box $[0, 1]^2$ using the cavity width
 $H_{\mathrm{coord}} = L = 0.05\,\mathrm{m}$ to keep activation arguments well
 conditioned. Derivative operators with respect to physical space are scaled
-accordingly via Coordinate AD by $(H_{\mathrm{ref}} / H_{\mathrm{coord}})$.
+accordingly via Automatic Differentiation by $(H_{\mathrm{ref}} / H_{\mathrm{coord}})$.
 
 In contrast to the coordinates, the physical output fields ($p$ and stress
 components $\tau_{xx}, \tau_{xy}, \tau_{yy}$) oscillate symmetrically with both
@@ -293,7 +279,8 @@ positive and negative values across the cavity. To keep raw network outputs in
 the balanced range $[-1, 1]$, each output head is scaled by its maximum absolute
 reference value ($p_{\mathrm{scale}}, \boldsymbol{\tau}_{\mathrm{scale}}$):
 \begin{equation}
-    p(x, y) = p_{\mathrm{scale}} \cdot \hat{p}(x, y), \qquad \boldsymbol{\tau}(x, y) = \boldsymbol{\tau}_{\mathrm{scale}} \odot \hat{\boldsymbol{\tau}}(x, y) ,
+    p(x, y) = p_{\mathrm{scale}} \cdot \hat{p}(x, y), \qquad \boldsymbol{\tau}(x, y) = \boldsymbol{\tau}_{\mathrm{scale}}
+    \cdot \hat{\boldsymbol{\tau}}(x, y) ,
     \label{eq:output_scaling_vectors}
 \end{equation}
 where $\hat{p}, \hat{\boldsymbol{\tau}} \in [-1, 1]$ are the normalized network
@@ -329,8 +316,8 @@ $\boldsymbol{x}_m \in \Omega$ evaluate to:
     \end{equation}
 \end{enumerate}
 
-\subsection{Composite Loss Function and Roller Stress Anchor}
-\label{subsec:multiobjective_loss_stress_anchor}
+\subsection{Loss Formulation}
+\label{subsec:multiobjective_loss_formulation}
 
 The composite objective function minimized during training is:
 \begin{equation}
@@ -393,25 +380,35 @@ The individual loss terms are defined as follows:
         fixing the hydrostatic gauge without requiring an extra penalty weight.
 \end{itemize}
 
-\subsubsection{Roller Stress Anchor}
-The roller stress supervision term,
+\subsection{Roller Stress Supervision}
+\label{subsec:roller_stress_anchor}
+
+Similar to established viscoelastic PINN frameworks such as ViscoelasticNet
+\cite{thakur2024viscoelasticnet}, where extra-stress observations are supplied
+to couple kinematics with constitutive dynamics and constrain rheological
+parameter inversion, our framework incorporates stress supervision during
+inverse discovery. Our approach restricts extra-stress observations strictly and exclusively to the rotating
+cylinder boundaries $\Gamma_{\mathrm{roll}}$:
 \begin{equation}
-    \mathcal{L}_{\mathrm{roll\_stress}} = \frac{1}{N_{\mathrm{rolls}}} \sum_{k=1}^{N_{\mathrm{rolls}}} \left\| \boldsymbol{\tau}_k - \boldsymbol{\tau}_k^{\mathrm{ref}} \right\|_2^2 ,
+    \mathcal{L}_{\mathrm{roll\_stress}} = \frac{1}{N_{\mathrm{rolls}}} \sum_{k=1}^{N_{\mathrm{rolls}}} \left\| \boldsymbol{\tau}_k - \boldsymbol{\tau}_k^{\mathrm{ref}} \right\|_2^2 .
     \label{eq:loss_roll_stress_definition}
 \end{equation}
-plays a specific physical role in the inverse problem. In creeping flow ($Re \ll 1$),
-multiplying viscosities ($\mu_s, \mu_p$), pressure $p$, and extra-stress
-$\boldsymbol{\tau}$ by an arbitrary positive constant $C > 0$ leaves the
-velocity field $\boldsymbol{u}(x, y)$ unchanged:
+
+This localized boundary supervision fulfills an indispensable physical purpose in
+resolving an intrinsic scaling degeneracy of creeping viscoelastic flows ($Re \ll 1$).
+In the creeping Stokes regime, multiplying viscosities ($\mu_s, \mu_p$), pressure
+$p$, and extra-stress $\boldsymbol{\tau}$ by an arbitrary positive constant $C > 0$
+leaves the velocity field $\boldsymbol{u}(x, y)$ unchanged:
 \begin{equation}
     -\nabla (C p) + (C \mu_s) \nabla^2 \boldsymbol{u} + \nabla \cdot (C \boldsymbol{\tau}) = C \left[ -\nabla p + \mu_s \nabla^2 \boldsymbol{u} + \nabla \cdot \boldsymbol{\tau} \right] = \boldsymbol{0} .
     \label{eq:stokes_scaling_invariance}
 \end{equation}
-Because velocity data alone cannot resolve this multiplicative ambiguity in
-$\mathrm{Pa\cdot s}$, prescribing $\boldsymbol{\tau}$ exclusively along the roller
-boundaries provides the necessary scale anchor, removing the scaling degeneracy
-without requiring interior stress observations. In the forward problem, where fluid
-viscosities are known a priori, this term is disabled ($w_{\mathrm{roll\_stress}} = 0$).
+Because velocity observations alone cannot resolve this multiplicative ambiguity in
+absolute physical units ($\mathrm{Pa\cdot s}$), prescribing $\boldsymbol{\tau}$ along
+the roller boundaries provides the necessary scale anchor, uniquely locking the
+dimensional viscosity scale without requiring interior stress measurements.
+In the direct (forward) problem, where fluid viscosities are known a priori,
+this supervision term is disabled ($w_{\mathrm{roll\_stress}} = 0$).
 
 From an experimental rheometry viewpoint, supervising stress exclusively along the
 roller cylinders $\Gamma_{\mathrm{roll}}$ is both practically feasible and physically
@@ -436,9 +433,7 @@ experiment without unphysically assuming access to interior stress fields.
 \label{subsec:two_stage_decoupling_helmholtz}
 
 Optimizing momentum and constitutive equations together from scratch often leads
-to numerical instability. The hyperbolic stress transport terms produce gradient
-magnitudes that overwhelm the elliptic momentum balance, causing the optimizer
-to stall or produce unphysical stress concentrations.
+to numerical instability, causing the optimizer to stall or produce unphysical fields.
 
 To avoid this imbalance, we split training into two sequential stages:
 \begin{enumerate}
@@ -568,25 +563,13 @@ iteration budgets for both precision tiers and initialization strategies.
     }
 \end{table}
 
-All network training and optimization routines were executed locally on a single
-workstation equipped with an NVIDIA GeForce RTX 3060 GPU (12~GB VRAM, Ampere
-architecture, CUDA 12.2) and an Intel Core i7 processor. On the dense M125k
-grid ($125{,}456$ nodes), a complete ex-novo training run of 50{,}000 iterations
-takes approximately 78~minutes for Phase~1 (40k Adam iterations in FP32 require
-${\sim}46$~min, followed by 10k L-BFGS iterations in FP64 taking ${\sim}32$~min)
-and 28~minutes for Phase~2 (Adam plus L-BFGS refinement), totaling approximately
-1.75~hours (${\sim}106$~minutes). On coarser meshes such as M12k, Phase~1
-completes in under 30~minutes. Applying Transfer Learning halves the required
-iterations to 25{,}000, reducing Phase~1 wall-clock time on M125k to approximately
-39~minutes while preventing numerical divergence at high Weissenberg numbers.
-
 % ============================================================
 % 4.5 DIRECT BENCHMARK: LATENT FIELD RECONSTRUCTION
 % ============================================================
 \section{Direct Benchmark: Latent Stress and Pressure Reconstruction}
 \label{sec:forward_solver_validation}
 
-We evaluate the PINN framework on the canonical Oldroyd-B benchmark
+We evaluate the PINN framework on the Oldroyd-B benchmark
 ($Wi = 0.0833, Re = 0.0417, \lambda = 0.05\,\mathrm{s}, \mu_p = 0.90\,\mathrm{Pa\cdot s}, \mu_s = 0.10\,\mathrm{Pa\cdot s}$)
 under known rheology. Planar velocity observations supervise the stream function
 $\hat{\psi}$, while the network autonomously reconstructs the unmeasured latent
@@ -597,7 +580,7 @@ strictly through the momentum and constitutive residuals.
 \label{subsec:kinematic_and_stress_accuracy}
 
 Field accuracy is quantified using the relative global $L_2$ error norm evaluated
-over all $N = 125{,}456$ nodes:
+over all $N$ nodes:
 \begin{equation}
     \epsilon_{L_2}(\phi) = \frac{\|\hat{\phi} - \phi^{\mathrm{ref}}\|_2}{\|\phi^{\mathrm{ref}}\|_2} = \frac{\sqrt{\sum_{i=1}^N |\hat{\phi}(\boldsymbol{x}_i) - \phi^{\mathrm{ref}}(\boldsymbol{x}_i)|^2}}{\sqrt{\sum_{i=1}^N |\phi^{\mathrm{ref}}(\boldsymbol{x}_i)|^2}} .
     \label{eq:error_metrics_definition}
@@ -675,8 +658,6 @@ In incompressible flow, absolute pressure $p$ is determined only up to an arbitr
 additive constant $C$, because only its spatial gradient $\nabla p$ enters the momentum
 equations. In our architecture, the hydrostatic gauge is set by the algebraic anchor
 at a boundary wall point $\boldsymbol{x}_0$ ($p(\boldsymbol{x}_0) = p_{\mathrm{ref}}$).
-However, discrete numerical solvers often use different gauge conventions; for instance,
-COMSOL fixes the average pressure across the entire domain to zero.
 
 Evaluating raw predictions against COMSOL produces an apparent offset error ($47.4\%$)
 that is purely hydrostatic. To assess the physical agreement of the pressure gradient,
