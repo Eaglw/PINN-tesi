@@ -132,7 +132,7 @@ In scientific machine learning, gradient-based solvers must navigate non-convex
 loss surfaces characterized by ill-conditioned curvature and local minima.
 Two widely adopted algorithms in this setting are:
 
-\subsubsection{First-Order Adaptive Moment Estimation (Adam)}
+\subsubsection{Adam: First Order Estimation}
 \label{subsubsec:adam_optimizer}
 
 The Adam optimizer~\cite{kingma2014adam} computes individual adaptive learning
@@ -167,7 +167,7 @@ and $(1 - \beta_2^k)$ to correct this initial bias before updating the parameter
 This adaptive mechanism makes Adam particularly robust on rugged, multi-objective loss landscapes
 characterized by disparate gradient scales, serving as an effective global explorer in early training.
 
-\subsubsection{Second-Order Quasi-Newton Optimization (L-BFGS)}
+\subsubsection{L-BFGS: Second-Order Refinement}
 \label{subsubsec:lbfgs_optimizer}
 
 While first-order methods explore the loss landscape robustly, refining physical

@@ -40,9 +40,7 @@ This geometry introduces some computational and physical challenges:
         regime at the cavity center. In this work, we focus specifically on this configuration, that generates a pure planar
         extensional flow at the central stagnation point.
     \item \textbf{Stress Recirculation along Closed Streamlines}:
-        Polymeric extra-stresses along closed streamlines and without open
-        inlets or outlets can be hard to analyze, requiring the
-        network to capture steep localized stress layers.
+        Polymeric extra-stresses along closed streamlines and without open inlets or outlets can be hard to analyze, requiring the network to capture steep localized stress layers.
 \end{itemize}
 
 \subsection{Forward and Inverse Modes}
@@ -470,7 +468,7 @@ Optimization proceeds in two sequential precision tiers:
         to tight numerical tolerances.
 \end{enumerate}
 
-\subsection{Transfer Learning Protocol}
+\subsection{Transfer Learning}
 \label{subsec:transfer_learning_protocol}
 
 Training PINNs from scratch for every fluid regime requires substantial computational
@@ -509,7 +507,7 @@ iteration budgets for both precision tiers and initialization strategies.
 % ============================================================
 % 4.5 DIRECT BENCHMARK: LATENT FIELD RECONSTRUCTION
 % ============================================================
-\section{Direct Benchmark: Latent Stress and Pressure Reconstruction}
+\section{Direct Results}
 \label{sec:forward_solver_validation}
 
 We evaluate the PINN framework on the Oldroyd-B benchmark
@@ -528,12 +526,12 @@ asymptotic accuracy limit of the multi-head architecture across all physical fie
 on the fine 125k grid. Consequently, the forward benchmark employs an extended
 two-stage optimization schedule:
 \begin{enumerate}
-    \item \textbf{Phase~1 (Kinematics and Viscoelastic Stress)}:
+    \item \textbf{Phase~1 (Viscoelastic Stress)}:
         Trained for 150{,}000 Adam iterations (FP32) followed by Phase~1 L-BFGS
         quasi-Newton refinement ($\approx 161{,}500$ cumulative iterations),
         with pressure frozen to cleanly resolve the intense stress boundary layers
         in the roller gaps.
-    \item \textbf{Phase~2 (Hydrodynamic Pressure and Momentum Balance)}:
+    \item \textbf{Phase~2 (Hydrodynamic Pressure)}:
         Trained for an additional 100{,}000 Adam iterations with momentum residuals
         active ($w_{\mathrm{mom}} = 1.0$) and mobile stream function $\psi$,
         concluded by 10{,}250 L-BFGS iterations (FP64) for high-precision
@@ -543,7 +541,7 @@ This cumulative investment of over 260{,}000 optimization iterations produces
 the reference forward checkpoint (\texttt{checkpoint\_direct\_best\_accuracy\_phase2}),
 whose field accuracy metrics are reported in Table~\ref{tab:direct_problem_metrics}.
 
-\subsection{Velocity and Stress Reconstruction}
+\subsection{Velocity and Stress}
 \label{subsec:kinematic_and_stress_accuracy}
 
 Field accuracy is quantified using the relative global $L_2$ error norm evaluated
@@ -661,51 +659,7 @@ dynamics.
     \label{fig:direct_pressure}
 \end{figure}
 
-\subsubsection{Physical Gradient Domain-Mean Calibration}
-\label{subsubsec:mean_gauge_calibration}
-
-While the single-point anchored solution is the solely accessible field in blind
-experimental conditions without prior domain knowledge, it conflates the
-intrinsic fidelity of the learned force balance with the hydrostatic gauge offset
-induced by the single-point anchor. In incompressible Navier-Stokes flow, two
-pressure fields differing by a spatially uniform constant $C$ are physically
-indistinguishable, generating identical fluid accelerations, velocities, and wall
-stresses.
-
-To evaluate the mathematical fidelity of the PINN as a PDE solver independently
-of the anchor point selection, we perform a post-processing domain-mean gauge
-calibration:
-\begin{equation}
-    p_{\mathrm{cal}}(\boldsymbol{x}) = \hat{p}(\boldsymbol{x}) - \frac{1}{|\Omega|} \int_{\Omega} \left( \hat{p}(\boldsymbol{x}) - p^{\mathrm{ref}}(\boldsymbol{x}) \right) \mathrm{d}\Omega .
-    \label{eq:pressure_calibration_formula}
-\end{equation}
-Because this adjustment subtracts a spatially uniform constant, it leaves the
-physical pressure gradient identically unaltered ($\nabla p_{\mathrm{cal}} \equiv \nabla \hat{p}$).
-Importantly, this calibration requires knowledge of the reference domain mean
-$\frac{1}{|\Omega|} \int_\Omega p^{\mathrm{ref}} \, \mathrm{d}\Omega$, and thus
-serves strictly as an offline benchmarking metric rather than an operational
-prediction tool.
-
-As illustrated in Figure~\ref{fig:direct_pressure_calibrated}, removing the
-uniform hydrostatic shift causes the relative $L_2$ error to drop from $18.31\%$
-down to $8.13\%$, while the mean range-relative error falls to $1.57\%$ (with
-discrepancies across the inner core remaining strictly below $3.5\%$).
-This substantial reduction confirms that the apparent discrepancy in the raw
-field is predominantly an offset artifact of single-point gauge pinning, and
-demonstrates that the network captures the physical pressure gradient $\nabla p$
-balancing viscous and viscoelastic stresses with high scientific fidelity.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=\linewidth]{media/fig2b_diretto_pressione_calibrata.png}
-    \caption{Diagnostic pressure field validation after domain-mean gauge calibration:
-    dimensionless COMSOL ground truth ($p^* = p/p_{\mathrm{ref}}$), mean-calibrated PINN
-    prediction, absolute error, and range-relative error distributions on normalized coordinates
-    $[0, 1]^2$ ($L_2$ error reduced to $8.13\%$, mean range-relative error of $1.57\%$).}
-    \label{fig:direct_pressure_calibrated}
-\end{figure}
-
-% ============================================================
+============================================================
 % 4.6 INVERSE PARAMETER DISCOVERY
 % ============================================================
 \section{Inverse Parameter Discovery}
@@ -873,7 +827,7 @@ grids to achieve satisfactory convergence.
 % ============================================================
 % 4.7 IDENTIFIABILITY BOUNDARIES AND INVARIANCE PRINCIPLES
 % ============================================================
-\section{Identifiability Boundaries and Invariance Principles}
+\section{Limits}
 \label{sec:identifiability_limits_degeneracy}
 
 \subsection{Elastic Shear Modulus Invariance}
