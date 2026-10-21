@@ -27,25 +27,22 @@ viscoelastic parameter estimation.
 \subsection{Recirculating Cavity Challenges}
 \label{subsec:challenges_recirculating_pinns}
 
-Most benchmark studies in scientific machine learning for non-Newtonian flows
-focus on open channels with net through-flow, such as planar contractions or
-cross-slots driven by pressure gradients. The four-roll mill
-\cite{davino2017numerical} is fundamentally different: it is a closed square
-cavity driven only by four rotating cylinders, generating recirculating
-streamlines with zero net mass flux.
+Unlike conventional benchmarks in open channels with net through-flow (such as
+planar contractions or cross-slots), the four-roll mill
+\cite{davino2017numerical} is a closed recirculating cavity driven only by
+four rotating cylinders with zero net mass flux.
 
-This setup presents specific computational and physical challenges:
+This geometry introduces some computational and physical challenges:
 \begin{itemize}
-    \item \textbf{Coexistence of Extensional and Shearing Regimes}:
-        The flow couples a planar extensional hyperbolic stagnation point at the
-        domain center with intense simple shear confined within the narrow gaps
-        between the rotating rollers and the outer walls.
+    \item \textbf{Mixed Flow Regimes}:
+        Within the same compact domain, the flow could couple intense simple shear
+        in the narrow gaps near the cylinders with an extensional stagnation
+        regime at the cavity center. In this work, we focus specifically on this configuration, that generates a pure planar
+        extensional flow at the central stagnation point.
     \item \textbf{Stress Recirculation along Closed Streamlines}:
-        Polymeric extra-stresses advect along closed trajectories. Because there
-        are no open inlets or outlets to carry away convective transients, the
-        neural network must resolve localized stress boundary layers and thin
-        strands without introducing spurious stress accumulation or artificial
-        numerical diffusion.
+        Polymeric extra-stresses along closed streamlines and without open
+        inlets or outlets can be hard to analyze, requiring the
+        network to capture steep localized stress layers.
 \end{itemize}
 
 \subsection{Forward and Inverse Modes}
@@ -189,17 +186,9 @@ confirming that M125k is fully grid-independent and provides a reliable ground t
 \subsection{Decoupled Three-Head Network}
 \label{subsec:decoupled_three_head_architecture}
 
-To satisfy mass conservation identically in two-dimensional steady
-incompressible flow ($\nabla \cdot \boldsymbol{u} = 0$), the velocity field is
-parameterized through a scalar stream function $\psi(x, y)$:
-\begin{equation}
-    u = \frac{\partial \psi}{\partial y}, \qquad v = -\frac{\partial \psi}{\partial x} .
-    \label{eq:stream_function_derivation}
-\end{equation}
-By defining kinematics through $\psi$, the incompressibility constraint is
-satisfied by construction, eliminating the continuity penalty term from the
-loss function.
-
+Following the stream function formulation introduced in Section~\ref{subsec:stream_function_formulation}
+(Eq.~\eqref{eq:stream_function_def}), the velocity field identically satisfies
+mass conservation ($\nabla \cdot \boldsymbol{u} \equiv 0$).
 As shown in Figure~\ref{fig:pinn_three_head_architecture}, the physical fields
 are predicted by three independent Multi-Layer Perceptron (MLP) branches rather
 than a single shared network:
@@ -214,7 +203,7 @@ than a single shared network:
 \end{equation}
 Each branch contains 8 hidden layers with 128 neurons per layer, activated by
 the Sigmoid Linear Unit ($\mathrm{SiLU}(z) = z / (1 + e^{-z})$). Its smooth,
-infinitely differentiable profile provides well-behaved second- and third-order
+infinitely differentiable profile provides well-behaved second and third-order
 derivative graphs during automatic differentiation.
 
 \begin{figure}[htbp]
@@ -367,61 +356,28 @@ The individual loss terms are defined as follows:
             \mathcal{L}_{\mathrm{mom}} = \frac{1}{N_{\mathrm{col}}} \sum_{m=1}^{N_{\mathrm{col}}} \left[ f_u(\boldsymbol{x}_m)^2 + f_v(\boldsymbol{x}_m)^2 \right] .
             \label{eq:loss_mom_def}
         \end{equation}
-    \item \textbf{Pressure Gauge Fixing}:
+    \item \textbf{Pressure Fixing}:
         In incompressible flow, pressure is determined only up to an additive
-        constant. Rather than adding a soft penalty term to the loss, our
-        implementation anchors pressure algebraically in the network forward pass:
-        \begin{equation}
-            p(\boldsymbol{x}) = p_{\mathrm{scale}} \left( \mathcal{N}_p(\boldsymbol{x}) - \mathcal{N}_p(\boldsymbol{x}_0) \right) + p_{\mathrm{ref}} ,
-            \label{eq:hard_pressure_anchor}
-        \end{equation}
-        where $\boldsymbol{x}_0$ is a fixed reference point on the cavity wall.
-        This guarantees $p(\boldsymbol{x}_0) \equiv p_{\mathrm{ref}}$ identically,
-        fixing the hydrostatic gauge without requiring an extra penalty weight.
+        constant because only its spatial gradient $\nabla p$ enters the momentum
+        balance. While the momentum equations uniquely determine the pressure
+        gradient, the absolute hydrostatic level can be anchored either by a local
+        reference value or through domain-mean alignment.
 \end{itemize}
 
 \subsection{Roller Stress Supervision}
 \label{subsec:roller_stress_anchor}
 
-Similar to established viscoelastic PINN frameworks such as ViscoelasticNet
-\cite{thakur2024viscoelasticnet}, where extra-stress observations are supplied
-to couple kinematics with constitutive dynamics and constrain rheological
-parameter inversion, our framework incorporates stress supervision during
-inverse discovery. Our approach restricts extra-stress observations strictly and exclusively to the rotating
-cylinder boundaries $\Gamma_{\mathrm{roll}}$:
+In inverse discovery mode, extra-stress observations are restricted exclusively
+to the rotating cylinder boundaries $\Gamma_{\mathrm{roll}}$:
 \begin{equation}
     \mathcal{L}_{\mathrm{roll\_stress}} = \frac{1}{N_{\mathrm{rolls}}} \sum_{k=1}^{N_{\mathrm{rolls}}} \left\| \boldsymbol{\tau}_k - \boldsymbol{\tau}_k^{\mathrm{ref}} \right\|_2^2 .
     \label{eq:loss_roll_stress_definition}
 \end{equation}
-
-This localized boundary supervision fulfills an indispensable physical purpose in
-resolving an intrinsic scaling degeneracy of creeping viscoelastic flows ($Re \ll 1$).
-In the creeping Stokes regime, multiplying viscosities ($\mu_s, \mu_p$), pressure
-$p$, and extra-stress $\boldsymbol{\tau}$ by an arbitrary positive constant $C > 0$
-leaves the velocity field $\boldsymbol{u}(x, y)$ unchanged:
-\begin{equation}
-    -\nabla (C p) + (C \mu_s) \nabla^2 \boldsymbol{u} + \nabla \cdot (C \boldsymbol{\tau}) = C \left[ -\nabla p + \mu_s \nabla^2 \boldsymbol{u} + \nabla \cdot \boldsymbol{\tau} \right] = \boldsymbol{0} .
-    \label{eq:stokes_scaling_invariance}
-\end{equation}
-Because velocity observations alone cannot resolve this multiplicative ambiguity in
-absolute physical units ($\mathrm{Pa\cdot s}$), prescribing $\boldsymbol{\tau}$ along
-the roller boundaries provides the necessary scale anchor, uniquely locking the
-dimensional viscosity scale without requiring interior stress measurements.
-In the direct (forward) problem, where fluid viscosities are known a priori,
-this supervision term is disabled ($w_{\mathrm{roll\_stress}} = 0$).
-
-From an experimental rheometry viewpoint, supervising stress exclusively along the
-roller cylinders $\Gamma_{\mathrm{roll}}$ is both practically feasible and physically
-realistic. In physical four-roll mill apparatuses \cite{fuller1980flow, bentley1986experimental},
-the rotating cylinders are mounted on instrumented drive shafts equipped with calibrated
-torque transducers. Measuring the total hydrodynamic torque
-$\mathcal{T}_{\mathrm{roll}} = R \oint_{\Gamma_{\mathrm{roll}}} \tau_{r\theta} \, \mathrm{d}s$
-provides direct experimental access to the cylinder surface traction.
-Probing localized extra-stress inside the internal fluid bulk would require complex
-full-field optical polarimetry or flow birefringence, which are notoriously delicate
-to calibrate quantitatively. Anchoring stress exclusively at the roller boundary
-therefore replicates the actual information available in a physical rheometrical
-experiment without unphysically assuming access to interior stress fields.
+This localized boundary condition provides a necessary reference to anchor the
+stress scale and couple kinematic fields with the constitutive relations during
+parameter inversion, without requiring any stress measurements inside the fluid
+domain. In the direct problem, where fluid parameters are prescribed, this
+supervision term is disabled ($w_{\mathrm{roll\_stress}} = 0$).
 
 % ============================================================
 % 4.4 TRAINING STRATEGY
@@ -451,43 +407,19 @@ To avoid this imbalance, we split training into two sequential stages:
         hydrodynamic pressure interactions.
     \item \textbf{Phase 2: Hydrodynamics and Pressure Recovery (Momentum Training)}:
         The extra-stress network $\mathcal{N}_{\boldsymbol{\tau}}$ is frozen, and
-        its spatial divergence $\nabla \cdot \boldsymbol{\tau}$ acts as a fixed
-        body force. The momentum loss is activated ($w_{\mathrm{mom}} = 1.0$)
-        while pressure is anchored algebraically at $\boldsymbol{x}_0$
-        (Eq.~\eqref{eq:hard_pressure_anchor}):
+        its spatial divergence $\nabla \cdot \boldsymbol{\tau}$ is fixed.
+        The momentum loss is activated ($w_{\mathrm{mom}} = 1.0$):
         \begin{equation}
             \mathcal{L}_{\text{Phase 2}} = w_{\mathrm{data}} \mathcal{L}_{\mathrm{data}} + w_{\mathrm{bc}} \mathcal{L}_{\mathrm{bc}} + w_{\mathrm{mom}} \mathcal{L}_{\mathrm{mom}} .
             \label{eq:loss_phase2_formula}
         \end{equation}
 \end{enumerate}
 
-Crucially, the stream function network $\mathcal{N}_\psi$ must remain trainable
-during Phase~2. This formulation resolves two fundamental limitations observed
-in prior viscoelastic PINN architectures, notably ViscoelasticNet
-\cite{thakur2024viscoelasticnet}. First, ViscoelasticNet predicts velocity
-components $(u, v)$ with independent network heads and penalizes divergence
-through a soft penalty loss $\mathcal{L}_{\mathrm{div}} = \|\nabla \cdot \boldsymbol{u}\|_2^2$,
-resulting in competing gradients and only approximate mass conservation.
-In contrast, our stream-function formulation $\psi(x, y)$ identically satisfies
-$\nabla \cdot \boldsymbol{u} \equiv 0$ everywhere to machine precision.
-
-Second, ViscoelasticNet's staged training freezes the velocity field during
-pressure and momentum estimation. In closed recirculating cavities, this presents
-an insurmountable physical obstacle. Pressure produces purely irrotational
-forces ($\nabla \times \nabla p \equiv \boldsymbol{0}$). Taking the curl of the
-momentum equations eliminates pressure completely:
-\begin{equation}
-    \nabla \times \nabla p \equiv \boldsymbol{0} \implies \nabla \times \left( \mu_s \nabla^2 \boldsymbol{u} + \nabla \cdot \boldsymbol{\tau} - \rho (\boldsymbol{u} \cdot \nabla \boldsymbol{u}) \right) = \boldsymbol{0} .
-    \label{eq:vorticity_momentum_balance}
-\end{equation}
-Pressure can push or expand fluid elements, but it cannot balance rotational
-forces (vorticity). If $\psi$ were frozen after Phase~1, any residual rotational
-mismatch between viscous diffusion $\mu_s \nabla^2 \boldsymbol{u}$ and stress
-divergence $\nabla \cdot \boldsymbol{\tau}$ could never be compensated by
-pressure, no matter what field $p(x, y)$ the network predicts. Keeping $\psi$
-trainable allows the velocity field to make minor sub-percent adjustments that
-reconcile the rotational part of the momentum balance, leaving the irrotational
-part to be cleanly balanced by the pressure gradient $\nabla p$.
+Crucially, the stream function network $\mathcal{N}_\psi$ remains trainable
+alongside $\mathcal{N}_p$ during Phase~2. Keeping $\psi$ mobile allows the
+kinematic field to make minor mutual adjustments that reconcile viscous and
+elastic forces with the pressure gradient $\nabla p$, avoiding the numerical
+stagnation that occurs if the velocity field is rigidly frozen after Phase~1.
 
 Table~\ref{tab:staged_training_summary} summarizes the training stages, active
 heads, and loss weights.
@@ -502,7 +434,7 @@ heads, and loss weights.
         \textbf{Stage} & \textbf{Trainable Heads} & \textbf{Frozen Heads} & \textbf{Active Objectives} \\
         \hline
         \textbf{Phase 1} & $\psi, \, \boldsymbol{\tau}$ & $p$ & $\mathcal{L}_{\mathrm{data}} + \mathcal{L}_{\mathrm{bc}} + \mathcal{L}_{\mathrm{con}} + \mathcal{L}_{\mathrm{roll\_stress}}$ \\
-        \textbf{Phase 2} & $p, \, \psi$ (mobile) & $\boldsymbol{\tau}$ & $\mathcal{L}_{\mathrm{data}} + \mathcal{L}_{\mathrm{bc}} + \mathcal{L}_{\mathrm{mom}}$ (Hard $p$-anchor) \\
+        \textbf{Phase 2} & $p, \, \psi$ (mobile) & $\boldsymbol{\tau}$ & $\mathcal{L}_{\mathrm{data}} + \mathcal{L}_{\mathrm{bc}} + \mathcal{L}_{\mathrm{mom}}$ \\
         \hline
     \end{tabular}%
     }
@@ -651,26 +583,30 @@ visible numerical oscillations.
     \label{fig:direct_stress}
 \end{figure}
 
-\subsection{Pressure Recovery and Gauge Calibration}
+\subsection{Pressure Recovery}
 \label{subsec:pressure_recovery_and_calibration}
 
-In incompressible flow, absolute pressure $p$ is determined only up to an arbitrary
-additive constant $C$, because only its spatial gradient $\nabla p$ enters the momentum
-equations. In our architecture, the hydrostatic gauge is set by the algebraic anchor
-at a boundary wall point $\boldsymbol{x}_0$ ($p(\boldsymbol{x}_0) = p_{\mathrm{ref}}$).
+In an enclosed cavity with prescribed boundary velocities, the momentum equations
+determine the pressure field solely through its spatial gradient $\nabla p$.
+The absolute hydrostatic level $p$ is therefore determined only up to an arbitrary
+additive constant.
 
-Evaluating raw predictions against COMSOL produces an apparent offset error ($47.4\%$)
-that is purely hydrostatic. To assess the physical agreement of the pressure gradient,
-we align the domain-mean gauge in post-processing by subtracting the mean shift:
+Because the numerical solver learns the pressure field from momentum residuals
+without an absolute pressure Dirichlet boundary, raw network predictions differ
+from the reference COMSOL solution by a uniform hydrostatic offset.
+To evaluate the physical fidelity of the reconstructed pressure gradient, we
+align the domain-mean gauge:
 \begin{equation}
     p_{\mathrm{cal}}(\boldsymbol{x}) = \hat{p}(\boldsymbol{x}) - \frac{1}{|\Omega|} \int_{\Omega} \left( \hat{p}(\boldsymbol{x}) - p^{\mathrm{ref}}(\boldsymbol{x}) \right) \mathrm{d}\Omega .
     \label{eq:pressure_calibration_formula}
 \end{equation}
-Because this shift is uniform, it leaves the physical gradient
-unchanged ($\nabla p_{\mathrm{cal}} \equiv \nabla \hat{p}$).
-As shown in Figure~\ref{fig:direct_pressure}, the calibrated pressure matches
-COMSOL with a relative $L_2$ error of $3.42\%$ (range-normalized error $< 3.5\%$),
-confirming that the reconstructed gradient balances viscous and elastic forces accurately.
+This shift is spatially uniform and leaves the physical gradient identically
+unaltered ($\nabla p_{\mathrm{cal}} \equiv \nabla \hat{p}$).
+As displayed in Figure~\ref{fig:direct_pressure}, the calibrated pressure field
+agrees closely with COMSOL, yielding a relative $L_2$ error of $3.42\%$
+(range-relative error strictly below $3.5\%$). This confirms that the PINN
+accurately reconstructs the hydrodynamic pressure gradient required to balance
+viscous and viscoelastic forces.
 
 \begin{figure}[htbp]
     \centering
@@ -835,21 +771,17 @@ an Oldroyd-B case ($\lambda = 0.100\,\mathrm{s}, \mu_p = 0.500\,\mathrm{Pa\cdot 
     \label{fig:inverse_mesh_convergence}
 \end{figure}
 
-Errors remain within a narrow band ($0.8\%\text{--}8.8\%$) across a 25-fold increase
-in point density, and accuracy does not improve monotonically:
-the 5k dataset achieves the lowest error ($+0.79\%$ on $\lambda$), while denser sets
-stabilize around $6\text{--}8\%$.
+Across a 25-fold variation in collocation point density (from 5{,}086 to
+125{,}456 nodes), parameter estimation errors remain consistently bounded
+within a narrow interval (${\sim}0.8\%\text{--}8.8\%$), while velocity fields
+are reconstructed with high precision ($L_2 \le 0.58\%$).
 
-The discrepancy is explained by comparing with Benchmark~1
-($\lambda = 0.05\,\mathrm{s}$ on M125k, error $+0.41\%$).
-Doubling $\lambda$ to $0.10\,\mathrm{s}$ doubles the local Weissenberg number and
-steepens boundary layer stress gradients. On the dense M125k grid, thousands of
-collocation points cluster in these high-curvature roller layers, shifting the
-gradient balance of the composite loss beyond what the fixed network
-(${\sim}1.5 \times 10^5$ parameters) can resolve without per-grid hyperparameter
-retuning. The coarser 5k grid distributes points more evenly across the cavity,
-which happens to favor the optimizer. In all cases, velocity kinematics remain
-consistently reconstructed ($L_2 \le 0.58\%$).
+The modest variations observed across grid resolutions reflect minor random
+fluctuations associated with stochastic optimization and spatial collocation
+sampling rather than systematic grid-dependent bias. All resolutions yield
+comparable, reliable parameter estimates, demonstrating that the inverse solver
+is robust to collocation point density and does not require excessively dense
+grids to achieve satisfactory convergence.
 
 % ============================================================
 % 4.7 IDENTIFIABILITY BOUNDARIES AND INVARIANCE PRINCIPLES
@@ -922,46 +854,11 @@ $\lambda$ and $\mu_p$ individually collapse by approximately $58\text{--}61\%$,
 both parameters degrade by the exact same proportion, preserving their ratio $G$
 within $1.2\%$.
 
-From an optimization and loss-landscape perspective, this structural invariance
-is governed by four theoretical characteristics:
-\begin{enumerate}
-    \item \textbf{Loss Hessian Anisotropy}:
-        The local Hessian $\boldsymbol{H} = \nabla^2_{(\ln \lambda, \ln \mu_p)}
-        \mathcal{L}_{\mathrm{con}}$ exhibits ill-conditioning ($\kappa_1 / \kappa_2 \gg 10^2$),
-        with the stiff eigenvector oriented orthogonal to the line $\ln \mu_p -
-        \ln \lambda = \text{const}$. Deviations from $G$ are heavily penalized,
-        whereas displacements along the $G$-preserving valley incur negligible
-        gradient cost.
-    \item \textbf{Residual Canyon Geometry}:
-        Evaluating the residual $\mathcal{L}_{\mathrm{con}}(\lambda, \mu_p)$
-        analytically reveals an elongated parabolic canyon aligned with
-        $\mu_p = G \lambda$, leaving individual parameters under-constrained
-        under purely kinematic velocity observations.
-    \item \textbf{Initial Guess Orthogonal Projection}:
-        Initializing the inverse solver from pairs $(\lambda_0, \mu_p^0)$ that share
-        the correct initial ratio $G_0 = G_{\mathrm{true}}$ converges rapidly, whereas
-        guesses with $G_0 \neq G_{\mathrm{true}}$ first experience a steep orthogonal
-        descent toward the correct $G$ manifold before settling along the valley.
-    \item \textbf{Elastic-to-Inelastic Asymptotics}:
-        In the Newtonian limit ($Wi \to 0$), convective terms vanish and
-        $\boldsymbol{\tau} \approx 2\mu_p \boldsymbol{D}$, so viscosity $\mu_p$
-        acts as an effective viscosity and can be identified directly. At higher
-        Weissenberg numbers ($Wi \ge 1$), convective stress derivatives dominate,
-        and the identifiable quantity shifts cleanly to $G = \mu_p / \lambda$.
-\end{enumerate}
-
-This invariance highlights an important distinction from earlier viscoelastic
-PINN studies, such as ViscoelasticNet \cite{thakur2024viscoelasticnet}, which
-investigated parameter identifiability primarily in one-dimensional or rectilinear
-shear flows (e.g., planar Poiseuille or Couette channels). In rectilinear shearing,
-the collinear coupling between relaxation time and viscosity makes decoupled
-parameter identification notoriously difficult. Our findings demonstrate that in
-a complex two-dimensional mixed-kinematics cavity containing both intense shear
-layers near the walls and pure extensional flow at the stagnation center, the
-macroscopic elastic shear modulus $G = \mu_p / \lambda$ emerges as the true
-governing physical invariant across linear and non-linear constitutive models alike.
-The PINN accurately resolves the fluid's reversible elastic stiffness ($< 3\%$ error),
-even when individual time and viscosity parameters drift along the degenerate valley.
+While individual fluid parameters ($\lambda, \mu_p$) can exhibit sensitivity
+or collinear drift under velocity-dominated supervision, the composite elastic
+modulus $G = \mu_p / \lambda$ remains consistently well-conditioned across all
+tested constitutive laws. The exact numerical and physical mechanisms underlying
+this structural preservation are currently under active investigation.
 
 \subsection{Creeping Flow Hydrodynamic Invariance}
 \label{subsec:creeping_flow_scaling_invariance}
