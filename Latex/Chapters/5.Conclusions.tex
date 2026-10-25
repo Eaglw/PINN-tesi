@@ -2,16 +2,173 @@
 \chapter{Conclusions and Future Perspectives}
 \label{chap:conclusions}
 
+This thesis evaluated a Physics-Informed Neural Network (PINN) framework for the
+modeling and inverse rheological characterization of steady, two-dimensional
+viscoelastic flows in a four-roll mill geometry. By embedding conservation of mass,
+momentum balance, and differential constitutive laws into a decoupled multi-head
+architecture, we studied forward latent field reconstruction and inverse parameter
+estimation. The analysis examined three constitutive models with increasing
+nonlinearity: Oldroyd-B, Giesekus, and linear Phan-Thien--Tanner (PTT) fluids.
+
+% ============================================================
+% 5.1 SUMMARY OF ACHIEVEMENTS
+% ============================================================
 \section{Summary of Key Findings and Contributions}
+\label{sec:summary_achievements}
 \label{sec:conclusions_summary}
+
+The main findings and methodological contributions of this work are organized
+along four aspects:
+
+\begin{enumerate}
+    \item \textbf{Decoupled Architecture and Staged Dual-Precision Training}:
+    To model the coupled velocity, pressure, and stress fields in a closed
+    recirculating cavity with no through-flow, we implemented a three-head neural
+    network ($\mathcal{N}_\psi, \mathcal{N}_p, \mathcal{N}_{\boldsymbol{\tau}}$)
+    with $\mathrm{SiLU}$ activations and zero initialization for stress and
+    pressure. Velocity is parameterized through a scalar stream function
+    $\psi(x, y)$, satisfying the divergence-free condition
+    ($\nabla \cdot \boldsymbol{u} \equiv 0$) by construction.
+    Pressure gauge indeterminacy is resolved through an algebraic single-point
+    hard anchor, avoiding competing penalty weights in the loss function.
+    Optimization is split into two physical stages: Phase~1 trains kinematics
+    and extra-stresses, whereas Phase~2 trains momentum balance and pressure
+    while keeping the stream function trainable. Combining FP32 Adam for initial
+    exploration with FP64 L-BFGS for refinement avoids optimization plateaus and
+    yields stable convergence.
+
+    \item \textbf{Direct Latent Field Reconstruction}:
+    Supervising planar velocity alone on the canonical Oldroyd-B benchmark
+    ($Wi = 0.0833, Re = 0.0417$) enabled the model to reconstruct unmeasured
+    viscoelastic stresses and pressure across the domain. Evaluated against a
+    finite element reference solution with $125{,}456$ nodes from COMSOL
+    Multiphysics, the network achieved relative $L_2$ errors of $0.98\%$ on $u$
+    and $0.93\%$ on $v$. Stress prediction errors were $1.21\%$ for shear stress
+    $\tau_{xy}$, $1.80\%$ for $\tau_{xx}$, and $1.65\%$ for $\tau_{yy}$, resolving
+    the localized stress peaks in the roller gaps. The hydrodynamic pressure field
+    was recovered with a range-relative error of $4.08\%$ ($8.13\%$ relative $L_2$
+    error after removing the domain mean).
+
+    \item \textbf{Inverse Parameter Identification and Transfer Learning}:
+    Using planar velocity data and stress supervision on the roller boundaries,
+    the inverse PINN identified fluid parameters without interior stress
+    measurements. For Oldroyd-B fluids, the relaxation time $\lambda$ and polymeric
+    viscosity $\mu_p$ were recovered within $0.41\%$ to $1.27\%$ error across
+    both low ($Wi = 0.08$) and moderate ($Wi = 1.17$) elasticity regimes.
+    For shear-thinning Giesekus fluids, the network estimated three coupled
+    parameters ($\alpha, \lambda, \mu_p$) simultaneously. The mobility factor
+    $\alpha$ was identified within $5.76\%$ to $6.70\%$ error, even from distant
+    initializations and at the theoretical limit $\alpha = 0.50$.
+    Transfer learning halved the required iteration budget from $50{,}000$ to
+    $25{,}000$ steps and stabilized optimization at higher Weissenberg numbers.
+    Collocation sensitivity tests confirmed that parameter estimates remain stable
+    down to $5{,}086$ points.
+
+    \item \textbf{Identifiability Invariance and Physical Degeneracies}:
+    The inverse tests revealed a clear distinction between field reconstruction
+    accuracy and parameter identifiability. Across all constitutive laws and
+    elastic regimes, the macroscopic elastic shear modulus $G = \mu_p / \lambda$
+    remained invariant within $0.14\%$ to $2.85\%$ error. This invariance stems from
+    a narrow hyperbolic valley ($\mu_p = G \lambda$) in the constitutive loss
+    surface, where convective stress transport balances the strain rate
+    $2 G \boldsymbol{D}$.
+    In contrast, two physical degeneracies emerged from kinematic supervision.
+    First, in the creeping Stokes regime ($Re \ll 1$), solvent viscosity $\mu_s$
+    scales with the pressure gradient $\nabla p$, making $\mu_s$ unidentifiable
+    from velocity data alone without boundary traction measurements.
+    Second, in linear PTT fluids under wall-dominated shear, trace coupling
+    $\mathrm{tr}(\boldsymbol{\tau})$ causes an affine shift in the effective
+    relaxation rate:
+    \begin{equation}
+        \frac{1}{\lambda_{\mathrm{eff}}} \approx \frac{1}{\lambda_{\mathrm{true}}}
+        + C \varepsilon_{\mathrm{true}}.
+    \end{equation}
+    As a result, gradient optimization settles on an equivalent Oldroyd-B solution
+    with $\varepsilon \to 0$, while still preserving the composite modulus $G$
+    within $1.2\%$.
+\end{enumerate}
+
+% ============================================================
+% 5.2 OPERATIONAL LIMITATIONS
+% ============================================================
 \section{Operational Limitations}
+\label{sec:limitations}
 \label{sec:conclusions_limitations}
 
-\section{Future Perspectives and Research Directions}
-\label{sec:conclusions_future_work}
+Several practical and modeling limitations of the current framework should be
+noted:
+
+\begin{itemize}
+    \item \textbf{Boundary Stress Anchoring in Inverse Mode}:
+    To break scaling symmetries between polymeric viscosity $\mu_p$ and latent
+    stress magnitudes, the inverse solver requires stress supervision on the
+    rotating cylinder surfaces ($\mathcal{L}_{\mathrm{roll\_stress}}$).
+    Although this avoids domain-wide stress measurements, determining local
+    wall shear and normal stresses experimentally requires optical birefringence
+    or surface traction sensors.
+
+    \item \textbf{Kinematic Collinearity in PTT Fluids}:
+    When velocity data are concentrated in high-shear regions near the cylinders,
+    parameters governing extensional stress saturation, such as the PTT
+    extensibility $\varepsilon$, become weakly observable. This causes parameter
+    drift along the constant-$G$ manifold toward an equivalent Oldroyd-B model.
+
+    \item \textbf{Single-Point Pressure Gauge Sensitivity}:
+    The algebraic single-point hard anchor provides mathematical well-posedness
+    for the pressure field. However, fixing the gauge at a single peripheral
+    node allows local spatial errors in $\nabla p$ to integrate across the domain,
+    producing a uniform baseline offset ($18.31\%$ raw relative $L_2$ error
+    versus $8.13\%$ after removing the domain mean).
+
+    \item \textbf{Two-Dimensional Steady-State Scope}:
+    The present study is restricted to steady, isothermal, two-dimensional flows
+    up to moderate Weissenberg numbers ($Wi \le 1.67$). It does not account for
+    three-dimensional secondary flows near the roller end-walls, nor does it
+    capture time-dependent elastic instabilities that develop at higher
+    deformation rates.
+\end{itemize}
 
 % ============================================================
-% PLACEHOLDER NOTE FOR FUTURE EXPANSION
+% 5.3 FUTURE PERSPECTIVES
 % ============================================================
-% [NOTE: This concluding chapter provides the formal structural summary. 
-% Additional domain-specific discussions or experimental comparisons can be inserted here.]
+\section{Future Perspectives and Research Directions}
+\label{sec:future_outlook}
+\label{sec:conclusions_future_work}
+
+Several research directions emerge from these findings:
+
+\begin{itemize}
+    \item \textbf{Integral Torque Supervision}:
+    Pointwise stress supervision on cylinder boundaries can be replaced by
+    monitoring the total mechanical torque on each roller shaft:
+    \begin{equation}
+        M_z = \oint_{\Gamma_{\mathrm{roll}}} (\boldsymbol{x} - \boldsymbol{x}_k)
+        \times (\boldsymbol{\sigma} \cdot \boldsymbol{n}) \, \mathrm{d}\Gamma.
+    \end{equation}
+    Shaft torque is directly measurable with standard laboratory load cells.
+    Enforcing this integral constraint in the PINN loss would anchor both the
+    stress magnitude and the solvent viscosity $\mu_s$ using macroscopic data.
+
+    \item \textbf{Extensional-Zone Weighting and Flow Birefringence}:
+    The parameter degeneracy observed in the linear PTT model can be addressed
+    by concentrating constitutive loss terms along the central outflow axis
+    ($y = 0$), where planar extension dominates over simple shear.
+    Combining sparse PIV velocity observations with localized optical
+    birefringence measurements near the stagnation point would constrain
+    $\mathrm{tr}(\boldsymbol{\tau})$ and identify the extensibility parameter
+    $\varepsilon$.
+
+    \item \textbf{Modulus-Based Parameterization and Log-Conformation}:
+    Because the elastic shear modulus $G = \mu_p / \lambda$ is well conditioned,
+    re-parameterizing the constitutive equations in terms of $(G, Wi)$ instead of
+    $(\mu_p, \lambda)$ could improve the loss landscape and accelerate inverse
+    convergence. Furthermore, incorporating the log-conformation tensor
+    formulation into the stress network would guarantee positive definiteness
+    and improve stability at higher Weissenberg numbers ($Wi \gg 1$).
+
+    \item \textbf{Transient Formulations and Experimental PIV Validation}:
+    Extending the stream-function architecture to time-dependent flows
+    $\psi(x, y, t)$ and testing the model on experimental PIV datasets with
+    optical measurement noise will be necessary steps toward using PINNs as
+    virtual rheometers in physical experiments.
+\end{itemize}

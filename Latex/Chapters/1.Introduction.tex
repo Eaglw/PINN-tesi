@@ -1,4 +1,153 @@
 % !TEX root = ../main.tex
 \chapter{Introduction}
 \label{chap:introduction}
-PLACEHOLDER
+
+Polymeric solutions, melts, and biological suspensions exhibit viscoelastic behavior
+where viscous dissipation coexists with elastic memory \cite{bird1987dynamics, macosko1994rheology}.
+Unlike Newtonian fluids, where the deviatoric stress responds instantaneously
+to the rate of deformation, polymeric media possess an internal macromolecular structure.
+Under flow, dissolved polymer chains stretch and relax, storing elastic energy
+along streamlines.
+As a result, the local stress state depends on the entire deformation history
+experienced by the fluid elements.
+Accurately predicting these coupled velocity and latent stress fields
+under mixed shear and extensional kinematics is essential for both process engineering
+and rheological characterization.
+
+% ============================================================
+% 1.1 BACKGROUND AND MOTIVATION
+% ============================================================
+\section{Background and Motivation}
+\label{sec:background_motivation}
+
+Among benchmark rheometric systems, the four-roll mill, introduced by Taylor \cite{taylor1934formation}
+and later characterized by Fuller, Leal, and Bentley \cite{fuller1980flow, fuller1981flow, bentley1986experimental},
+generates two-dimensional linear flows far from solid walls.
+By independently adjusting the angular speed and direction of four cylindrical rollers
+arranged symmetrically in a closed square cavity, the device can produce flow regimes
+ranging from pure solid-body rotation to simple shear and planar elongation.
+
+In the planar extensional configuration, a hyperbolic stagnation point forms
+at the center of the cavity.
+Fluid elements near this point experience prolonged extensional deformation
+and long residence times.
+When processing viscoelastic fluids in this regime, polymer chains stretch strongly
+along the outflow symmetry axis, while undergoing shear within the narrow gaps
+between adjacent rollers \cite{davino2017numerical}.
+The combination of strong extensional and shearing flows within a closed cavity
+with zero net mass throughput makes the four-roll mill a demanding benchmark
+for both experimental rheology and numerical simulation.
+
+% ============================================================
+% 1.2 STATE OF THE ART AND RESEARCH GAP
+% ============================================================
+\section{State of the Art and Research Gap}
+\label{sec:state_of_the_art}
+
+Numerical simulation of viscoelastic flows conventionally relies on mesh-based discretization,
+such as the Finite Element Method (FEM) and the Finite Volume Method (FVM) \cite{owens2002computational}.
+These solvers lose stability as elasticity increases, a known difficulty termed
+the \textit{High-Weissenberg Number Problem} (HWNP).
+Near extensional stagnation points, the Oldroyd-B model \cite{oldroyd1950formulation}
+develops an unphysical stress singularity above a critical extension rate.
+Non-linear constitutive models, such as the Giesekus \cite{giesekus1982simple}
+and Phan-Thien--Tanner (PTT) \cite{phanthien1977new} equations, mitigate this divergence
+but produce steep, localized stress boundary layers.
+Resolving these sub-millimeter gradients on computational grids requires fine spatial resolution
+and specialized numerical stabilization.
+
+Experimentally, optical techniques such as Particle Image Velocimetry (PIV)
+provide planar velocity fields $\boldsymbol{u}(x, y)$.
+However, non-intrusive measurement of the internal polymeric stress tensor $\boldsymbol{\tau}(x, y)$
+and pressure $p(x, y)$ in enclosed geometries remains difficult.
+Inferring unknown constitutive parameters (including the relaxation time $\lambda$,
+polymeric viscosity $\mu_p$, mobility $\alpha$, or extensibility $\varepsilon$)
+directly from velocity measurements requires solving an inverse boundary value problem
+that forward numerical solvers are not structured to address.
+
+Physics-Informed Neural Networks (PINNs) \cite{raissi2019physics, cuomo2022scientific}
+address this limitation by embedding conservation equations and constitutive laws
+directly into the loss function through automatic differentiation \cite{baydin2018automatic}.
+This formulation allows the simultaneous reconstruction of unmeasured fields
+and the estimation of physical parameters.
+Thakur, Raissi, and Ardekani \cite{thakur2024viscoelasticnet} demonstrated this approach
+with the \textit{ViscoelasticNet} framework, using velocity measurements
+to infer polymeric stresses and constitutive parameters in benchmark channel flows.
+
+Most physics-informed studies in rheology have focused on open geometries with net throughput
+and prescribed pressure drops, such as contractions, channels, or cross-slots.
+Applying this methodology to a closed, recirculating cavity with zero net flux
+raises two main challenges:
+\begin{enumerate}
+    \item Maintaining optimization stability when polymeric stresses advect along closed streamlines
+    through alternating shear and extensional regions;
+    \item Determining whether parameter identification remains well posed when supervision
+    is limited to planar kinematics and roller boundary conditions, or whether physical degeneracies
+    and scaling invariances restrict parameter uniqueness.
+\end{enumerate}
+
+% ============================================================
+% 1.3 OBJECTIVES AND METHODOLOGY
+% ============================================================
+\section{Objectives and Methodology}
+\label{sec:objectives_methodology}
+
+This thesis develops and evaluates a Physics-Informed Neural Network framework
+for field reconstruction and inverse rheological characterization of steady,
+two-dimensional viscoelastic flows in the four-roll mill.
+
+The network architecture uses three decoupled Multi-Layer Perceptrons (MLPs)
+with smooth Sigmoid Linear Unit (SiLU) activations.
+Mass conservation ($\nabla \cdot \boldsymbol{u} \equiv 0$) is satisfied analytically
+by defining velocities through a scalar stream function $\psi(x, y)$,
+while the pressure $p(x, y)$ is anchored through a single-point gauge condition
+evaluated during the forward pass.
+To handle the stiffness disparity between the momentum and constitutive equations \cite{wang2021understanding},
+we use a two-stage training strategy paired with a mixed-precision schedule:
+an initial exploration stage using Adam in single precision (FP32) \cite{kingma2014adam},
+followed by refinement using L-BFGS in double precision (FP64) \cite{nocedal1980updating, liu1989limited}.
+In addition, transfer learning is used to accelerate convergence at higher Weissenberg numbers.
+
+The framework is tested against fine-grid reference solutions (up to 125{,}456 degrees of freedom)
+generated in COMSOL Multiphysics \cite{comsol_multiphysics}.
+The investigation addresses three main topics:
+\begin{itemize}
+    \item \textbf{Direct field reconstruction}: Reconstructing the latent extra-stress components
+    ($\tau_{xx}, \tau_{xy}, \tau_{yy}$) and pressure $p$ across the cavity
+    from velocity observations and known fluid properties.
+    \item \textbf{Inverse parameter estimation}: Determining constitutive parameters
+    in linear (Oldroyd-B) and non-linear shear-thinning (Giesekus) fluids
+    across varying elasticity and collocation densities, supported by stress anchoring
+    on the roller boundaries.
+    \item \textbf{Identifiability limits and physical invariances}: Characterizing the boundaries
+    of inverse rheology in recirculating flows, including the structural invariance
+    of the elastic shear modulus $G = \mu_p / \lambda$, hydrodynamic scaling invariance
+    in creeping flow ($Re \ll 1$), and parameter correlation in linear PTT fluids.
+\end{itemize}
+
+% ============================================================
+% 1.4 THESIS OUTLINE
+% ============================================================
+\section{Thesis Outline}
+\label{sec:thesis_outline}
+
+The dissertation is structured as follows:
+\begin{itemize}
+    \item \textbf{Chapter~\ref{chap:fluidodynamic_background}} introduces the continuum mechanics
+    formulation for viscoelastic flows, covering conservation of mass and momentum,
+    the stream-function representation, the Upper-Convected Time Derivative,
+    and the Oldroyd-B, Giesekus, and linear PTT constitutive equations,
+    along with the dimensionless formulation and the kinematic conditions of the four-roll mill.
+    \item \textbf{Chapter~\ref{chap:pinn_literature}} describes the principles of deep learning
+    and Physics-Informed Neural Networks, detailing feedforward architectures,
+    automatic differentiation, gradient-based optimization algorithms,
+    multi-objective loss functions, and relevant applications in fluid mechanics.
+    \item \textbf{Chapter~\ref{chap:results_discussion}} presents the computational methodology
+    and numerical results, including the COMSOL mesh convergence analysis,
+    the three-head architecture, the two-stage training scheme,
+    direct stress and pressure reconstruction, inverse parameter estimation benchmarks,
+    and the analysis of parameter identifiability limits.
+    \item \textbf{Chapter~\ref{chap:conclusions}} summarizes the findings of the thesis,
+    discusses the physical and numerical limitations of the approach,
+    and outlines directions for future research.
+\end{itemize}
