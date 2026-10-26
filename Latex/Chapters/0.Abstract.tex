@@ -1,0 +1,56 @@
+% !TEX root = ../main.tex
+\begin{center}
+    \vspace*{1.2cm}
+    {\Large \textbf{Abstract}}
+    \vspace{0.8cm}
+\end{center}
+
+\noindent
+The study of viscoelasticity is a relevant problem across many fields and industries, 
+both for its application and its mathematical challenges.
+Accurately modeling non-newtonian behavior requires non-trivial governing
+equations coupling momentum conservation with frame-independent constitutive
+laws. To investigate this rheological complexity, the four-roll
+mill provides a benchmark geometry: by modulating the relative rotation speeds
+of four cylinders ($\Omega$ and $-k\Omega$, with $k \in [-1, 1]$), the apparatus
+generates pure rotation, simple shear, pure planar elongation, and continuous
+mixed kinematic regimes in between, providing an ideal platform to probe
+viscoelastic response in this less ideal regimes.
+
+\vspace{0.7em}
+\noindent
+However, characterizing viscoelastic properties from experimental velocity data
+(such as Particle Image Velocimetry) presents an inverse problem that standard
+Computational Fluid Dynamics (CFD) is not suited to solve. Recovering unknown
+constitutive parameters via mesh-based solvers requires an expensive, iterative
+trial-and-error procedure involving repeated simulations. While Artificial Intelligence is
+transforming engineering sciences, purely data-driven neural networks suffer
+from heavy data hunger, lack of physical grounding, and poor extrapolation
+outside training ranges. This thesis addresses these limitations by developing a
+Physics-Informed Neural Network (PINN) framework applied to the four-roll mill.
+By embedding Navier-Stokes momentum balance and viscoelastic constitutive laws
+directly into the loss objective alongside data matching, the
+optimization simultaneously obtain physical grounding, reduces training data
+demands, and enables reliable field extrapolation.
+
+\vspace{0.7em}
+\noindent
+Building upon foundational literature from Raissi's Newtonian flow past a cylinder
+and Thakur's \textit{ViscoelasticNet} in open channels, this work expands
+inverse viscoelastic characterization to an enclosed recirculating cavity with
+zero net flux across an extended physical parameter range. The proposed
+three-head architecture ($\mathcal{N}_\psi, \mathcal{N}_p, \mathcal{N}_{\boldsymbol{\tau}}$)
+satisfies exact mass conservation via the stream function, algebraic pressure
+anchoring, and a staged dual-precision optimization protocol (FP32 Adam + FP64
+L-BFGS). 
+This solver is capable of reconstruction unobserved stress and pressure fields
+with with $L_2$ errors below $1.0\%$ for velocity, $1.8\%$ for extra-stresses
+and $8.0\%$ for pressure. Considering the inverse problema, the networks can 
+simultaneously discovers constitutive parameters and resolves spatial stress
+fields for Oldroyd-B ($\lambda, \mu_p$ within $1.3\%$) and shear-thinning
+Giesekus fluids ($\alpha, \lambda, \mu_p$ within $6.7\%$), maintaining robustness
+down to 5,086 collocation points.
+Finally, we map the intrinsic limits of recirculating kinematics,
+revealing creeping-flow scaling invariance for solvent viscosity ($Re \ll 1$) 
+and non identifiability in linear PTT fluids, alongside some proposal to overcome this limitations. 
+\clearpage
