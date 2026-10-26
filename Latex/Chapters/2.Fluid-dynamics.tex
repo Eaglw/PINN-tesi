@@ -5,21 +5,11 @@
 The hydrodynamics of dilute and semi-dilute polymer solutions fundamentally departs from classical Newtonian fluid behavior.
 Macromolecular coils dissolved in a solvent undergo continuous conformational changes under applied flow fields,
 stretching along extensional trajectories and storing elastic energy with a characteristic relaxation memory.
-Consequently, the local stress state in polymeric fluids depends not merely on the instantaneous rate of deformation,
-but integrates the entire kinematic history experienced by fluid elements.
+Consequently, the local stress state in polymeric fluids integrates the kinematic history
+experienced by fluid elements, rather than depending only on the instantaneous rate of deformation.
 Accurately modeling such transport phenomena requires a continuum mechanics formulation
 where universal conservation laws are coupled with non-linear, frame-indifferent constitutive equations.
 
-In this chapter, we develop the continuum framework governing viscoelastic
-flows within the four-roll mill geometry.
-Starting from the foundational balance laws of mass and linear momentum,
-we introduce the kinematic reductions characteristic of confined, low-inertia polymeric flows.
-We then establish the constitutive formulation of viscoelasticity through the Upper-Convected Time Derivative,
-analyzing both the classical Oldroyd-B model, including the physical roots of its extensional stress singularity, and
-non-linear stress-saturating closures such as the Giesekus and Phan-Thien-Tanner (PTT) formulations.
-Finally, we cast the governing system into dimensionless form using a viscous stress scale,
-detail the geometry and hyperbolic stagnation kinematics of the four-roll mill,
-and prescribe the boundary constraints that establish the boundary value problem.
 
 % ============================================================
 % 2.1 GENERAL CONSERVATION LAWS
@@ -292,46 +282,40 @@ bounding extensional viscosity growth and preventing unbounded coil stretch near
 \end{figure}
 
 % ============================================================
-% 2.4 NONDIMENSIONALIZATION AND GOVERNING EQUATIONS
+% 2.4 CHARACTERISTIC SCALES AND DIMENSIONLESS GROUPS
 % ============================================================
-\section{Dimensionless Governing Equations}
+\section{Characteristic Scales and Dimensionless Numbers}
 \label{sec:nondimensionalization}
 
-Nondimensionalization scales physical variables to order unity and establishes the
-governing dimensionless groups \cite{owens2002computational}. In low-Reynolds
-viscoelastic flows, scaling by a viscous stress unit rather than an inertial dynamic
-pressure improves numerical conditioning and balances the magnitudes of the governing
-differential operators.
+To characterize the flow regimes in the four-roll mill, we define characteristic kinematic
+and dynamic scales alongside the governing dimensionless groups of viscoelastic fluid
+mechanics \cite{bird1987dynamics, owens2002computational}.
 
-\subsection{Reference Scales and Dimensionless Parameters}
 \label{subsec:reference_scales}
-We choose reference length $H_{\mathrm{ref}}$ (the roller radius $R$),
-reference velocity $U_{\mathrm{ref}}$ (the roller surface peripheral speed $u_{\mathrm{roll}}$),
-and a characteristic dynamic viscosity scale $\eta_0$ (taken as the baseline total viscosity $\mu_0$).
-The dimensionless variables are defined as:
-\begin{equation}
-    \boldsymbol{x}^{*} = \frac{\boldsymbol{x}}{H_{\mathrm{ref}}}, \quad
-    \boldsymbol{u}^{*} = \frac{\boldsymbol{u}}{U_{\mathrm{ref}}}, \quad
-    p^{*} = \frac{p}{\frac{\eta_0 U_{\mathrm{ref}}}{H_{\mathrm{ref}}}}, \quad
-    \boldsymbol{\tau}^{*} = \frac{\boldsymbol{\tau}}{\frac{\eta_0 U_{\mathrm{ref}}}{H_{\mathrm{ref}}}} .
-    \label{eq:dimless_variables}
-\end{equation}
-Dropping asterisks for notational simplicity, the flow regime is governed by three fundamental dimensionless groups:
+We select the roller radius as the characteristic transverse geometric scale,
+$H_{\mathrm{ref}} = R$, the roller surface peripheral speed as the characteristic
+velocity scale, $U_{\mathrm{ref}} = u_{\mathrm{roll}}$, and the total zero-shear dynamic
+viscosity of the solution, $\mu_0 = \mu_s + \mu_p$, as the characteristic viscous scale.
+The balance of inertial, elastic, and viscous forces is governed by three fundamental
+dimensionless groups:
 \begin{align}
-    Re &= \frac{\rho U_{\mathrm{ref}} H_{\mathrm{ref}}}{\eta_0} \quad &\text{(Reynolds number)}, \label{eq:reynolds_def} \\
+    Re &= \frac{\rho U_{\mathrm{ref}} H_{\mathrm{ref}}}{\mu_0} \quad &\text{(Reynolds number)}, \label{eq:reynolds_def} \\
     Wi &= \frac{\lambda U_{\mathrm{ref}}}{H_{\mathrm{ref}}} \quad &\text{(Weissenberg number)}, \label{eq:weissenberg_def} \\
-    \beta &= \frac{\mu_s}{\mu_0} = \frac{\mu_s}{\mu_s + \mu_p} \quad &\text{(Viscosity ratio)} . \label{eq:viscosity_ratio_def}
+    \beta &= \frac{\mu_s}{\mu_0} = \frac{\mu_s}{\mu_s + \mu_p} \quad &\text{(Solvent viscosity ratio)} . \label{eq:viscosity_ratio_def}
 \end{align}
-Each dimensionless group carries a precise physical meaning:
+Each dimensionless group carries a precise physical significance:
 \begin{itemize}
-    \item \textbf{Reynolds number ($Re$)}: Compares convective inertial forces to viscous dissipation forces.
-    In the present benchmark, $Re \ll 1$, placing the system firmly in the laminar creeping flow (Stokes) regime.
-    \item \textbf{Weissenberg number ($Wi$)}: Compares the characteristic elastic relaxation time of the polymer $\lambda$
-    to the characteristic kinematic timescale of the flow $H_{\mathrm{ref}}/U_{\mathrm{ref}}$.
-    It quantifies the degree of flow-induced macromolecular orientation and elastic non-linearity.
-    \item \textbf{Viscosity ratio ($\beta$)}: Measures the fraction of total viscosity contributed by the Newtonian solvent.
-    The limits $\beta = 1$ and $\beta \to 0$ correspond to a purely Newtonian fluid and a solvent-free polymer melt, respectively.
-    The dimensionless solvent and polymeric viscosities are given by $\mu_s^* = \beta$ and $\mu_p^* = 1 - \beta$.
+    \item \textbf{Reynolds number ($Re$)}: Compares convective inertial forces to viscous
+    dissipative forces. In the four-roll mill configurations studied here, $Re = 0.0417 \ll 1$,
+    placing the flow within the laminar creeping flow (Stokes) regime where fluid
+    inertia is negligible.
+    \item \textbf{Weissenberg number ($Wi$)}: Compares the characteristic elastic relaxation
+    time of the polymer $\lambda$ to the kinematic timescale of the flow,
+    $t_{\mathrm{flow}} = H_{\mathrm{ref}}/U_{\mathrm{ref}}$. It quantifies the degree of
+    flow-induced molecular orientation and elastic non-linearity.
+    \item \textbf{Solvent viscosity ratio ($\beta$)}: Measures the fraction of total solution
+    viscosity contributed by the Newtonian solvent. The limits $\beta = 1$ and $\beta \to 0$
+    correspond to a purely Newtonian fluid and a solvent-free polymer melt, respectively.
 \end{itemize}
 
 \subsection{Dimensionless Governing System}
@@ -511,9 +495,10 @@ the boundaries of the four cylindrical rollers $\Gamma_{\mathrm{rolls}} =
 $\partial\Omega = \Gamma_{\mathrm{outer}} \cup \Gamma_{\mathrm{rolls}}$, as
 illustrated in Figure~\ref{fig:4roll_geometry}.
 
-To close the dimensionless governing
-system~\eqref{eq:dimless_mass}--\eqref{eq:dimless_constitutive_unified}, kinematic
-Dirichlet conditions and a pressure reference point are prescribed:
+To close the mathematical problem formulated by mass
+conservation~\eqref{eq:incompressibility}, momentum balance~\eqref{eq:momentum_reduced},
+and the constitutive equations, kinematic Dirichlet conditions and a pressure reference
+point are prescribed:
 \begin{align}
     \boldsymbol{u}(\boldsymbol{x}) &= \boldsymbol{0}, 
         && \boldsymbol{x} \in \Gamma_{\mathrm{outer}}, \label{eq:bc_outer_walls} \\
