@@ -6,14 +6,14 @@ The previous chapters established the governing equations of viscoelastic flow
 (Chapter~\ref{chap:fluidodynamic_background}) and the physics-informed neural network
 framework (Chapter~\ref{chap:pinn_literature}). In this chapter, we evaluate that
 framework on the four-roll mill benchmark. The goal is double: first, to test
-the forward predictive solver against high-fidelity numerical solutions; second,
+direct field reconstruction against high-fidelity numerical solutions; second,
 to assess the inverse PINN as a virtual rheometer capable of reconstructing
 hidden stress and pressure fields while extracting unknown constitutive
 parameters directly from kinematic observations.
 
 We first present the problem formulation in the recirculating cavity, the
 reference finite element dataset generated with COMSOL Multiphysics, and the
-decoupled network architecture. We then evaluate forward field predictions,
+decoupled network architecture. We then evaluate direct field reconstruction,
 report inverse discovery results across Oldroyd-B, Giesekus, and PTT fluids,
 and examine the physical limits, invariances, and degeneracies that govern
 viscoelastic parameter estimation.
@@ -43,21 +43,21 @@ This geometry introduces some computational and physical challenges:
         Polymeric extra-stresses along closed streamlines and without open inlets or outlets can be hard to analyze, requiring the network to capture steep localized stress layers.
 \end{itemize}
 
-\subsection{Forward and Inverse Modes}
+\subsection{Direct and Inverse Modes}
 \label{subsec:forward_inverse_operational_modes}
 
 The computational framework operates in two distinct modes:
 \begin{itemize}
     \item \textbf{Direct Mode}:
-        All constitutive fluid parameters ($\lambda, \mu_p, \mu_s$, and nonlinear
-        coefficients $\alpha$ or $\varepsilon$) are assumed known from prior
-        characterization. Planar velocity observations (representative of
-        experimental PIV data) supervise the stream function $\psi$ in the
-        interior alongside boundary conditions. The network then
-        autonomously reconstructs the unmeasured extra-stress tensor
-        $\boldsymbol{\tau}(x, y)$ and hydrodynamic pressure $p(x, y)$
-        using the momentum and constitutive residuals without any interior
-        stress or pressure supervision.
+        Direct Mode, also called \textit{forward problem}
+        in the scientific machine learning and PINN literature, denotes the reconstruction
+        of unobserved stress and pressure fields $(\boldsymbol{\tau}, p)$ when the
+        constitutive parameters $(\lambda, \mu_p, \mu_s, \alpha, \varepsilon)$ are known.
+        Planar velocity observations (representative of experimental PIV data) supervise
+        the stream function $\psi$ in the interior alongside boundary conditions,
+        while the network reconstructs the unmeasured extra-stress tensor
+        $\boldsymbol{\tau}(x, y)$ and hydrodynamic pressure $p(x, y)$ using the
+        momentum and constitutive residuals without interior stress or pressure data.
     \item \textbf{Inverse Mode (Virtual Rheometer)}:
         Kinematic velocity observations within the cavity are supplied together
         with roller boundary values. The network reconstructs the unobserved
@@ -71,13 +71,13 @@ parameter across both modes.
 
 \begin{table}[htbp]
     \centering
-    \caption{Classification of physical fields and parameters across forward and
+    \caption{Classification of physical fields and parameters across direct and
     inverse problem formulations.}
     \label{tab:variable_roles}
     \resizebox{0.92\textwidth}{!}{%
     \begin{tabular}{lccc}
         \hline
-        \textbf{Physical Quantity} & \textbf{Symbol} & \textbf{Forward Problem} & \textbf{Inverse Problem} \\
+        \textbf{Physical Quantity} & \textbf{Symbol} & \textbf{Direct Problem} & \textbf{Inverse Problem} \\
         \hline
         Velocity Field & $\boldsymbol{u} = (u, v)$ & Observed (via $\psi$) & Observed (via $\psi$) \\
         Pressure Field & $p$ & Latent unknown (PDE-resolved) & Latent unknown (PDE-resolved) \\
@@ -127,6 +127,21 @@ We evaluated six progressive grid resolutions:
     \item \textbf{M125k (Dense Baseline)}: 125{,}456 nodes, resolving
         sub-millimeter viscoelastic stress layers within the narrow roller gaps.
 \end{itemize}
+
+Figure~\ref{fig:collocation_mesh_5k} illustrates the triangular mesh
+and spatial distribution of the $\mathcal{N}_{\mathrm{coll}} = 5{,}086$ collocation
+points for the coarse baseline grid (M5k), highlighting the higher point density
+concentrated near the cylinder surfaces and within the narrow roller gaps.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.60\linewidth]{media/collocation_points_mesh_5k.png}
+    \caption{Spatial distribution of the $\mathcal{N}_{\mathrm{coll}} = 5{,}086$
+    interior collocation points and underlying unstructured triangular mesh for
+    the coarse resolution grid (M5k), showing the local point refinement around
+    the four rotating cylinder boundaries and within the roller gaps.}
+    \label{fig:collocation_mesh_5k}
+\end{figure}
 
 \subsection{Mesh Convergence Study}
 \label{subsec:mesh_convergence_study}
@@ -247,8 +262,11 @@ Following the nondimensionalization introduced in Section~\ref{sec:nondimensiona
 characteristic scales are $H_{\mathrm{ref}} = R = 0.005\,\mathrm{m}$ (roller radius)
 and $U_{\mathrm{ref}} = u_{\mathrm{roll}} = 8.333 \times 10^{-3}\,\mathrm{m/s}$.
 In the inverse problem, fluid viscosities $\mu_s$ and $\mu_p$ are unknown a priori.
-To decouple the coordinate scaling from evolving parameter estimates, the solver
-sets a fixed reference viscosity scale $\eta_0 = 1.0\,\mathrm{Pa\cdot s}$:
+Scaling differential residuals by evolving parameter estimates would introduce severe numerical feedback
+and destabilize backpropagation. To decouple computational normalization from evolving parameter values,
+the solver employs a fixed reference dynamic viscosity scale $\eta_0 = 1.0\,\mathrm{Pa\cdot s}$, alongside
+the roller radius $H_{\mathrm{ref}} = R = 0.005\,\mathrm{m}$ and peripheral roller velocity
+$U_{\mathrm{ref}} = u_{\mathrm{roll}} = 8.333 \times 10^{-3}\,\mathrm{m/s}$:
 \begin{equation}
     \mu_s^* = \frac{\mu_s}{\eta_0}, \quad \mu_p^* = \frac{\mu_p}{\eta_0}, \quad Re_{\mathrm{scale}} = 
     \frac{\rho U_{\mathrm{ref}} H_{\mathrm{ref}}}{\eta_0}, \quad Wi = \frac{\lambda U_{\mathrm{ref}}}{H_{\mathrm{ref}}} .
@@ -270,12 +288,9 @@ reference value ($p_{\mathrm{scale}}, \boldsymbol{\tau}_{\mathrm{scale}}$):
     \cdot \hat{\boldsymbol{\tau}}(x, y) ,
     \label{eq:output_scaling_vectors}
 \end{equation}
-where $\hat{p}, \hat{\boldsymbol{\tau}} \in [-1, 1]$ are the normalized network
-outputs. Hereafter, denoting the dimensionless reconstructed physical fields
-scaled by the characteristic reference quantities of
-Section~\ref{subsec:dimensionless_vector_system} simply as $(u, v, p, \boldsymbol{\tau})$,
-the governing PDE residuals evaluated at interior collocation points
-$\boldsymbol{x}_m \in \Omega$ evaluate to:
+where $\hat{p}, \hat{\boldsymbol{\tau}} \in [-1, 1]$ denote the normalized output representations.
+Denoting the scaled physical fields evaluated at interior collocation points $\boldsymbol{x}_m \in \Omega$
+simply as $(u, v, p, \boldsymbol{\tau})$, the governing PDE residuals evaluate explicitly to:
 \begin{enumerate}
     \item \textbf{Linear Momentum Residuals} ($f_u, f_v$):
     \begin{align}
@@ -402,7 +417,7 @@ to numerical instability, causing the optimizer to stall or produce unphysical f
 
 To avoid this imbalance, we split training into two sequential stages:
 \begin{enumerate}
-    \item \textbf{Phase 1: Kinematics and Rheology (Stress Network Training)}:
+    \item \textbf{Phase 1: Kinematics and Rheology}:
         The momentum balance is turned off ($w_{\mathrm{mom}} = 0$) and the
         pressure network $\mathcal{N}_p$ remains frozen. The stream function
         $\psi$ and extra-stress $\boldsymbol{\tau}$ are trained jointly by
@@ -414,7 +429,7 @@ To avoid this imbalance, we split training into two sequential stages:
         In inverse mode, unknown fluid parameters ($\lambda, \mu_p, \alpha$) are
         identified during this phase, isolating constitutive dynamics from
         hydrodynamic pressure interactions.
-    \item \textbf{Phase 2: Hydrodynamics and Pressure Recovery (Momentum Training)}:
+    \item \textbf{Phase 2: Hydrodynamics and Pressure Recovery}:
         The extra-stress network $\mathcal{N}_{\boldsymbol{\tau}}$ is frozen, and
         its spatial divergence $\nabla \cdot \boldsymbol{\tau}$ is fixed.
         The momentum loss is activated ($w_{\mathrm{mom}} = 1.0$):
@@ -523,7 +538,7 @@ While inverse parameter identification is standardized on a compact budget
 of 50{,}000 iterations (40{,}000 Adam + 10{,}000 L-BFGS in Phase~1) to evaluate
 computational agility and identifiability, the direct benchmark serves to probe the
 asymptotic accuracy limit of the multi-head architecture across all physical fields
-on the fine 125k grid. Consequently, the forward benchmark employs an extended
+on the fine 125k grid. Consequently, the direct benchmark employs an extended
 two-stage optimization schedule:
 \begin{enumerate}
     \item \textbf{Phase~1 (Viscoelastic Stress)}:
@@ -538,7 +553,7 @@ two-stage optimization schedule:
         pressure gradient reconstruction.
 \end{enumerate}
 This cumulative investment of over 260{,}000 optimization iterations produces
-the reference forward checkpoint (\texttt{checkpoint\_direct\_best\_accuracy\_phase2}),
+the reference direct checkpoint (\texttt{checkpoint\_direct\_best\_accuracy\_phase2}),
 whose field accuracy metrics are reported in Table~\ref{tab:direct_problem_metrics}.
 
 \subsection{Velocity and Stress}
@@ -593,10 +608,10 @@ the four-fold flow symmetry and accurately locates the central hyperbolic stagna
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\linewidth]{media/fig1_diretto_cinematica.png}
-    \caption{Direct problem kinematic validation: comparison of dimensionless horizontal
-    ($u^* = u/U_{\mathrm{ref}}$) and vertical ($v^* = v/U_{\mathrm{ref}}$) velocity fields
-    on normalized coordinates $[0, 1]^2$ across COMSOL reference, PINN prediction,
-    absolute error, and range-relative error on the M125k mesh.}
+    \caption{Direct problem kinematic validation: 3-column comparison of dimensionless
+    horizontal ($u^* = u/U_{\mathrm{ref}}$) and vertical ($v^* = v/U_{\mathrm{ref}}$)
+    velocity fields on normalized coordinates $[0, 1]^2$ across COMSOL reference,
+    PINN prediction, and range-relative error on the M125k mesh.}
     \label{fig:direct_kinematics}
 \end{figure}
 
@@ -610,11 +625,11 @@ visible numerical oscillations.
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\linewidth]{media/fig3_diretto_stress.png}
-    \caption{Direct problem viscoelastic extra-stress tensor validation: dimensionless
-    COMSOL ground truth ($\boldsymbol{\tau}^* = \boldsymbol{\tau}/\tau_{\mathrm{ref}}$),
-    PINN predictions, absolute errors, and range-relative errors for normal components
-    $(\tau_{xx}^*, \tau_{yy}^*)$ and shear component $\tau_{xy}^*$ on normalized
-    coordinates $[0, 1]^2$.}
+    \caption{Direct problem viscoelastic extra-stress tensor validation: 3-column
+    comparison of dimensionless COMSOL ground truth ($\boldsymbol{\tau}^* =
+    \boldsymbol{\tau}/\tau_{\mathrm{ref}}$), PINN predictions, and range-relative
+    errors for normal components $(\tau_{xx}^*, \tau_{yy}^*)$ and shear component
+    $\tau_{xy}^*$ on normalized coordinates $[0, 1]^2$.}
     \label{fig:direct_stress}
 \end{figure}
 
@@ -622,44 +637,65 @@ visible numerical oscillations.
 \label{subsec:pressure_recovery_and_calibration}
 
 In an enclosed cavity with prescribed boundary velocities, the momentum equations
-determine the pressure field solely through its spatial gradient $\nabla p$.
-The absolute hydrostatic level $p$ is therefore determined only up to an arbitrary
-additive constant. To eliminate this gauge freedom during training, the network
+determine the pressure field only through its spatial gradient $\nabla p$.
+The absolute hydrostatic level $p$ is determined only up to an arbitrary
+additive constant. To eliminate this freedom during training, the network
 employs the single-point algebraic hard anchor defined in
 Eq.~\eqref{eq:pressure_hard_anchor_definition}, prescribing the reference Dirichlet value
 $p(\boldsymbol{x}_0) = p_{\mathrm{ref}}$ at a single external wall node $\boldsymbol{x}_0$.
 
-Figure~\ref{fig:direct_pressure} displays the reconstructed hydrodynamic
-pressure field $p^*(\boldsymbol{x}) = p(\boldsymbol{x}) / p_{\mathrm{ref}}$
-obtained directly from the network under this single-point boundary anchor.
-The PINN accurately resolves the four-fold symmetric hydrodynamic pressure
-topology, clearly capturing the local suction troughs in the roller nips
-and the central stagnation saddle. Over the entire 125k evaluation mesh, the
-reconstructed field achieves a relative $L_2$ error of $18.31\%$, with a mean
-range-relative error of $4.08\%$ and a maximum localized error of $13.46\%$.
+From a hydrodynamic and rheological perspective, therefore, the fundamental criterion
+for solver correctness is whether the physics-informed architecture accurately learns
+the true spatial pressure gradient $\nabla p$, rather than matching an arbitrary
+hydrostatic reference constant, also given that the other fields are completely indepentend from pressure shifts.
 
-This $18.31\%$ error represents the realistic operational accuracy of the solver
-in practical settings where only a single physical pressure tap is available at
-$\boldsymbol{x}_0$. Because the two-dimensional surface is anchored to a single
-spatial point on the cavity periphery, any slight residual local discrepancy in
-the learned spatial gradient $\nabla p$ accumulates with spatial distance from
-$\boldsymbol{x}_0$. Consequently, the reconstructed surface exhibits a slight
-global vertical offset relative to the COMSOL reference, elevating the domain-wide
-integral $L_2$ norm despite the accurate representation of the underlying flow
-dynamics.
+Figure~\ref{fig:direct_pressure_anchored} displays the dimensionless hydrodynamic pressure
+field $p^*(\boldsymbol{x}) = p(\boldsymbol{x})/p_{\mathrm{ref}}$ predicted directly by
+the network under this single-point anchor. Over the entire 125k evaluation mesh, the
+raw anchored field achieves a relative $L_2$ error of $18.31\%$.
+
+This $18.31\%$ discrepancy represents the operational performance of the solver in a
+realistic experimental setting where only a single physical pressure tap is available at
+$\boldsymbol{x}_0$. Because the global two-dimensional pressure surface is pinned at an
+isolated peripheral boundary node, any infinitesimal residual discrepancy in the
+learned local derivative $\nabla p$ at $\boldsymbol{x}_0$ shifts the entire 2D surface
+vertically by a uniform constant offset across the cavity.
+As documented in Table~\ref{tab:direct_problem_metrics}, removing this uniform
+hydrostatic offset via domain-mean calibration ($p_{\mathrm{cal}} = p - \bar{p} + \bar{p}_{\mathrm{ref}}$)
+reduces the relative $L_2$ error from $18.31\%$ to $8.13\%$, while the mean
+range-relative error across the cavity is $4.08\%$
+(Figure~\ref{fig:direct_pressure_calibrated}).
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\linewidth]{media/fig2a_diretto_pressione_ancorata.png}
-    \caption{Official hydrodynamic pressure field reconstruction under single-point
-    algebraic anchoring ($p(\boldsymbol{x}_0) = p_{\mathrm{ref}}$): dimensionless COMSOL ground
-    truth ($p^* = p/p_{\mathrm{ref}}$), raw PINN prediction, absolute error, and range-relative
-    error distributions on normalized coordinates $[0, 1]^2$ ($L_2$ error of $18.31\%$,
-    mean range-relative error of $4.08\%$).}
-    \label{fig:direct_pressure}
+    \caption{Official hydrodynamic pressure field reconstruction in Direct Mode under
+    single-point algebraic anchoring ($p(\boldsymbol{x}_0) = p_{\mathrm{ref}}$): 3-column
+    comparison of dimensionless COMSOL ground truth ($p^* = p/p_{\mathrm{ref}}$),
+    raw PINN prediction, and range-relative error distributions on normalized
+    coordinates $[0, 1]^2$ ($L_2$ error of $18.31\%$, mean range-relative error of $4.08\%$).}
+    \label{fig:direct_pressure_anchored}
 \end{figure}
 
-============================================================
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{media/fig2b_diretto_pressione_calibrata.png}
+    \caption{Hydrodynamic pressure field after gauge calibration ($p_{\mathrm{cal}} =
+    p - \bar{p} + \bar{p}_{\mathrm{ref}}$): 3-column validation isolating the physical
+    gradient $\nabla p$ ($L_2$ error reduced to $8.13\%$, mean range-relative error
+    of $4.08\%$). The PINN faithfully captures the four-fold symmetric suction troughs
+    in the roller nips and the central stagnation saddle.}
+    \label{fig:direct_pressure_calibrated}
+\end{figure}
+
+The comparison between the raw anchored prediction (Figure~\ref{fig:direct_pressure_anchored})
+and the gauge-calibrated distribution (Figure~\ref{fig:direct_pressure_calibrated})
+illustrates the role of the shift constant: all the relevant physical features are
+reproduced consistently. The error is concentrated in a constant vertical offset
+induced by the single-point boundary anchor, showing that the network recovers
+the physical pressure gradient $\nabla p$ governing the momentum balance.
+
+% ============================================================
 % 4.6 INVERSE PARAMETER DISCOVERY
 % ============================================================
 \section{Inverse Parameter Discovery}
@@ -706,18 +742,20 @@ errors across these benchmarks.
         \hline
         \textbf{\#} & \textbf{Model} & \textbf{Strategy} & \textbf{Target Parameter} & \textbf{PINN Estimation} & \textbf{Error} & \textbf{$L_2(u,v)$} \\
         \hline
-        \textbf{1} & \textbf{Oldroyd-B} & Ex-Novo & $\lambda = 0.050\,\mathrm{s}$ & $\mathbf{0.0502\,\mathrm{s}}$ & $\mathbf{+0.41\%}$ & \multirow{2}{*}{$0.04\%$} \\
-        & ($Wi = 0.08$) & (50k iters) & $\mu_p = 0.900\,\mathrm{Pa\cdot s}$ & $\mathbf{0.9049\,\mathrm{Pa\cdot s}}$ & $\mathbf{+0.54\%}$ & \\
+        \textbf{1} & \textbf{Oldroyd-B} & Ex-Novo & $\alpha = 0.000$ & $\mathbf{0.0003}$ & $\mathbf{\approx 0}$ & \multirow{3}{*}{$0.04\%$} \\
+        & ($Wi = 0.08$) & (50k iters) & $\lambda = 0.050\,\mathrm{s}$ & $\mathbf{0.0502\,\mathrm{s}}$ & $\mathbf{+0.41\%}$ & \\
+        & & & $\mu_p = 0.900\,\mathrm{Pa\cdot s}$ & $\mathbf{0.9049\,\mathrm{Pa\cdot s}}$ & $\mathbf{+0.54\%}$ & \\
         \hline
-        \textbf{2} & \textbf{Oldroyd-B} & Transfer Learning & $\lambda = 0.700\,\mathrm{s}$ & $\mathbf{0.7089\,\mathrm{s}}$ & $\mathbf{+1.27\%}$ & \multirow{2}{*}{$0.33\%$} \\
-        & ($Wi = 1.17$) & (25k iters, $-50\%$) & $\mu_p = 0.500\,\mathrm{Pa\cdot s}$ & $\mathbf{0.5019\,\mathrm{Pa\cdot s}}$ & $\mathbf{+0.38\%}$ & \\
+        \textbf{2} & \textbf{Oldroyd-B} & Transfer Learning & $\alpha = 0.000$ & $\mathbf{0.0011}$ & $\mathbf{\approx 0}$ & \multirow{3}{*}{$0.33\%$} \\
+        & ($Wi = 1.17$) & (25k iters, $-50\%$) & $\lambda = 0.700\,\mathrm{s}$ & $\mathbf{0.7089\,\mathrm{s}}$ & $\mathbf{+1.27\%}$ & \\
+        & & & $\mu_p = 0.500\,\mathrm{Pa\cdot s}$ & $\mathbf{0.5019\,\mathrm{Pa\cdot s}}$ & $\mathbf{+0.38\%}$ & \\
         \hline
         \textbf{3} & \textbf{Giesekus} & Ex-Novo (Blind) & $\alpha = 0.350$ & $\mathbf{0.3298}$ & $\mathbf{-5.76\%}$ & \multirow{3}{*}{$0.46\%$} \\
         & ($\alpha_0 = 0.25$) & (50k iters) & $\lambda = 0.100\,\mathrm{s}$ & $\mathbf{0.1032\,\mathrm{s}}$ & $\mathbf{+3.16\%}$ & \\
         & & & $\mu_p = 0.500\,\mathrm{Pa\cdot s}$ & $\mathbf{0.5307\,\mathrm{Pa\cdot s}}$ & $\mathbf{+6.14\%}$ & \\
         \hline
         \textbf{4} & \textbf{Giesekus} & Transfer Learning & $\alpha = 0.500$ & $\mathbf{0.4665}$ & $\mathbf{-6.70\%}$ & \multirow{3}{*}{$0.52\%$} \\
-        & (Extreme $\alpha$) & (25k iters, $-50\%$) & $\lambda = 0.300\,\mathrm{s}$ & $\mathbf{0.3077\,\mathrm{s}}$ & $\mathbf{+2.57\%}$ & \\
+        & & (25k iters, $-50\%$) & $\lambda = 0.300\,\mathrm{s}$ & $\mathbf{0.3077\,\mathrm{s}}$ & $\mathbf{+2.57\%}$ & \\
         & & & $\mu_p = 0.050\,\mathrm{Pa\cdot s}$ & $\mathbf{0.0522\,\mathrm{Pa\cdot s}}$ & $\mathbf{+4.40\%}$ & \\
         \hline
     \end{tabular}%
@@ -725,10 +763,73 @@ errors across these benchmarks.
 \end{table}
 
 Parameter estimation errors for Oldroyd-B remain below $1.3\%$ across both low and
-high Weissenberg numbers ($Wi = 0.08$ and $Wi = 1.17$). For Giesekus, the solver
-simultaneously inverts three coupled parameters $(\alpha, \lambda, \mu_p)$,
-identifying mobility $\alpha$ within $6.7\%$ error even from a blind initialization
-($\alpha_0 = 0.25$ vs $0.35$).
+high Weissenberg numbers ($Wi = 0.08$ and $Wi = 1.17$). In both
+Oldroyd-B benchmarks, the mobility parameter converges to zero
+($\alpha_{\mathrm{est}} = 0.0003$ and $0.0011$, respectively), demonstrating that
+the network correctly identifies the absence of shear-thinning without prior
+assumptions. For Giesekus, the solver simultaneously inverts three coupled
+parameters $(\alpha, \lambda, \mu_p)$, identifying mobility $\alpha$ within
+$6.7\%$ error even from a blind initialization ($\alpha_0 = 0.25$ vs $0.35$).
+
+\subsubsection{Inverse Stress Fields}
+\label{subsubsec:spatial_latent_stress_inverse}
+
+To verify that the inverse PINN reconstructs continuous physical fields rather than
+fitting isolated scalar parameters, Figures~\ref{fig:inverse_oldroyd_stress} and
+\ref{fig:inverse_giesekus_stress} present two-dimensional contour comparisons of the
+unobserved latent extra-stress components $(\tau_{xx}^*, \tau_{xy}^*, \tau_{yy}^*)$
+for Benchmark~1 (Oldroyd-B, $Wi = 0.08$) and Benchmark~3 (Giesekus, $\alpha = 0.35$).
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{media/fig_inverso_oldroyd_stress.png}
+    \caption{Inverse Mode latent viscoelastic extra-stress tensor reconstruction for the
+    canonical Oldroyd-B fluid (Benchmark~1: $Wi = 0.0833, Re = 0.0417, \lambda^{\mathrm{true}} =
+    0.050\,\mathrm{s}, \mu_p^{\mathrm{true}} = 0.900\,\mathrm{Pa\cdot s}$): 3-column
+    comparison of dimensionless COMSOL reference ($\boldsymbol{\tau}^* = \boldsymbol{\tau}/\tau_{\mathrm{ref}}$),
+    Inverse PINN predictions, and range-relative errors across normal
+    components $(\tau_{xx}^*, \tau_{yy}^*)$ and shear component $\tau_{xy}^*$ on normalized
+    coordinates $[0, 1]^2$. Note the high spatial precision on normal stresses ($L_2$ error
+    of $0.64\%$ on $\tau_{xx}^*$ and $0.70\%$ on $\tau_{yy}^*$, with mean range errors below $0.15\%$).}
+    \label{fig:inverse_oldroyd_stress}
+\end{figure}
+
+As illustrated in Figure~\ref{fig:inverse_oldroyd_stress} for the Oldroyd-B benchmark,
+the inverse solver reconstructs the unmeasured stress fields across the domain.
+Normal stresses achieve relative $L_2$ errors of $0.64\%$ on $\tau_{xx}^*$ and
+$0.70\%$ on $\tau_{yy}^*$, with domain-wide mean range-relative errors below
+$0.15\%$ (maximum localized range error below $2.66\%$).
+Shear stress $\tau_{xy}^*$ is recovered with a mean range-relative error of $4.35\%$,
+concentrated along high-shear boundary interfaces where velocity gradients are steepest.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{media/fig_inverso_giesekus_stress.png}
+    \caption{Inverse Mode latent viscoelastic extra-stress tensor reconstruction for the
+    non-linear shear-thinning Giesekus fluid (Benchmark~3: $\alpha^{\mathrm{true}} = 0.350,
+    \lambda^{\mathrm{true}} = 0.100\,\mathrm{s}, \mu_p^{\mathrm{true}} = 0.500\,\mathrm{Pa\cdot s}$,
+    blind initial guess $\alpha_0 = 0.25$): 3-column comparison across COMSOL ground truth,
+    Inverse PINN predictions, and range-relative errors for normal components
+    $(\tau_{xx}^*, \tau_{yy}^*)$ and shear component $\tau_{xy}^*$. Relative $L_2$ errors
+    remain bounded between $5.92\%$ and $7.28\%$, with mean range-relative errors strictly
+    below $1.55\%$, confirming simultaneous parameter discovery and stress field recovery.}
+    \label{fig:inverse_giesekus_stress}
+\end{figure}
+
+Figure~\ref{fig:inverse_giesekus_stress} evaluates the more challenging non-linear
+Giesekus inverse problem (Benchmark~3), where the solver simultaneously inverts three
+strongly coupled parameters $(\alpha, \lambda, \mu_p)$ starting from an offset guess
+($\alpha_0 = 0.25$ vs.\ $\alpha^{\mathrm{true}} = 0.35$).
+Even under this non-linear constitutive coupling, the reconstructed stress components
+remain consistent with the reference solution: relative $L_2$ errors evaluate to $7.28\%$ for
+$\tau_{xx}^*$, $5.92\%$ for shear stress $\tau_{xy}^*$, and $6.85\%$ for transverse normal
+stress $\tau_{yy}^*$. Over the entire domain, the mean range-relative errors remain
+strictly below $1.55\%$ across all three stress components.
+The solver successfully reproduces the non-linear saturation plateau near the central
+stagnation point and resolves the shear-thinning stress redistribution around the rotating
+cylinders without introducing spurious oscillations or unphysical stress accumulation.
+These results confirm that the inverse PINN resolves both boundary-layer shear and
+extensional stagnation dynamics simultaneously with parameter identification.
 
 Figure~\ref{fig:inverse_convergence} illustrates parameter trajectories and objective
 function evolution during staged Adam (FP32, initial 40k epochs) and L-BFGS (FP64, final 10k iterations)
@@ -827,98 +928,28 @@ grids to achieve satisfactory convergence.
 % ============================================================
 % 4.7 IDENTIFIABILITY BOUNDARIES AND INVARIANCE PRINCIPLES
 % ============================================================
-\section{Limits}
+\section{Physical Limits and Identifiability Boundaries}
 \label{sec:identifiability_limits_degeneracy}
 
-\subsection{Elastic Shear Modulus Invariance}
-\label{subsec:preservation_elastic_shear_modulus}
-
-Across all inverse benchmarks, a consistent physical result emerges: while
-individual fluid parameters can be sensitive to boundary conditioning, the
-\textbf{composite Elastic Shear Modulus} $G = \mu_p / \lambda$ is identified
-with high precision across every model tested (Table~\ref{tab:elastic_modulus_table}).
-
-\begin{equation}
-    G = \frac{\mu_p}{\lambda} .
-    \label{eq:elastic_modulus_formula}
-\end{equation}
-In polymer kinetic theory, $G = n k_B T$ represents the macroscopic plateau modulus,
-measuring the reversible elastic energy storage per unit volume. The physical reason
-for its robust recovery becomes clear when dividing the general constitutive equation
-by the relaxation time $\lambda$:
-\begin{equation}
-    \frac{1}{\lambda} \boldsymbol{\mathcal{G}}(\boldsymbol{\tau}) + \overset{\nabla}{\boldsymbol{\tau}} = 2 \left(\frac{\mu_p}{\lambda}\right) \boldsymbol{D} = 2 G \boldsymbol{D} .
-    \label{eq:constitutive_divided_by_lambda}
-\end{equation}
-In our inverse formulation, the velocity field $\boldsymbol{u}(x, y)$ is supervised
-by kinematic observations. Consequently, the rate-of-strain tensor $\boldsymbol{D}$
-and the convective terms in $\overset{\nabla}{\boldsymbol{\tau}}$ are fixed by the
-data. The source term coupling kinematics to stress generation is $2 G \boldsymbol{D}$.
-Neither $G$, nor $\boldsymbol{D}$, nor $\overset{\nabla}{\boldsymbol{\tau}}$ depends
-on $\lambda$ individually. Any error in $G$ directly violates the balance between
-prescribed deformation rate and convective stress transport across the entire cavity.
-
-By contrast, the relaxation term
-$\frac{1}{\lambda} \boldsymbol{\mathcal{G}}(\boldsymbol{\tau})$ acts as a secondary
-dissipative mechanism. In recirculating regions where local deformation and
-convection dominate, variations along the hyperbola $\mu_p = G \lambda$ alter
-only this weaker relaxation contribution. The loss function
-$\mathcal{L}_{\mathrm{con}}(\lambda, \mu_p)$ therefore forms a steep canyon whose
-valley floor follows the line $\mu_p = G \lambda$. The optimizer rapidly
-converges onto this valley, locking onto $G$, while gradients along the valley
-remain comparatively flat.
-
-\begin{table}[htbp]
-    \centering
-    \caption{Identification of the macroscopic elastic shear modulus
-    $G = \mu_p / \lambda$ across inverse benchmarks.}
-    \label{tab:elastic_modulus_table}
-    \resizebox{\textwidth}{!}{%
-    \begin{tabular}{lcccc}
-        \hline
-        \textbf{Benchmark Scenario} & $G^{\mathrm{true}}$ [Pa] & $G_{\mathrm{est}}$ [Pa] & \textbf{Relative Error} & \textbf{Individual Errors} ($\lambda, \mu_p$) \\
-        \hline
-        \textbf{B1: Oldroyd-B} ($Wi=0.08$) & $18.000$ & $18.026$ & $\mathbf{+0.14\%}$ & $+0.41\%, +0.54\%$ \\
-        \textbf{B2: Oldroyd-B} ($Wi=1.17$) & $0.714$ & $0.708$ & $\mathbf{-0.88\%}$ & $+1.27\%, +0.38\%$ \\
-        \textbf{B3: Giesekus} ($\alpha=0.35$, blind) & $5.000$ & $5.142$ & $\mathbf{+2.85\%}$ & $+3.16\%, +6.14\%$ \\
-        \textbf{B4: Giesekus} ($\alpha=0.50$, extreme) & $0.167$ & $0.170$ & $\mathbf{+1.79\%}$ & $+2.57\%, +4.40\%$ \\
-        \textbf{PTT Case 1} ($\lambda=1.0, \varepsilon=0.3$) & $0.500$ & $0.506$ & $\mathbf{+1.19\%}$ & $-57.89\%, -57.44\%$ \\
-        \textbf{PTT Case 2} ($\lambda=0.7, \varepsilon=0.5$) & $1.357$ & $1.367$ & $\mathbf{+0.70\%}$ & $-61.43\%, -61.19\%$ \\
-        \hline
-    \end{tabular}%
-    }
-\end{table}
-
-As documented in Table~\ref{tab:elastic_modulus_table}, $G_{\mathrm{est}}$ is recovered
-within $3\%$ across all four benchmarks. Most notably, in the two PTT cases where
-$\lambda$ and $\mu_p$ individually collapse by approximately $58\text{--}61\%$,
-both parameters degrade by the exact same proportion, preserving their ratio $G$
-within $1.2\%$.
-
-While individual fluid parameters ($\lambda, \mu_p$) can exhibit sensitivity
-or collinear drift under velocity-dominated supervision, the composite elastic
-modulus $G = \mu_p / \lambda$ remains consistently well-conditioned across all
-tested constitutive laws. The exact numerical and physical mechanisms underlying
-this structural preservation are currently under active investigation.
 
 \subsection{Creeping Flow Hydrodynamic Invariance}
 \label{subsec:creeping_flow_scaling_invariance}
 
 In Phase~2, estimating solvent viscosity $\mu_s$ alongside pressure $p$ by minimizing
-momentum residuals reveals an identifiability boundary. In the four-roll mill, the
+momentum residuals reveals an identifiability boundary. In our flow conditions, the
 Reynolds number is small ($Re = 0.0417 \ll 1$), placing the flow in the creeping
 Stokes regime where convective inertia is negligible:
 \begin{equation}
     -\nabla p + \mu_s \nabla^2 \boldsymbol{u} + \nabla \cdot \boldsymbol{\tau} = \boldsymbol{0} .
     \label{eq:creeping_momentum_limit}
 \end{equation}
-Under prescribed boundary velocities, variations in $\mu_s$ do not change the solenoidal
+Under prescribed boundary velocities, variations in $\mu_s$ do not change the
 velocity field; they simply shift the pressure gradient $\nabla p$. As a result, the
 loss gradient $\partial \mathcal{L}_{\mathrm{mom}} / \partial \mu_s$ becomes nearly
 flat, causing gradient-based optimization of $\mu_s$ to stagnate unless anchored by an
 independent pressure or traction reference.
 
-\subsection{Shear Degeneracy in Linear PTT}
+\subsection{Identifiability of Linear PTT}
 \label{subsec:kinematic_shear_degeneracy_ptt}
 
 When applying the inverse PINN solver to synthetic data generated from the
@@ -948,59 +979,19 @@ individual errors, the reconstructed velocity field matches COMSOL closely ($L_2
     }
 \end{table}
 
-This behavior is explained by two observations:
-\begin{enumerate}
-    \item \textbf{Mathematical Consistency of the Differential Operator}:
-        Evaluating the PTT constitutive residual offline over parameter space using
-        ground-truth COMSOL fields confirms a distinct minimum at the exact physical
-        parameters ($\lambda = 1.0\,\mathrm{s}, \varepsilon = 0.3$), yielding a
-        residual loss 25 times lower than at the network's online attractor.
-        The differential operator correctly admits the true parameters as a minimizer;
-        the online failure stems from the loss landscape under boundary velocity supervision.
-    \item \textbf{Wall Shear Flow Degeneracy}:
-        Velocity supervision is concentrated near the rotating cylinders, where simple
-        shear dominates ($\dot{\gamma} \gg \dot{\epsilon}$). In steady simple shear,
-        the trace of the PTT stress tensor scales as
-        $\text{tr}(\boldsymbol{\tau}) \sim \tau_{xx} \propto \lambda \dot{\gamma} \tau_{xy}$.
-        Substituting this scaling into the PTT relaxation function yields an effective
-        linear frequency shift:
-        \begin{equation}
-            \frac{1}{\lambda_{\mathrm{eff}}} \approx \frac{1}{\lambda_{\mathrm{true}}} + C \cdot \varepsilon_{\mathrm{true}} ,
-            \label{eq:ptt_shear_degeneracy_law}
-        \end{equation}
-        where $C \approx 3.12\,\mathrm{s}^{-1}$ is an empirical wall shear scaling prefactor
-        fitted from the PTT benchmarks.
-        Consequently, an effective linear Oldroyd-B fluid ($\varepsilon = 0, \lambda_{\mathrm{eff}} \approx 0.42\,\mathrm{s}$)
-        and a nonlinear PTT fluid ($\varepsilon = 0.3, \lambda = 1.0\,\mathrm{s}$) produce
-        nearly identical velocity profiles and wall shear stresses. Under velocity-dominated
-        supervision, the optimizer converges toward the simpler degenerate Oldroyd-B attractor
-        along the $G = \text{const}$ manifold.
-\end{enumerate}
+This behavior highlights an open question regarding the identifiability of the
+linear PTT formulation under planar kinematic observations. In the viscoelastic PINN
+literature implementations (such as ViscoelasticNet) have successfully identified PTT constitutive parameters, confirming that the
+differential operator itself does not inherently preclude convergence in physics-informed
+frameworks.
 
-To evaluate this degeneracy across an extended range of extensibilities, a systematic
-parameter sweep was performed over $\varepsilon \in \{0.0, 0.1, 0.3, 0.5\}$ with nominal
-baseline $\lambda_{\mathrm{true}} = 1.00\,\mathrm{s}$ and $\mu_p^{\mathrm{true}} = 0.50\,\mathrm{Pa\cdot s}$
-($G_{\mathrm{true}} = 0.50\,\mathrm{Pa}$).
-As illustrated in Figure~\ref{fig:ptt_degeneracy}(left), the identified effective
-rate $1/\lambda_{\mathrm{est}}$ follows the linear affine law~\eqref{eq:ptt_shear_degeneracy_law}
-($C \approx 3.12\,\mathrm{s}^{-1}$) closely. Concurrently, Figure~\ref{fig:ptt_degeneracy}(right)
-demonstrates that the composite modulus $G = \mu_p / \lambda = 0.50\,\mathrm{Pa}$ is preserved
-within $< 1.2\%$ relative error across all four extensibility levels, confirming that macroscopic
-shear elasticity remains invariant despite the severe collinear drift of the individual rheological parameters.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=\linewidth]{media/fig6_ptt_degeneracy_insight.png}
-    \caption{PTT model identifiability analysis under boundary velocity supervision:
-    (left) effective relaxation rate $1/\lambda_{\mathrm{est}}$ as a function of
-    nominal extensibility $\varepsilon_{\mathrm{true}}$ in wall shear flow, compared
-    with the affine shift law ($C \approx 3.12\,\mathrm{s}^{-1}$);
-    (right) preservation of the composite elastic shear modulus
-    $G = \mu_p / \lambda = 0.50\,\mathrm{Pa}$ (relative error $< 1.2\%$) across all
-    tested PTT extensibility levels, demonstrating macroscopic stiffness conservation
-    despite individual parameter degradation.}
-    \label{fig:ptt_degeneracy}
-\end{figure}
+Consequently, the lack of parameter convergence observed in the present two-dimensional
+four-roll configuration requires further investigation. Rather than indicating
+an absolute physical barrier, this outcome suggests that the loss landscape is highly
+sensitive to the chosen parameter ranges, non-dimensional scales, and relative loss
+weighting. The exploration of alternative convergence strategies and optimization regimes
+remains an active direction of research to determine the conditions under which the
+PTT parameters can be reliably resolved in this flow geometry.
 
 In summary, the computational findings presented throughout this chapter confirm
 the predictive capability and delineate the physical identifiability boundaries
@@ -1008,10 +999,7 @@ of the multi-head PINN framework in viscoelastic flows. In direct mode, the solv
 reconstructs unmeasured latent stress and pressure fields with high fidelity
 strictly from planar kinematic observations. In inverse mode, the network reliably
 discovers nonlinear constitutive parameters across linear Oldroyd-B and shear-thinning
-Giesekus fluids using only boundary stress anchoring. Simultaneously, the framework
-exposes two structural invariance boundaries: the hyperbolic $G$-canyon in mixed
-kinematics and the wall-shear degeneracy in linear PTT fluids under boundary velocity
-supervision. Chapter~\ref{chap:conclusions} synthesizes these conclusions, discusses
+Giesekus fluids using only boundary stress anchoring. Chapter~\ref{chap:conclusions} synthesizes these conclusions, discusses
 their broader implications for experimental rheometry, and outlines future avenues
 for extending physics-informed architectures to three-dimensional and time-dependent
 polymeric flows.
