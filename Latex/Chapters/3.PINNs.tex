@@ -22,7 +22,7 @@ viscoelastic momentum balance, and frame-indifferent constitutive transport,
 represents a coupled set of non-linear equations that poses well-known challenges to traditional mesh-based methods.
 In this chapter, we formulate this continuous boundary-value problem within a Scientific Machine Learning (SciML) framework.
 By embedding momentum and constitutive balances into the optimization objective through automatic differentiation,
-the PINN framework enables both forward state simulation and inverse rheological parameter discovery without spatial discretization meshes.
+the PINN framework enables both direct state reconstruction and inverse rheological parameter discovery without spatial discretization meshes.
 
 % ============================================================
 % 3.1 FUNDAMENTALS OF DEEP LEARNING
@@ -317,7 +317,7 @@ and $\{ \boldsymbol{x}_k^{\mathrm{pde}} \}$ designates interior \textit{collocat
 
 This formulation naturally supports two complementary problem settings:
 \begin{itemize}
-    \item \textbf{Forward problems}:
+    \item \textbf{Direct problems}:
     The physical parameters $\boldsymbol{\lambda}$ are known.
     The network optimizes its weights $\boldsymbol{\theta}$ to solve for the continuous fields $\hat{\boldsymbol{u}}(\boldsymbol{x})$,
     acting as a meshless continuous PDE solver.
@@ -407,89 +407,102 @@ Several operational features distinguish physics-informed training from conventi
 \section{Foundational Literature Benchmarks}
 \label{sec:literature_benchmarks}
 
+To contextualize the development of physics-informed methods in fluid mechanics
+and non-Newtonian rheology, we review two foundational papers that directly
+guide the architectural and physical formulations adopted in this work: the
+incompressible Navier--Stokes benchmark established by Raissi, Perdikaris, and
+Karniadakis \cite{raissi2019physics}, and the \textit{ViscoelasticNet} framework
+formulated by Thakur, Raissi, and Ardekani \cite{thakur2024viscoelasticnet}.
+
 \subsection{Navier--Stokes Flow Past a Cylinder}
 \label{subsec:cylinder_benchmark}
 
-In their foundational paper, Raissi, Perdikaris, and Karniadakis \cite{raissi2019physics}
-demonstrated the capability of PINNs on laminar vortex past a cylinder at $Re = 100$.
+In their foundational contribution, Raissi et al.\ \cite{raissi2019physics}
+demonstrated that Physics-Informed Neural Networks could simultaneously solve
+unmeasured latent fields and discover governing hydrodynamic transport coefficients
+in unsteady, two-dimensional flow past a cylinder at Reynolds number $Re = 100$.
 
-\subsubsection{Problem Formulation}
-The dimensionless incompressible Navier-Stokes equations were formulated as:
+The dimensionless governing momentum and continuity equations were formulated as:
 \begin{align}
     u_t + \lambda_1 (u u_x + v u_y) &= -p_x + \lambda_2 (u_{xx} + u_{yy}) , \label{eq:cylinder_ns_u} \\
     v_t + \lambda_1 (u v_x + v v_y) &= -p_y + \lambda_2 (v_{xx} + v_{yy}) , \label{eq:cylinder_ns_v} \\
     u_x + v_y &= 0 , \label{eq:cylinder_cont}
 \end{align}
-where $\lambda_1 = 1.0$ governs convective acceleration
-and $\lambda_2 = 1/Re = 0.01$ represents kinematic viscosity.
+where $\lambda_1 = 1.0$ governs convective acceleration and $\lambda_2 =
+1/Re = 0.01$ represents the dimensionless kinematic viscosity.
 
-To satisfy incompressibility identically without requiring an explicit divergence penalty, the authors adopted the stream function formulation
-established in Section~\ref{subsec:stream_function_formulation} (Eq.~\ref{eq:stream_function_def}),
-parameterizing velocity components through spatial derivatives of $\psi(t, x, y)$.
-A neural network with 9 hidden layers and 20 neurons per layer, activated by $\tanh$,
-predicted $(\psi, p)$ while treating $\lambda_1$ and $\lambda_2$ as learnable parameters.
+Instead of penalizing continuity divergence as an empirical loss objective, the
+authors parameterised the two-dimensional velocity field through a scalar stream
+function $\psi(t, x, y)$ via $u = \partial \psi / \partial y$ and $v = -\partial
+\psi / \partial x$. By construction, the stream function satisfies the continuity constraint~\eqref{eq:cylinder_cont} 
+identically across the domain, reducing competition between mass and momentum balance. A deep
+feedforward architecture comprising 9 hidden layers with 20 neurons per layer,
+activated by hyperbolic tangent functions, was trained to output $(\psi, p)$ while
+treating $\lambda_1$ and $\lambda_2$ as dynamically learnable scalar parameters.
 
-\subsubsection{Field and Parameter Identification}
-The network was trained on $N = 5{,}000$ spatio-temporal velocity points.
-The benchmark demonstrated two key capabilities:
-\begin{itemize}
-    \item \textbf{Pressure recovery}:
-    Without any pressure measurements, the network reconstructed the pressure field $p(t, x, y)$
-    exclusively relying on momentum balance, matching CFD reference data up to an arbitrary constant.
-    \item \textbf{Parameter estimation under noise}:
-    On clean data, parameter errors were $0.08\%$ for $\lambda_1$ and $4.67\%$ for $\lambda_2$.
-    Under $1\%$ uncorrelated Gaussian noise, errors remained controlled at $0.17\%$ and $5.70\%$.
-\end{itemize}
-While this benchmark validated simultaneous field reconstruction and parameter identification,
-it was restricted to linear Newtonian fluids in an open domain.
+When trained on spatio-temporal velocity observations sampled behind the cylinder,
+the framework revealed two main capabilities. First, even in the
+complete absence of pressure measurements in the flow domain, the network
+reconstructed the unobserved continuous pressure field $p(t, x, y)$ exclusively
+from kinematic velocity data and momentum balance, up to an arbitrary constant.
+Second, the solver demonstrated robustness to Gaussian noise:
+on clean data, the parameters converged within $0.08\%$ error for $\lambda_1$ and $4.67\%$ for $\lambda_2$, and remained strictly bounded
+within $0.17\%$ and $5.70\%$ error even when corrupted by $1\%$ uncorrelated
+Gaussian noise.
 
-\subsection[ViscoelasticNet Framework]{The ViscoelasticNet Framework}
+From a continuum rheology perspective, however, a critical limitation characterizes
+the Navier-Stokes cylinder benchmark, considering the complete absence of any information about stresses and elasticity.
+
+\subsection{ViscoelasticNet Framework}
 \label{subsec:viscoelasticnet_benchmark}
 
-Extending physics-informed methods to non-Newtonian fluids,
-Thakur, Raissi, and Ardekani \cite{thakur2024viscoelasticnet} introduced \textit{ViscoelasticNet},
-applying PINNs to polymeric flows governed by differential constitutive equations.
+Recognizing this fundamental distinction, Thakur, Raissi, and Ardekani
+\cite{thakur2024viscoelasticnet} first extended physics-informed
+neural networks to non-Newtonian fluid mechanics through the \textit{ViscoelasticNet}
+framework. In polymeric liquids, fluid elements retain fading memory of past
+conformations, requiring the momentum balance to be coupled with tensorial,
+frame-indifferent constitutive transport equations governed by the Upper-Convected
+Time Derivative (UCTD).
 
-\subsubsection{The Rheological Bottleneck}
-Viscoelastic fluid simulation presents two major challenges:
-\begin{enumerate}
-    \item \textbf{Experimental limitations}:
-    Non-intrusive measurements of internal extra-stresses $\boldsymbol{\tau}$
-    are generally unavailable in complex geometries.
-    \item \textbf{Numerical instability (HWNP)}:
-    In standard grid-based solvers (FEM, FVM),
-    elevated elasticity triggers the High-Weissenberg Number Problem (HWNP),
-    where steep stress boundary layers cause convergence breakdown unless stabilized numerically.
-\end{enumerate}
+ViscoelasticNet addressed two interconnected bottlenecks that severely hamper
+traditional computational rheology. On the experimental side, non-intrusive full-field
+measurements of internal polymeric extra-stress components $\boldsymbol{\tau}$ are
+generally inaccessible in complex flow geometries. On the numerical simulation side,
+mesh-based discretization methods (FEM and FVM) suffer from the High-Weissenberg
+Number Problem (HWNP).
 
-\subsubsection{Virtual Rheometer}
-To address these limits, ViscoelasticNet proposed an inverse framework operating as a "virtual rheometer":
-\begin{itemize}
-    \item \textbf{Stress inference}:
-    Given velocity measurements $\boldsymbol{u}$, the network infers unobserved extra-stresses $\boldsymbol{\tau}$
-    and pressure $p$ by enforcing constitutive and momentum residuals.
-    \item \textbf{Unified constitutive formulation}:
-    The authors formulated a unified constitutive expression encompassing Oldroyd-B, linear PTT, and Giesekus models:
-    \begin{equation}
-        \boldsymbol{\tau} + \lambda \overset{\nabla}{\boldsymbol{\tau}} + \frac{\alpha \lambda}{\mu_p} (\boldsymbol{\tau} \cdot \boldsymbol{\tau}) + \frac{\varepsilon \lambda}{\mu_p} \text{tr}(\boldsymbol{\tau}) \boldsymbol{\tau} = 2\mu_p \boldsymbol{D} ,
-        \label{eq:unified_constitutive_thakur}
-    \end{equation}
-    seeking to identify $\lambda, \mu_p, \alpha$, and $\varepsilon$.
-    \item \textbf{Decoupled two-stage training}:
-    Optimization was separated into two sequential stages:
-    \begin{itemize}
-        \item \textit{Stage 1 (Stress and Rheology)}: Velocity and stress networks were optimized jointly
-        using velocity data and constitutive residuals, learning rheological parameters $(\lambda, \mu_p, \alpha, \varepsilon)$.
-        \item \textit{Stage 2 (Pressure and Viscosity)}: The stress network was frozen,
-        and the pressure network was trained alongside solvent viscosity $\mu_s$ using momentum residuals.
-    \end{itemize}
-    \item \textbf{Investigated geometries}:
-    ViscoelasticNet was evaluated on two open geometries: a planar stenosed channel and a cross-slot flow.
-    The authors reported relative stress errors below $5\%$ and demonstrated stability under synthetic velocity noise up to $10\%$.
-\end{itemize}
+To resolve these difficulties, Thakur et al.\ proposed an inverse physics-informed
+paradigm operating as a virtual rheometer. By embedding a unified constitutive
+expression of Oldroyd-B, Giesekus, and linear Phan-Thien--Tanner (PTT) model:
+\begin{equation}
+    \boldsymbol{\tau} + \lambda \overset{\nabla}{\boldsymbol{\tau}} + \frac{\alpha \lambda}{\mu_p} (\boldsymbol{\tau} \cdot \boldsymbol{\tau}) + \frac{\varepsilon \lambda}{\mu_p} \text{tr}(\boldsymbol{\tau}) \boldsymbol{\tau} = 2\mu_p \boldsymbol{D} ,
+    \label{eq:unified_constitutive_thakur}
+\end{equation}
+the network was capable to work with different fluids nature, while simultaneously infer
+unmeasured extra-stress components $(\tau_{xx}, \tau_{xy}, \tau_{yy})$ and discover
+unknown material parameters ($\lambda, \mu_p, \alpha, \varepsilon$).
 
-These results confirmed that PINNs can infer non-Newtonian stresses from velocity fields in open channel flows.
-However, their formulation focused on domains with net through-flow and convective pressure drops.
-In the next chapter, we address the open problem of enclosed recirculating flows:
-we formulate a stream-function PINN for the four-roll mill geometry,
-evaluate forward field accuracy, and investigate the boundaries of inverse parameter discovery.
+To overcome the numerical stiffness arising from the mathematical
+character of the coupled equations, ViscoelasticNet introduced a
+decoupled two-stage training sequence. In Stage~1, the velocity and stress networks
+were optimized together by minimizing the sum of kinematic data loss, boundary
+penalties, and constitutive residuals, in order to discover the rheological
+parameters $(\lambda, \mu_p, \alpha, \varepsilon)$ and find the stress field.
+In Stage~2, the learned stress network was frozen,
+while the pressure network and solvent viscosity $\mu_s$ were trained
+against the momentum balance equations and the velocity observation.
+
+ViscoelasticNet provided proof-of-concept evidence that neural
+networks can reconstruct non-Newtonian stress fields, reporting relative $L_2$
+stress errors below $5\%$ and robust convergence under synthetic velocity noise up
+to $10\%$. Anyway, a critical examination of its methodological scope reveals
+an essential research gap. ViscoelasticNet was evaluated exclusively on open,
+pressure-driven geometries, a planar stenosed channel and a symmetric
+cross-slot configuration. Both benchmark domains are characterized by well-defined
+inflow and outflow boundaries, continuous net mass throughput, and a dominant
+convective pressure drop that provides strong directional alignment between velocity
+and pressure gradients.
+
+More broadly, extending this physics-informed framework to increasingly complex geometries 
+represents an essential step to validate its robustness, 
+testing whether neural rheometers can reliably handle realistic and challenging flow configurations.
