@@ -182,11 +182,13 @@ confirming that M125k is fully grid-independent and provides a reliable ground t
     \centering
     \includegraphics[width=\linewidth]{media/cutlines_convergence_all_fields_matrix.png}
     \caption{High-fidelity COMSOL mesh convergence matrix for the representative
-    Oldroyd-B fluid ($\lambda = 1.0\,\mathrm{s}$) across six mesh densities (M5k to
-    M125k) along the Horizontal ($y=0$), Vertical ($x=0$), and Oblique Diagonal
-    ($y=x$) cutlines for velocity components $(u, v)$ and stress tensor components
-    $(\tau_{xx}, \tau_{xy}, \tau_{yy})$. Shaded gray vertical bands in the diagonal
-    cutline panels indicate the solid interior occupied by the cylindrical rollers.}
+    Oldroyd-B fluid ($\lambda = 1.0\,\mathrm{s}$, $\mu_p = 0.50\,\mathrm{Pa\cdot s}$,
+    $\mu_s = 0.50\,\mathrm{Pa\cdot s}$, $Wi = 1.667$, $Re = 0.0417$, $\alpha = 0$,
+    $\varepsilon = 0$) across six mesh densities (M5k to M125k) along the Horizontal
+    ($y=0$), Vertical ($x=0$), and Oblique Diagonal ($y=x$) cutlines for velocity
+    components $(u, v)$ and stress tensor components $(\tau_{xx}, \tau_{xy}, \tau_{yy})$.
+    Shaded gray vertical bands in the diagonal cutline panels indicate the solid interior
+    occupied by the cylindrical rollers.}
     \label{fig:mesh_convergence_cutlines}
 \end{figure}
 
@@ -608,10 +610,12 @@ the four-fold flow symmetry and accurately locates the central hyperbolic stagna
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\linewidth]{media/fig1_diretto_cinematica.png}
-    \caption{Direct problem kinematic validation: 3-column comparison of dimensionless
-    horizontal ($u^* = u/U_{\mathrm{ref}}$) and vertical ($v^* = v/U_{\mathrm{ref}}$)
-    velocity fields on normalized coordinates $[0, 1]^2$ across COMSOL reference,
-    PINN prediction, and range-relative error on the M125k mesh.}
+    \caption{Direct problem kinematic validation for the canonical Oldroyd-B benchmark
+    ($\lambda = 0.05\,\mathrm{s}$, $\mu_p = 0.90\,\mathrm{Pa\cdot s}$, $\mu_s = 0.10\,\mathrm{Pa\cdot s}$,
+    $Wi = 0.0833$, $Re = 0.0417$, $\alpha = 0$, $\varepsilon = 0$): 3-column comparison
+    of dimensionless horizontal ($u^* = u/U_{\mathrm{ref}}$) and vertical
+    ($v^* = v/U_{\mathrm{ref}}$) velocity fields on normalized coordinates $[0, 1]^2$
+    across COMSOL reference, PINN prediction, and range-relative error on the M125k mesh.}
     \label{fig:direct_kinematics}
 \end{figure}
 
@@ -625,8 +629,10 @@ visible numerical oscillations.
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\linewidth]{media/fig3_diretto_stress.png}
-    \caption{Direct problem viscoelastic extra-stress tensor validation: 3-column
-    comparison of dimensionless COMSOL ground truth ($\boldsymbol{\tau}^* =
+    \caption{Direct problem viscoelastic extra-stress tensor validation for the
+    canonical Oldroyd-B benchmark ($\lambda = 0.05\,\mathrm{s}$, $\mu_p = 0.90\,\mathrm{Pa\cdot s}$,
+    $\mu_s = 0.10\,\mathrm{Pa\cdot s}$, $Wi = 0.0833$, $Re = 0.0417$, $\alpha = 0$, $\varepsilon = 0$):
+    3-column comparison of dimensionless COMSOL ground truth ($\boldsymbol{\tau}^* =
     \boldsymbol{\tau}/\tau_{\mathrm{ref}}$), PINN predictions, and range-relative
     errors for normal components $(\tau_{xx}^*, \tau_{yy}^*)$ and shear component
     $\tau_{xy}^*$ on normalized coordinates $[0, 1]^2$.}
@@ -670,7 +676,9 @@ range-relative error across the cavity is $4.08\%$
     \centering
     \includegraphics[width=\linewidth]{media/fig2a_diretto_pressione_ancorata.png}
     \caption{Official hydrodynamic pressure field reconstruction in Direct Mode under
-    single-point algebraic anchoring ($p(\boldsymbol{x}_0) = p_{\mathrm{ref}}$): 3-column
+    single-point algebraic anchoring ($p(\boldsymbol{x}_0) = p_{\mathrm{ref}}$) for the
+    canonical Oldroyd-B benchmark ($\lambda = 0.05\,\mathrm{s}$, $\mu_p = 0.90\,\mathrm{Pa\cdot s}$,
+    $\mu_s = 0.10\,\mathrm{Pa\cdot s}$, $Wi = 0.0833$, $Re = 0.0417$): 3-column
     comparison of dimensionless COMSOL ground truth ($p^* = p/p_{\mathrm{ref}}$),
     raw PINN prediction, and range-relative error distributions on normalized
     coordinates $[0, 1]^2$ ($L_2$ error of $18.31\%$, mean range-relative error of $4.08\%$).}
@@ -681,7 +689,9 @@ range-relative error across the cavity is $4.08\%$
     \centering
     \includegraphics[width=\linewidth]{media/fig2b_diretto_pressione_calibrata.png}
     \caption{Hydrodynamic pressure field after gauge calibration ($p_{\mathrm{cal}} =
-    p - \bar{p} + \bar{p}_{\mathrm{ref}}$): 3-column validation isolating the physical
+    p - \bar{p} + \bar{p}_{\mathrm{ref}}$) for the Oldroyd-B benchmark
+    ($\lambda = 0.05\,\mathrm{s}$, $\mu_p = 0.90\,\mathrm{Pa\cdot s}$, $\mu_s = 0.10\,\mathrm{Pa\cdot s}$,
+    $Wi = 0.0833$, $Re = 0.0417$): 3-column validation isolating the physical
     gradient $\nabla p$ ($L_2$ error reduced to $8.13\%$, mean range-relative error
     of $4.08\%$). The PINN faithfully captures the four-fold symmetric suction troughs
     in the roller nips and the central stagnation saddle.}
@@ -784,13 +794,15 @@ for Benchmark~1 (Oldroyd-B, $Wi = 0.08$) and Benchmark~3 (Giesekus, $\alpha = 0.
     \centering
     \includegraphics[width=\linewidth]{media/fig_inverso_oldroyd_stress.png}
     \caption{Inverse Mode latent viscoelastic extra-stress tensor reconstruction for the
-    canonical Oldroyd-B fluid (Benchmark~1: $Wi = 0.0833, Re = 0.0417, \lambda^{\mathrm{true}} =
-    0.050\,\mathrm{s}, \mu_p^{\mathrm{true}} = 0.900\,\mathrm{Pa\cdot s}$): 3-column
-    comparison of dimensionless COMSOL reference ($\boldsymbol{\tau}^* = \boldsymbol{\tau}/\tau_{\mathrm{ref}}$),
-    Inverse PINN predictions, and range-relative errors across normal
-    components $(\tau_{xx}^*, \tau_{yy}^*)$ and shear component $\tau_{xy}^*$ on normalized
-    coordinates $[0, 1]^2$. Note the high spatial precision on normal stresses ($L_2$ error
-    of $0.64\%$ on $\tau_{xx}^*$ and $0.70\%$ on $\tau_{yy}^*$, with mean range errors below $0.15\%$).}
+    canonical Oldroyd-B fluid (Benchmark~1: $\lambda^{\mathrm{true}} = 0.050\,\mathrm{s}$,
+    $\mu_p^{\mathrm{true}} = 0.900\,\mathrm{Pa\cdot s}$, $\mu_s^{\mathrm{true}} = 0.100\,\mathrm{Pa\cdot s}$,
+    $Wi = 0.0833$, $Re = 0.0417$, $\alpha^{\mathrm{true}} = 0$, $\varepsilon^{\mathrm{true}} = 0$):
+    3-column comparison of dimensionless COMSOL reference ($\boldsymbol{\tau}^* =
+    \boldsymbol{\tau}/\tau_{\mathrm{ref}}$), Inverse PINN predictions, and range-relative
+    errors across normal components $(\tau_{xx}^*, \tau_{yy}^*)$ and shear component
+    $\tau_{xy}^*$ on normalized coordinates $[0, 1]^2$. Note the high spatial precision
+    on normal stresses ($L_2$ error of $0.64\%$ on $\tau_{xx}^*$ and $0.70\%$ on $\tau_{yy}^*$,
+    with mean range errors below $0.15\%$).}
     \label{fig:inverse_oldroyd_stress}
 \end{figure}
 
@@ -806,13 +818,15 @@ concentrated along high-shear boundary interfaces where velocity gradients are s
     \centering
     \includegraphics[width=\linewidth]{media/fig_inverso_giesekus_stress.png}
     \caption{Inverse Mode latent viscoelastic extra-stress tensor reconstruction for the
-    non-linear shear-thinning Giesekus fluid (Benchmark~3: $\alpha^{\mathrm{true}} = 0.350,
-    \lambda^{\mathrm{true}} = 0.100\,\mathrm{s}, \mu_p^{\mathrm{true}} = 0.500\,\mathrm{Pa\cdot s}$,
-    blind initial guess $\alpha_0 = 0.25$): 3-column comparison across COMSOL ground truth,
-    Inverse PINN predictions, and range-relative errors for normal components
-    $(\tau_{xx}^*, \tau_{yy}^*)$ and shear component $\tau_{xy}^*$. Relative $L_2$ errors
-    remain bounded between $5.92\%$ and $7.28\%$, with mean range-relative errors strictly
-    below $1.55\%$, confirming simultaneous parameter discovery and stress field recovery.}
+    non-linear shear-thinning Giesekus fluid (Benchmark~3: $\alpha^{\mathrm{true}} = 0.350$,
+    $\lambda^{\mathrm{true}} = 0.100\,\mathrm{s}$, $\mu_p^{\mathrm{true}} = 0.500\,\mathrm{Pa\cdot s}$,
+    $\mu_s^{\mathrm{true}} = 0.500\,\mathrm{Pa\cdot s}$, $Wi = 0.1667$, $Re = 0.0417$,
+    $\varepsilon^{\mathrm{true}} = 0$, blind initial guess $\alpha_0 = 0.25$): 3-column
+    comparison across COMSOL ground truth, Inverse PINN predictions, and range-relative
+    errors for normal components $(\tau_{xx}^*, \tau_{yy}^*)$ and shear component
+    $\tau_{xy}^*$. Relative $L_2$ errors remain bounded between $5.92\%$ and $7.28\%$, with
+    mean range-relative errors strictly below $1.55\%$, confirming simultaneous parameter
+    discovery and stress field recovery.}
     \label{fig:inverse_giesekus_stress}
 \end{figure}
 
@@ -855,7 +869,10 @@ providing smooth asymptotic settling without numerical oscillations.
     \includegraphics[width=\linewidth]{media/fig4b_inverso_convergence_m125k.png}
     \caption{Parameter convergence trajectories ($\lambda$ and $\mu_p$, left) and
     staged objective loss decay ($\mathcal{L}_{\mathrm{data}}$ and $\mathcal{L}_{\mathrm{con}}$,
-    right) during Adam (FP32) and L-BFGS (FP64) optimization on the M125k dataset.}
+    right) during Adam (FP32) and L-BFGS (FP64) optimization on the M125k dataset
+    for the canonical Oldroyd-B benchmark ($\lambda^{\mathrm{true}} = 0.050\,\mathrm{s}$,
+    $\mu_p^{\mathrm{true}} = 0.900\,\mathrm{Pa\cdot s}$, $\mu_s^{\mathrm{true}} = 0.100\,\mathrm{Pa\cdot s}$,
+    $Wi = 0.0833$, $Re = 0.0417$).}
     \label{fig:inverse_convergence}
 \end{figure}
 
@@ -909,7 +926,10 @@ an Oldroyd-B case ($\lambda = 0.100\,\mathrm{s}, \mu_p = 0.500\,\mathrm{Pa\cdot 
     \includegraphics[width=\linewidth]{media/fig5_inverso_mesh_independence.png}
     \caption{Collocation density study: comparison of parameter estimation errors
     ($\lambda$ and $\mu_p$) and velocity $L_2$ errors across resolutions from 5{,}086
-    to 125{,}456 collocation points.}
+    to 125{,}456 collocation points for the Oldroyd-B benchmark
+    ($\lambda^{\mathrm{true}} = 0.100\,\mathrm{s}$, $\mu_p^{\mathrm{true}} = 0.500\,\mathrm{Pa\cdot s}$,
+    $\mu_s^{\mathrm{true}} = 0.500\,\mathrm{Pa\cdot s}$, $Wi = 0.1667$, $Re = 0.0417$,
+    $\alpha = 0$, $\varepsilon = 0$).}
     \label{fig:inverse_mesh_convergence}
 \end{figure}
 
@@ -943,11 +963,32 @@ Stokes regime where convective inertia is negligible:
     -\nabla p + \mu_s \nabla^2 \boldsymbol{u} + \nabla \cdot \boldsymbol{\tau} = \boldsymbol{0} .
     \label{eq:creeping_momentum_limit}
 \end{equation}
-Under prescribed boundary velocities, variations in $\mu_s$ do not change the
-velocity field; they simply shift the pressure gradient $\nabla p$. As a result, the
-loss gradient $\partial \mathcal{L}_{\mathrm{mom}} / \partial \mu_s$ becomes nearly
-flat, causing gradient-based optimization of $\mu_s$ to stagnate unless anchored by an
-independent pressure or traction reference.
+Variations in $\mu_s$ do not alter the kinematic velocity field; they simply shift
+the pressure gradient $\nabla p$ required to balance the viscous forces.
+
+Figure~\ref{fig:etas_cutlines_invariance} shows the velocity profiles along the
+three cutlines (Horizontal, Vertical, and Diagonal) computed from COMSOL on the
+M125k mesh at $\lambda = 0.05\,\mathrm{s}$ for three solvent viscosities: $\eta_s =
+0.10$, $0.30$, and $0.50\,\mathrm{Pa\cdot s}$ (viscosity ratios $\beta = 0.10,
+0.30$, and $0.50$). The velocity profiles overlap across all three cutlines,
+with local differences below $0.03\%$. The kinematic field is therefore
+independent of $\eta_s$, which leaves the loss gradient
+$\partial \mathcal{L}_{\mathrm{mom}} / \partial \mu_s$ uninformative and
+prevents gradient-based optimization of $\mu_s$ from velocity measurements
+alone without independent pressure or traction data.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{media/fig_cutlines_etas_invariance.png}
+    \caption{Hydrodynamic invariance in creeping flow: velocity profiles along the
+    Horizontal ($y = 0$), Vertical ($x = 0$), and Diagonal ($y = x$) cutlines for
+    three solvent viscosities ($\eta_s = 0.10, 0.30, 0.50\,\mathrm{Pa\cdot s}$) in an
+    Oldroyd-B fluid on the M125k mesh ($\lambda = 0.05\,\mathrm{s}$, $\mu_p =
+    0.90\text{--}0.50\,\mathrm{Pa\cdot s}$, $Wi = 0.0833$, $Re = 0.0417$). The velocity
+    profiles overlap, confirming kinematic independence from $\eta_s$ under
+    prescribed cylinder velocities.}
+    \label{fig:etas_cutlines_invariance}
+\end{figure}
 
 \subsection{Identifiability of Linear PTT}
 \label{subsec:kinematic_shear_degeneracy_ptt}
@@ -992,14 +1033,3 @@ sensitive to the chosen parameter ranges, non-dimensional scales, and relative l
 weighting. The exploration of alternative convergence strategies and optimization regimes
 remains an active direction of research to determine the conditions under which the
 PTT parameters can be reliably resolved in this flow geometry.
-
-In summary, the computational findings presented throughout this chapter confirm
-the predictive capability and delineate the physical identifiability boundaries
-of the multi-head PINN framework in viscoelastic flows. In direct mode, the solver
-reconstructs unmeasured latent stress and pressure fields with high fidelity
-strictly from planar kinematic observations. In inverse mode, the network reliably
-discovers nonlinear constitutive parameters across linear Oldroyd-B and shear-thinning
-Giesekus fluids using only boundary stress anchoring. Chapter~\ref{chap:conclusions} synthesizes these conclusions, discusses
-their broader implications for experimental rheometry, and outlines future avenues
-for extending physics-informed architectures to three-dimensional and time-dependent
-polymeric flows.
