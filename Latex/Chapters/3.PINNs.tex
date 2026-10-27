@@ -336,13 +336,6 @@ or if the loss landscape exhibits degeneracies.
 Embedding physical equations provides essential structure,
 but does not automatically guarantee unique parameter recovery.
 
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.95\linewidth]{media/pinn_workflow_concept.png}
-    \caption{Schematic computational workflow of a Physics-Informed Neural Network (PINN): boundary coordinates $\{\boldsymbol{x}_j^{\mathrm{bc}}\}$ and measurements $\{\boldsymbol{x}_i^{\mathrm{data}}\}$ evaluate boundary adherence ($\mathcal{L}_{\mathrm{bc}}$) and empirical matching ($\mathcal{L}_{\mathrm{data}}$) (top branch), while interior collocation points $\{\boldsymbol{x}_k^{\mathrm{pde}}\}$ pass through Coordinate Automatic Differentiation (AD) to compute exact spatial derivatives and differential PDE residuals ($\mathcal{L}_{\mathrm{pde}}$, bottom branch). The composite loss $\mathcal{L}_{\mathrm{total}}$ drives gradient descent via reverse-mode backpropagation, jointly optimizing surrogate weights $\boldsymbol{\theta}$ and identifying unknown physical parameters $\boldsymbol{\lambda}$ in inverse settings.}
-    \label{fig:pinn_workflow_concept}
-\end{figure}
-
 \subsection{PINN-Specific Features}
 \label{subsec:deep_dive_training}
 
