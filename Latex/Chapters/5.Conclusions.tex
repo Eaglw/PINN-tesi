@@ -6,160 +6,106 @@ This thesis evaluated a Physics-Informed Neural Network (PINN) framework for the
 modeling and inverse rheological characterization of steady, two-dimensional
 viscoelastic flows in a four-roll mill geometry. By imposing conservation of mass,
 momentum balance, and constitutive laws into a decoupled multi-head
-architecture, we studied field reconstruction and inverse parameter
-estimation. The analysis examined three constitutive models with increasing
+architecture, we investigated continuous latent field reconstruction and inverse
+parameter estimation across three constitutive models with increasing
 nonlinearity: Oldroyd-B, Giesekus, and linear Phan-Thien-Tanner (PTT) fluids.
 
-% ============================================================
-% 5.1 SUMMARY OF ACHIEVEMENTS
-% ============================================================
-\section{Summary of Key Findings and Contributions}
-\label{sec:summary_achievements}
-\label{sec:conclusions_summary}
+To capture velocity, pressure, and stress in a closed recirculating cavity, we
+used a three-head architecture ($\mathcal{N}_\psi, \mathcal{N}_p,
+\mathcal{N}_{\boldsymbol{\tau}}$) with $\mathrm{SiLU}$ activations and zero output
+initialization for stress and pressure. Formulating the velocity through a stream
+function $\psi(x, y)$ enforces incompressibility ($\nabla \cdot \boldsymbol{u}
+\equiv 0$) by construction, while pressure gauge indeterminacy is fixed by an
+algebraic single-point anchor. Training is divided into two stages: Phase~1 optimizes
+kinematics and viscoelastic stresses, while Phase~2 optimizes momentum balance
+and pressure while keeping the stream function trainable. Combining FP32 Adam
+for initial exploration with FP64 L-BFGS for higher-order derivatives provided
+stable convergence without optimization plateaus.
 
-The main findings and methodological contributions of this work are organized
-along three main aspects:
+In direct mode on the canonical Oldroyd-B benchmark ($Wi = 0.0833, Re = 0.0417$),
+velocity supervision alone allowed the network to reconstruct extra-stresses and
+pressure across the domain. Compared to the COMSOL reference solution on 125,456
+nodes, relative $L_2$ errors were $0.98\%$ for $u$ and $0.93\%$ for $v$. Extra-stress
+errors were $1.21\%$ for $\tau_{xy}$, $1.80\%$ for $\tau_{xx}$, and $1.65\%$ for
+$\tau_{yy}$, resolving localized stress peaks in roller gaps. The pressure field
+matched reference profiles with an $8.13\%$ range-relative error after gauge
+calibration.
 
-\begin{enumerate}
-    \item \textbf{Decoupled Architecture and Staged Dual-Precision Training}:
-    To model the coupled velocity, pressure, and stress fields in a closed
-    recirculating cavity, we implemented a three-head neural
-    network ($\mathcal{N}_\psi, \mathcal{N}_p, \mathcal{N}_{\boldsymbol{\tau}}$)
-    with $\mathrm{SiLU}$ activations and zero initialization for stress and
-    pressure. Velocity is parameterized through a scalar stream function
-    $\psi(x, y)$, satisfying the divergence-free condition
-    ($\nabla \cdot \boldsymbol{u} \equiv 0$) by construction.
-    Pressure gauge indeterminacy is resolved through an algebraic single-point
-    hard anchor.
-    Optimization is split into two physical stages: Phase~1 trains kinematics
-    and extra-stresses, instead Phase~2 trains momentum balance and pressure
-    while keeping the stream function trainable. Combining FP32 Adam for initial
-    exploration with FP64 L-BFGS for refinement avoids optimization plateaus and
-    yields stable convergence.
+In inverse mode, the network identified fluid parameters using planar velocity
+data and roller boundary stress anchoring, without interior stress measurements.
+For Oldroyd-B fluids, relaxation time $\lambda$ and polymeric viscosity $\mu_p$
+were identified within $0.41\%\text{--}1.27\%$ error across low and moderate
+elasticity regimes ($Wi = 0.08$ and $1.17$). For shear-thinning Giesekus fluids,
+the solver estimated three parameters ($\alpha, \lambda, \mu_p$) simultaneously,
+recovering mobility $\alpha$ within $5.76\%\text{--}6.70\%$ error even up to the
+theoretical limit $\alpha = 0.50$. Transfer learning cut training iterations from
+50,000 to 25,000 steps and stabilized convergence at higher Weissenberg numbers,
+while parameter estimates remained accurate down to 5,086 collocation points.
 
-    \item \textbf{Direct Latent Field Reconstruction}:
-    Supervising planar velocity alone on the canonical Oldroyd-B benchmark
-    ($Wi = 0.0833, Re = 0.0417$) enabled the model to reconstruct unmeasured
-    viscoelastic stresses and pressure across the domain. Evaluated against a
-    finite element reference solution with $125{,}456$ nodes from COMSOL
-    Multiphysics, the network achieved relative $L_2$ errors of $0.98\%$ on $u$
-    and $0.93\%$ on $v$. Stress prediction errors were $1.21\%$ for shear stress
-    $\tau_{xy}$, $1.80\%$ for $\tau_{xx}$, and $1.65\%$ for $\tau_{yy}$, resolving
-    the localized stress peaks in the roller gaps. The hydrodynamic pressure field
-    was recovered with a range-relative error of $8.13\%$.
+Alongside these predictive achievements, several physical and operational
+limitations of the framework must be addressed. First, the inverse solver still
+relies on stress data prescribed along the rotating cylinder boundaries
+($\mathcal{L}_{\mathrm{roll\_stress}}$) to break the scaling ambiguity with
+polymeric viscosity $\mu_p$; developing strategies to infer the stress scale
+without requiring surface traction or optical measurements remains an open
+challenge. Second, in the creeping flow regime investigated ($Re \ll 1$), the
+velocity field is kinematically dominated by roller rotation and insensitive to
+the solvent viscosity $\eta_s$. Because variations in $\eta_s$ merely shift the
+pressure gradient $\nabla p$, identifying the solvent contribution from velocity
+data alone stagnates, indicating that higher-inertia regimes or independent
+pressure measurements must be explored. Third, the identifiability of linear PTT
+fluids remains problematic in this geometry, as the concentration of velocity data
+in shear zones leaves the extensional parameter $\varepsilon$ weakly observable.
 
-    \item \textbf{Inverse Parameter Identification and Transfer Learning}:
-    Using planar velocity data and stress supervision on the roller boundaries,
-    the inverse PINN identified fluid parameters without interior stress
-    measurements. For Oldroyd-B fluids, the relaxation time $\lambda$ and polymeric
-    viscosity $\mu_p$ were recovered within $0.41\%$ to $1.27\%$ error across
-    both low ($Wi = 0.08$) and moderate ($Wi = 1.17$) elasticity regimes.
-    For shear-thinning Giesekus fluids, the network estimated three coupled
-    parameters ($\alpha, \lambda, \mu_p$) simultaneously. The mobility factor
-    $\alpha$ was identified within $5.76\%$ to $6.70\%$ error, even from distant
-    initializations and at the theoretical limit $\alpha = 0.50$.
-    Transfer learning halved the required iteration budget from $50{,}000$ to
-    $25{,}000$ steps and stabilized optimization at higher Weissenberg numbers.
-    Collocation sensitivity tests confirmed that parameter estimates remain stable
-    down to $5{,}086$ points.
-\end{enumerate}
-
-% ============================================================
-% 5.2 OPERATIONAL LIMITATIONS
-% ============================================================
-\section{Operational Limitations}
-\label{sec:limitations}
-\label{sec:conclusions_limitations}
-
-Several practical and modeling limitations of the current framework should be
-noted:
-
-\begin{itemize}
-    \item \textbf{Boundary Stress Anchoring}:
-    To break scaling symmetries between polymeric viscosity $\mu_p$ and latent
-    stress magnitudes, the inverse solver requires stress supervision on the
-    rotating cylinder surfaces ($\mathcal{L}_{\mathrm{roll\_stress}}$).
-    Although this avoids domain-wide stress measurements, determining local
-    wall shear and normal stresses experimentally requires optical birefringence
-    or surface traction sensors.
-
-    \item \textbf{Identifiability of PTT Fluids}:
-    When velocity data are concentrated in high-shear regions near the cylinders,
-    parameters governing extensional stress saturation, such as the PTT
-    extensibility $\varepsilon$, become weakly observable. 
-
-    \item \textbf{Single-Point Pressure Gauge Sensitivity}:
-    The algebraic single-point hard anchor is enough from mathematical standpoint
-    for the pressure field. However, fixing the gauge at a single peripheral
-    node allows local spatial errors in $\nabla p$ to propagate across the domain,
-    producing a uniform baseline offset ($18.31\%$ raw relative $L_2$ error
-    versus $8.13\%$ after removing the domain mean).
-
-    \item \textbf{Two-Dimensional Steady-State Scope}:
-    The present study is restricted to steady, isothermal, two-dimensional flows
-    up to moderate Weissenberg numbers ($Wi \le 1.67$). It does not account for
-    three-dimensional secondary flows near the roller end-walls, nor does it
-    capture time-dependent elastic instabilities that develop at higher
-    deformation rates.
-\end{itemize}
-
-% ============================================================
-% 5.3 FUTURE PERSPECTIVES
-% ============================================================
-\section{Future Perspectives and Research Directions}
-\label{sec:future_outlook}
-\label{sec:conclusions_future_work}
-
-The methodology developed in this thesis demonstrates the viability of
-decoupled neural solvers for viscoelastic flow fields, while also identifying
-several technical extensions:
-
+These physical and operational findings highlight several practical extensions
+for future research:
 \begin{enumerate}
     \item \textbf{Changing flow field parameter}:
     The present benchmark relies on four identical counter-rotating cylinders,
     which enforce purely extensional flow at the cavity center. Future work
     should evaluate asymmetric or time-dependent boundary kinematics, such as
-    independent cylinder rotation speeds or alternating drive ratios. Testing
-    these configurations will verify whether the decoupled architecture adapts
-    to mixed shearing and extensional dynamics.
+    independent cylinder rotation speeds or alternating drive ratios (varying
+    the kinematic parameter $k$). Testing these configurations will verify
+    whether the decoupled architecture adapts to mixed shearing, rotational, and
+    unsteady dynamics away from strict spatial symmetry.
 
     \item \textbf{Addition of Gaussian Noise}:
     The synthetic datasets used throughout this work represent ideal, noise-free
-    velocity fields. Adding controlled Gaussian noise to planar
-    velocity and roller boundary observations will establish the sensitivity of
-    automatic differentiation under realistic experimental conditions. This step
-    will define the signal-to-noise threshold below which the loss formulation
-    requires explicit smoothing filters or regularization.
+    velocity fields. In physical Particle Image Velocimetry (PIV), observations
+    are inevitably affected by optical noise and tracer tracking uncertainties.
+    Adding controlled Gaussian noise to planar velocity and roller boundary
+    observations will establish the sensitivity of automatic differentiation
+    under realistic experimental conditions, determining the signal-to-noise
+    threshold below which explicit smoothing filters or loss regularization are
+    required.
 
     \item \textbf{Exponential Constitutive PTT}:
     The current study implemented linear PTT fluids, in which the stress trace
     enters linearly as $1 + (\varepsilon \lambda / \mu_p)\mathrm{tr}(\boldsymbol{\tau})$.
     Extending the formulation to the exponential PTT (ePTT) model, where
     $Y(\mathrm{tr}(\boldsymbol{\tau})) = \exp[(\varepsilon \lambda / \mu_p)\mathrm{tr}(\boldsymbol{\tau})]$,
-    introduces steeper nonlinear gradients during backpropagation. Investigating
+    introduces steeper non-linear gradients during backpropagation. Investigating
     ePTT will test whether the staged optimization scheme remains stable when
     confronted with exponential stress growth near stagnation lines.
 
     \item \textbf{Convergence Mapping Across Parameter Space}:
-    Systematic parameter sweeps across Weissenberg numbers ($Wi$), Reynolds numbers
-    ($Re$), and loss weightings are needed to map the convergence boundaries of
-    the solver. This research will identify the precise
-    threshold where this framework is still applicable. 
+    Systematic parameter sweeps across Weissenberg numbers ($Wi$), Reynolds
+    numbers ($Re$), and loss weights are needed to map the complete
+    convergence of the solver. This research will identify the precise
+    boundaries between smooth parameter recovery and numerical stiffness,
+    defining the operational window where this physics-informed framework is
+    most reliable.
 \end{enumerate}
 
-\vspace{0.5em}
-In conclusion, this work demonstrates that physics-informed neural networks
-provide a mathematically and computationally versatile foundation for hybrid
-experimental-computational rheometry in complex polymeric flows. By embedding continuum
-conservation principles, frame-indifferent constitutive transport, and exact kinematic
-constraints directly into decoupled deep network architectures, the framework bridges
-the long-standing divide between non-intrusive kinematic measurements (such as PIV)
-and unobservable internal state variables. The solver operates not merely as an empirical
-interpolator, but as a genuine virtual rheometer capable of resolving steep boundary-layer
-stresses, capturing extensional stagnation features, and identifying non-linear constitutive
-parameters without spatial discretization meshes. By simultaneously mapping the physical
-limits of parameter identifiability, such as creeping-flow hydrodynamic invariance and
-identifiability limits in non-linear formulations, this work establishes rigorous operational guidelines for deploying
-physics-informed machine learning as a predictive, non-invasive diagnostic tool in
-advanced polymer processing and materials engineering.
-
+Physics-informed neural networks offer a practical framework to combine
+kinematic measurements with constitutive modeling in viscoelastic flows. By
+embedding conservation laws and objective stress transport into decoupled
+network branches, the model reconstructs unobserved stress and pressure fields
+directly from planar velocity data. The ability to use PINNs as a virtual
+rheometer suggests that high-speed, non-intrusive characterization of polymer
+melts is possible using only surface-based velocity measurements (PIV),
+potentially reducing the cost of quality control in extrusion processes. By
+resolving localized boundary stresses, reproducing central extensional features,
+and estimating constitutive parameters without a numerical mesh, the framework
+provides a foundation for data-driven rheological diagnostics in polymer
+processing.
