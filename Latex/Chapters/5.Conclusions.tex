@@ -129,7 +129,7 @@ several technical extensions:
     velocity and roller boundary observations will establish the sensitivity of
     automatic differentiation under realistic experimental conditions. This step
     will define the signal-to-noise threshold below which the loss formulation
-    requires explicit smoothing filters orr egularization.
+    requires explicit smoothing filters or regularization.
 
     \item \textbf{Exponential Constitutive PTT}:
     The current study implemented linear PTT fluids, in which the stress trace
@@ -144,16 +144,22 @@ several technical extensions:
     Systematic parameter sweeps across Weissenberg numbers ($Wi$), Reynolds numbers
     ($Re$), and loss weightings are needed to map the convergence boundaries of
     the solver. This research will identify the precise
-    threshold where this framework is still appliable. 
+    threshold where this framework is still applicable. 
 \end{enumerate}
 
 \vspace{0.5em}
-Overall, physics-informed neural networks offer a flexible alternative to purely
-empirical data fitting and traditional mesh-based discretizations in rheological
-characterization. By embedding continuum momentum balance and constitutive laws
-directly into the objective function,our work reconstructs unmeasured
-stress fields and identifies nonlinear material parameters from sparse kinematic
-data. The decoupled formulation and staged training sequence resolve the
-numerical stiffness typically associated with coupled viscoelastic equations,
-providing a foundation for hybrid experimental-computational rheometry.
+In conclusion, this work demonstrates that physics-informed neural networks
+provide a mathematically and computationally versatile foundation for hybrid
+experimental-computational rheometry in complex polymeric flows. By embedding continuum
+conservation principles, frame-indifferent constitutive transport, and exact kinematic
+constraints directly into decoupled deep network architectures, the framework bridges
+the long-standing divide between non-intrusive kinematic measurements (such as PIV)
+and unobservable internal state variables. The solver operates not merely as an empirical
+interpolator, but as a genuine virtual rheometer capable of resolving steep boundary-layer
+stresses, capturing extensional stagnation features, and identifying non-linear constitutive
+parameters without spatial discretization meshes. By simultaneously mapping the physical
+limits of parameter identifiability—such as creeping-flow hydrodynamic invariance and
+wall-shear degeneracy—this work establishes rigorous operational guidelines for deploying
+physics-informed machine learning as a predictive, non-invasive diagnostic tool in
+advanced polymer processing and materials engineering.
 
