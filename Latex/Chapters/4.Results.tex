@@ -117,7 +117,7 @@ this representative configuration and confirmed across all other fluid models
 and regimes investigated.
 
 We evaluated six progressive grid resolutions:
-\begin{itemize}
+\begin{itemize}[noitemsep, topsep=3pt, parsep=1pt]
     \item \textbf{M5k (Coarse Grid)}: 5{,}086 nodes, capturing macroscopic cavity
         recirculation.
     \item \textbf{M12k (Light Grid)}: 12{,}760 nodes.
@@ -128,28 +128,13 @@ We evaluated six progressive grid resolutions:
         sub-millimeter viscoelastic stress layers within the narrow roller gaps.
 \end{itemize}
 
-Figure~\ref{fig:collocation_mesh_5k} illustrates the triangular mesh
-and spatial distribution of the $\mathcal{N}_{\mathrm{coll}} = 5{,}086$ collocation
-points for the coarse baseline grid (M5k), highlighting the higher point density
-concentrated near the cylinder surfaces and within the narrow roller gaps.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.60\linewidth]{media/collocation_points_mesh_5k.png}
-    \caption{Spatial distribution of the $\mathcal{N}_{\mathrm{coll}} = 5{,}086$
-    interior collocation points and underlying unstructured triangular mesh for
-    the coarse resolution grid (M5k), showing the local point refinement around
-    the four rotating cylinder boundaries and within the roller gaps.}
-    \label{fig:collocation_mesh_5k}
-\end{figure}
-
 \subsection{Mesh Convergence Study}
 \label{subsec:mesh_convergence_study}
 
 To quantitatively verify local kinematic and stress fields across mesh densities,
 three diagnostic cutlines are established
 (Figure~\ref{fig:four_roll_cutlines_schema}):
-\begin{enumerate}
+\begin{enumerate}[noitemsep, topsep=3pt, parsep=1pt]
     \item \textbf{Horizontal Cutline} ($y = 0, \, -L/2 \le x \le L/2$):
         Outflow elongational axis passing through the central hyperbolic stagnation
         point $(0, 0)$, along which tensile normal stress tails $\tau_{xx}$ develop.
@@ -161,9 +146,9 @@ three diagnostic cutlines are established
         transition from the extensional core into high-shear roller boundary layers.
 \end{enumerate}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
     \centering
-    \includegraphics[width=0.68\linewidth]{media/four_roll_cutlines_schema.pdf}
+    \includegraphics[width=0.52\linewidth]{media/four_roll_cutlines_schema.pdf}
     \caption{Schematic of the four-roll mill geometry with the four
     counter-rotating cylinders, central extensional stagnation point $(0,0)$ (red
     circle), and three diagnostic verification cutlines:
@@ -178,7 +163,7 @@ the cutlines. Spatial velocity profiles between M52k, M88k, and M125k deviate by
 than $0.05\%$, while peak shear stresses in roller gaps differ by under $0.3\%$,
 confirming that M125k is fully grid-independent and provides a reliable ground truth.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{media/cutlines_convergence_all_fields_matrix.png}
     \caption{High-fidelity COMSOL mesh convergence matrix for the representative
@@ -204,8 +189,7 @@ confirming that M125k is fully grid-independent and provides a reliable ground t
 Following the stream function formulation introduced in Section~\ref{subsec:stream_function_formulation}
 (Eq.~\eqref{eq:stream_function_def}), the velocity field identically satisfies
 mass conservation ($\nabla \cdot \boldsymbol{u} \equiv 0$).
-As shown in Figure~\ref{fig:pinn_three_head_architecture}, the physical fields
-are predicted by three independent Multi-Layer Perceptron (MLP) branches rather
+The physical fields are predicted by three independent Multi-Layer Perceptron (MLP) branches rather
 than a single shared network:
 \begin{equation}
     (x, y) \longrightarrow 
@@ -220,16 +204,6 @@ Each branch contains 8 hidden layers with 128 neurons per layer, activated by
 the Sigmoid Linear Unit ($\mathrm{SiLU}(z) = z / (1 + e^{-z})$). Its smooth,
 infinitely differentiable profile provides well-behaved second and third-order
 derivative graphs during automatic differentiation.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.95\linewidth]{media/pinn_three_head_architecture.pdf}
-    \caption{Decoupled three-head neural network architecture for the
-    viscoelastic four-roll mill solver, showing coordinate inputs, separate MLP heads
-    for stream function $\psi$, pressure $p$, and stress tensor $\boldsymbol{\tau}$,
-    coordinate automatic differentiation, and the two-stage optimization schedule.}
-    \label{fig:pinn_three_head_architecture}
-\end{figure}
 
 \subsection{Weight Initialization}
 \label{subsec:physics_informed_initialization}
@@ -390,6 +364,8 @@ The individual loss terms are defined as follows:
         without introducing competing loss terms or gradient conflicts.
 \end{itemize}
 
+
+
 \subsection{Roller Stress Supervision}
 \label{subsec:roller_stress_anchor}
 
@@ -450,7 +426,7 @@ stagnation that occurs if the velocity field is rigidly frozen after Phase~1.
 Table~\ref{tab:staged_training_summary} summarizes the training stages, active
 heads, and loss weights.
 
-\begin{table}[htbp]
+\begin{table}[H]
     \centering
     \caption{Summary of the decoupled two-stage training strategy.}
     \label{tab:staged_training_summary}
@@ -465,6 +441,19 @@ heads, and loss weights.
     \end{tabular}%
     }
 \end{table}
+
+The decoupled multi-head solver architecture and the corresponding two-stage optimization
+workflow are illustrated conceptually in Figure~\ref{fig:pinn_three_head_architecture}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\linewidth]{media/pinn_three_head_architecture.pdf}
+    \caption{Decoupled three-head neural network architecture for the
+    viscoelastic four-roll mill solver, showing coordinate inputs, separate MLP heads
+    for stream function $\psi$, pressure $p$, and stress tensor $\boldsymbol{\tau}$,
+    coordinate automatic differentiation, and the two-stage optimization schedule.}
+    \label{fig:pinn_three_head_architecture}
+\end{figure}
 
 \subsection{Dual-Precision Optimization}
 \label{subsec:dual_precision_optimization}
@@ -607,7 +596,7 @@ reference ($L_2$ errors of $0.98\%$ for $u$ and $0.93\%$ for $v$, with local ran
 errors strictly bounded below $3.5\%$). The stream-function parameterization maintains
 the four-fold flow symmetry and accurately locates the central hyperbolic stagnation point.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{media/fig1_diretto_cinematica.png}
     \caption{Direct problem kinematic validation for the canonical Oldroyd-B benchmark
@@ -626,7 +615,7 @@ stress $\tau_{xx}^*$. Stresses are highest in the narrow roller gaps, where inte
 velocity shearing occurs, and the network reproduces these localized peaks without
 visible numerical oscillations.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{media/fig3_diretto_stress.png}
     \caption{Direct problem viscoelastic extra-stress tensor validation for the
@@ -660,19 +649,7 @@ field $p^*(\boldsymbol{x}) = p(\boldsymbol{x})/p_{\mathrm{ref}}$ predicted direc
 the network under this single-point anchor. Over the entire 125k evaluation mesh, the
 raw anchored field achieves a relative $L_2$ error of $18.31\%$.
 
-This $18.31\%$ discrepancy represents the operational performance of the solver in a
-realistic experimental setting where only a single physical pressure tap is available at
-$\boldsymbol{x}_0$. Because the global two-dimensional pressure surface is pinned at an
-isolated peripheral boundary node, any infinitesimal residual discrepancy in the
-learned local derivative $\nabla p$ at $\boldsymbol{x}_0$ shifts the entire 2D surface
-vertically by a uniform constant offset across the cavity.
-As documented in Table~\ref{tab:direct_problem_metrics}, removing this uniform
-hydrostatic offset via domain-mean calibration ($p_{\mathrm{cal}} = p - \bar{p} + \bar{p}_{\mathrm{ref}}$)
-reduces the relative $L_2$ error from $18.31\%$ to $8.13\%$, while the mean
-range-relative error across the cavity is $4.08\%$
-(Figure~\ref{fig:direct_pressure_calibrated}).
-
-\begin{figure}[htbp]
+\begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{media/fig2a_diretto_pressione_ancorata.png}
     \caption{Official hydrodynamic pressure field reconstruction in Direct Mode under
@@ -685,7 +662,19 @@ range-relative error across the cavity is $4.08\%$
     \label{fig:direct_pressure_anchored}
 \end{figure}
 
-\begin{figure}[htbp]
+This $18.31\%$ discrepancy represents the operational performance of the solver in a
+realistic experimental setting where only a single physical pressure tap is available at
+$\boldsymbol{x}_0$. Because the global two-dimensional pressure surface is pinned at an
+isolated peripheral boundary node, any infinitesimal residual discrepancy in the
+learned local derivative $\nabla p$ at $\boldsymbol{x}_0$ shifts the entire 2D surface
+vertically by a uniform constant offset across the cavity.
+As documented in Table~\ref{tab:direct_problem_metrics}, removing this uniform
+hydrostatic offset via domain-mean calibration ($p_{\mathrm{cal}} = p - \bar{p} + \bar{p}_{\mathrm{ref}}$)
+reduces the relative $L_2$ error from $18.31\%$ to $8.13\%$, while the mean
+range-relative error across the cavity is $4.08\%$
+(Figure~\ref{fig:direct_pressure_calibrated}).
+
+\begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{media/fig2b_diretto_pressione_calibrata.png}
     \caption{Hydrodynamic pressure field after gauge calibration ($p_{\mathrm{cal}} =
@@ -845,6 +834,9 @@ cylinders without introducing spurious oscillations or unphysical stress accumul
 These results confirm that the inverse PINN resolves both boundary-layer shear and
 extensional stagnation dynamics simultaneously with parameter identification.
 
+\subsubsection{Parameter Convergence and Optimization Dynamics}
+\label{subsubsec:parameter_convergence_loss_dynamics}
+
 Figure~\ref{fig:inverse_convergence} illustrates parameter trajectories and objective
 function evolution during staged Adam (FP32, initial 40k epochs) and L-BFGS (FP64, final 10k iterations)
 optimization on the M125k dataset. In Figure~\ref{fig:inverse_convergence}(left),
@@ -864,9 +856,9 @@ order of magnitude (from $10^{-6}$ to $1.81\times 10^{-7}$), while the constitut
 loss settles monotonically to $\mathcal{L}_{\mathrm{con}} = 6.13\times 10^{-6}$,
 providing smooth asymptotic settling without numerical oscillations.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
     \centering
-    \includegraphics[width=\linewidth]{media/fig4b_inverso_convergence_m125k.png}
+    \includegraphics[width=0.95\linewidth]{media/fig4b_inverso_convergence_m125k.png}
     \caption{Parameter convergence trajectories ($\lambda$ and $\mu_p$, left) and
     staged objective loss decay ($\mathcal{L}_{\mathrm{data}}$ and $\mathcal{L}_{\mathrm{con}}$,
     right) during Adam (FP32) and L-BFGS (FP64) optimization on the M125k dataset
@@ -900,7 +892,7 @@ conducted a systematic grid study across five resolutions from 5k to 125k nodes
 (Table~\ref{tab:grid_independence} and Figure~\ref{fig:inverse_mesh_convergence}) on
 an Oldroyd-B case ($\lambda = 0.100\,\mathrm{s}, \mu_p = 0.500\,\mathrm{Pa\cdot s}$).
 
-\begin{table}[htbp]
+\begin{table}[H]
     \centering
     \caption{Collocation density sensitivity and parameter estimation accuracy across
     five resolutions
@@ -921,9 +913,9 @@ an Oldroyd-B case ($\lambda = 0.100\,\mathrm{s}, \mu_p = 0.500\,\mathrm{Pa\cdot 
     }
 \end{table}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
     \centering
-    \includegraphics[width=\linewidth]{media/fig5_inverso_mesh_independence.png}
+    \includegraphics[width=0.92\linewidth]{media/fig5_inverso_mesh_independence.png}
     \caption{Collocation density study: comparison of parameter estimation errors
     ($\lambda$ and $\mu_p$) and velocity $L_2$ errors across resolutions from 5{,}086
     to 125{,}456 collocation points for the Oldroyd-B benchmark
@@ -944,7 +936,20 @@ sampling rather than systematic grid-dependent bias. All resolutions yield
 comparable, reliable parameter estimates, demonstrating that the inverse solver
 is robust to collocation point density and does not require excessively dense
 grids to achieve satisfactory convergence.
+Figure~\ref{fig:collocation_mesh_5k} illustrates the spatial distribution of the
+$\mathcal{N}_{\mathrm{coll}} = 5{,}086$ interior collocation points across the fluid cavity,
+highlighting the local refinement concentrated around the rotating cylinder boundaries
+and within the narrow roller gaps where the governing differential residuals $\mathcal{L}_{\mathrm{con}}$
+and $\mathcal{L}_{\mathrm{mom}}$ are evaluated.
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.52\linewidth]{media/collocation_points_mesh_5k.png}
+    \caption{Spatial distribution of the $\mathcal{N}_{\mathrm{coll}} = 5{,}086$
+    interior collocation points across the four-roll mill domain, showing the localized
+    point refinement in high-shear cylinder regions and roller gaps.}
+    \label{fig:collocation_mesh_5k}
+\end{figure}
 % ============================================================
 % 4.7 IDENTIFIABILITY BOUNDARIES AND INVARIANCE PRINCIPLES
 % ============================================================

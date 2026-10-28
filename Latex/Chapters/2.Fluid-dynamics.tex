@@ -284,6 +284,7 @@ bounding extensional viscosity growth and preventing unbounded coil stretch near
 % ============================================================
 % 2.4 CHARACTERISTIC SCALES AND DIMENSIONLESS GROUPS
 % ============================================================
+\clearpage
 \section{Characteristic Scales and Dimensionless Numbers}
 \label{sec:nondimensionalization}
 
@@ -304,7 +305,7 @@ dimensionless groups:
     \beta &= \frac{\mu_s}{\mu_0} = \frac{\mu_s}{\mu_s + \mu_p} \quad &\text{(Solvent viscosity ratio)} . \label{eq:viscosity_ratio_def}
 \end{align}
 Each dimensionless group carries a precise physical significance:
-\begin{itemize}
+\begin{itemize}[noitemsep, topsep=3pt, parsep=1pt]
     \item \textbf{Reynolds number ($Re$)}: Compares convective inertial forces to viscous
     dissipative forces. In the four-roll mill configurations studied here, $Re = 0.0417 \ll 1$,
     placing the flow within the laminar creeping flow (Stokes) regime where fluid
@@ -375,8 +376,20 @@ we define a dimensionless flow type parameter $\chi \in [-1, 1]$:
     \label{eq:flow_parameter_chi}
 \end{equation}
 Depending on roller rotation speeds and directions, this local kinematics covers three canonical flow regimes
-(in Figure~\ref{fig:four_roll_flow_regimes}):
-\begin{itemize}
+(illustrated in Figure~\ref{fig:four_roll_flow_regimes}):
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{media/four_roll_flow_regimes.png}
+    \caption{Streamline patterns of the two-dimensional linear flow field in
+    Equation~\eqref{eq:kinematic_general} for the three canonical regimes of the flow
+    classification parameter $\chi$: (a) pure planar extension ($\chi = +1$), (b)
+    simple shear ($\chi = 0$), and (c) pure solid-body rotation ($\chi = -1$). The
+    red marker indicates the central stagnation point $(0,0)$.}
+    \label{fig:four_roll_flow_regimes}
+\end{figure}
+
+\begin{itemize}[noitemsep, topsep=3pt, parsep=1pt]
     \item $\chi = +1$ ($\omega = 0$): \textbf{Pure Planar Extensional Flow}.
     Generated when adjacent rollers counter-rotate symmetrically (diagonal rollers co-rotate).
     Fluid elements experience pure elongation along $x$ and compression along $y$, producing hyperbolic streamlines $x y = \text{const}$.
@@ -385,17 +398,6 @@ Depending on roller rotation speeds and directions, this local kinematics covers
     \item $\chi = -1$ ($E = 0$): \textbf{Pure Solid-Body Rotation}.
     Generated when rollers rotate in unison to drive bulk cavity circulation, resulting in concentric circular streamlines without stretching.
 \end{itemize}
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=\linewidth]{media/four_roll_flow_regimes.png}
-    \caption{Streamline patterns of the two-dimensional linear flow field in
-    Equation~\eqref{eq:kinematic_general} for the three canonical regimes of the flow
-    classification parameter $\chi$: (a) pure planar extension ($\chi = +1$), (b)
-    simple shear ($\chi = 0$), and (c) pure solid-body rotation ($\chi = -1$). The
-    red marker indicates the central stagnation point $(0,0)$.}
-    \label{fig:four_roll_flow_regimes}
-\end{figure}
 
 \subsection{Stagnation Point}
 \label{subsec:stagnation_point}
@@ -414,7 +416,7 @@ an ideal benchmark for probing strong extensional stresses far from solid walls.
 
 Following the established benchmark setup of D'Avino et al.
 \cite{davino2017numerical}, we define the physical dimensions of the apparatus:
-\begin{itemize}
+\begin{itemize}[noitemsep, topsep=3pt, parsep=1pt]
     \item \textbf{Square cavity}: Side length $L = 50\,\mathrm{mm}$ spanning the
         domain $[-25, 25]\,\mathrm{mm}$.
     \item \textbf{Cylindrical rollers}: Radius $R = 5\,\mathrm{mm}$
@@ -429,20 +431,12 @@ Following the established benchmark setup of D'Avino et al.
 As shown in Figure~\ref{fig:4roll_geometry}, these dimensions define the
 operational space and solid boundaries of the cavity.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
     \centering
-    \includegraphics[width=0.60\linewidth]{media/4roll_mill_geometry_thesis.png}
-    \caption{Detailed geometric dimensions and boundary partition of the four-roll
-    mill:
-    planar fluid domain $\Omega$, external stationary cavity boundary
-    $\Gamma_{\mathrm{outer}}$
-    with side length $L = 50\,\mathrm{mm}$, four cylinder boundaries 
-    $\Gamma_{\mathrm{rolls}} = \bigcup_{k} \Gamma_k$ ($k \in \{\mathrm{TL},
-    \mathrm{TR}, \mathrm{BL}, \mathrm{BR}\}$)
-    with radius $R = 5\,\mathrm{mm}$ and center offset $d_{\mathrm{roll}} =
-    10\,\mathrm{mm}$,
-    peripheral rotation directions with angular velocity $\Omega$, and central
-    extensional stagnation point $(0,0)$.}
+    \includegraphics[width=0.4\linewidth]{media/4roll_mill_geometry_thesis.png}
+    \caption{Geometric dimensions and boundary partition of the four-roll
+    mill cavity, showing external stationary boundary $\Gamma_{\mathrm{outer}}$,
+    four cylinder rollers $\Gamma_{\mathrm{rolls}}$, and rotation directions.}
     \label{fig:4roll_geometry}
 \end{figure}
 

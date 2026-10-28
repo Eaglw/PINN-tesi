@@ -88,6 +88,13 @@ In our implementation, the inputs $\boldsymbol{x} = (x, y)$ are spatial coordina
 while the outputs $\hat{\boldsymbol{u}}$ parameterize the physical state variables:
 the stream function $\psi$, hydrodynamic pressure $p$, and extra-stress tensor components $\boldsymbol{\tau}$.
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.82\linewidth]{media/deep_learning_mlp_diagram.png}
+    \caption{Neural network representations: (a) schematic of an artificial neuron computing an affine combination $z = \boldsymbol{w} \cdot \boldsymbol{x} + b$ followed by a smooth activation $\sigma(z)$; (b) deep Multi-Layer Perceptron (MLP) architecture propagating coordinate inputs $(x, y)$ through $L$ hidden layers to parameterize continuous physical fields $(\psi, p, \boldsymbol{\tau})$.}
+    \label{fig:deep_learning_mlp_diagram}
+\end{figure}
+
 A central theoretical property of MLPs is universal function approximation
 \cite{cybenko1989approximation, hornik1989multilayer}:
 a feedforward network with sufficient width and smooth non-linear activations
@@ -95,13 +102,6 @@ can approximate any continuous function on a compact domain to arbitrary precisi
 However, universal approximation guarantees only the existence of a suitable set of weights,
 not that standard gradient-based optimization will automatically find them
 or that spatial derivatives will match the physical solution with equal fidelity.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.92\linewidth]{media/deep_learning_mlp_diagram.png}
-    \caption{Neural network representations: (a) schematic of an artificial neuron computing an affine combination $z = \boldsymbol{w} \cdot \boldsymbol{x} + b$ followed by a smooth activation $\sigma(z)$; (b) deep Multi-Layer Perceptron (MLP) architecture propagating coordinate inputs $(x, y)$ through $L$ hidden layers to parameterize continuous physical fields $(\psi, p, \boldsymbol{\tau})$.}
-    \label{fig:deep_learning_mlp_diagram}
-\end{figure}
 
 \subsubsection{Importance of Weight Initialization}
 \label{subsubsec:weight_initialization}
