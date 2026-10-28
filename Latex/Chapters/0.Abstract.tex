@@ -7,7 +7,6 @@
 
 \noindent
 
-%The study of viscoelasticity is a relevant problem across many fields and industries, both for its applications and its mathematical challenges.
 The characterization of viscoelastic fluids presents significant challenges in both industrial processing and fundamental rheology.
 Accurately modeling non-Newtonian behavior requires non-trivial governing
 equations coupling momentum conservation with frame-indifferent constitutive
@@ -18,46 +17,30 @@ generates pure rotation, simple shear, pure planar elongation, and continuous
 mixed kinematic regimes in between, providing an ideal platform to probe
 viscoelastic response in these less ideal regimes.
 
-%\vspace{0.7em}
-%\noindent
-%However, 
 Characterizing viscoelastic properties from experimental velocity data
 (such as Particle Image Velocimetry) constitutes an inverse problem that standard
 Computational Fluid Dynamics (CFD) is not well suited to solve. In fact, recovering unknown
 constitutive parameters via mesh-based solvers requires an expensive, iterative
 trial-and-error procedure involving repeated simulations.
 
-This thesis addresses these challenges by developing a Physics-Informed Neural Network (PINN) framework specifically tailored for the four-roll mill—a benchmark geometry capable of generating diverse shear and extensional flow regimes.
+This thesis addresses these challenges by developing a Physics-Informed Neural
+Network (PINN) framework specifically tailored for the four-roll mill—a benchmark
+geometry capable of generating diverse shear and extensional flow regimes.
 
-By embedding the governing conservation laws and frame-indifferent constitutive equations directly into the neural network's loss objective, the proposed framework enables the simultaneous reconstruction of unmeasured latent fields, such as polymeric stress and hydrodynamic pressure, and the identification of unknown rheological parameters. The framework is evaluated through both forward field reconstruction and inverse parameter discovery tasks across a variety of constitutive models, including Oldroyd-B and Giesekus fluids. The results demonstrate the capability of the PINN solver to act as a "virtual rheometer," accurately recovering physical states and parameters in complex, recirculating flows. Finally, this work maps the fundamental limits of the method, characterizing the physical invariances and identifiability boundaries that govern the successful inversion of viscoelastic properties in closed kinematic systems.
-
-% While Artificial Intelligence is
-% transforming engineering sciences, purely data-driven neural networks suffer
-% from heavy data requirements, lack of physical grounding, and poor extrapolation
-% outside training ranges. This thesis addresses these limitations by developing a
-% Physics-Informed Neural Network (PINN) framework applied to the four-roll mill.
-% By embedding Navier-Stokes momentum balance and viscoelastic constitutive laws
-% directly into the loss objective alongside data matching, the
-% optimization simultaneously obtain physical grounding, reduces training data
-% demands, and enables reliable field extrapolation.
-
-% \vspace{0.7em}
-% \noindent
-% Building upon foundational literature from Raissi's Newtonian flow past a cylinder
-% and Thakur's \textit{ViscoelasticNet} in open channels, this work expands
-% inverse viscoelastic characterization to an enclosed recirculating cavity with
-% zero net flux across an extended physical parameter range. The proposed
-% three-head architecture ($\mathcal{N}_\psi, \mathcal{N}_p, \mathcal{N}_{\boldsymbol{\tau}}$)
-% satisfies exact mass conservation via the stream function, algebraic pressure
-% anchoring, and a staged dual-precision optimization protocol (FP32 + FP64). 
-% This solver is capable of reconstructing unobserved stress and pressure fields
-% with $L_2$ errors below $1.0\%$ for velocity, $1.8\%$ for extra-stresses,
-% and $8.1\%$ for pressure. In the inverse problem, the network can 
-% simultaneously discover constitutive parameters and resolve spatial stress
-% fields for Oldroyd-B ($\lambda, \mu_p$ within $1.3\%$) and shear-thinning
-% Giesekus fluids ($\alpha, \lambda, \mu_p$ within $6.7\%$), maintaining robustness
-% down to 5,086 collocation points.
-% Finally, we map the intrinsic limits of recirculating kinematics,
-% revealing creeping-flow scaling invariance for solvent viscosity ($Re \ll 1$) 
-% and non-identifiability in linear PTT fluids, alongside proposals to overcome these limitations. 
+By embedding the governing conservation laws and frame-indifferent constitutive
+equations directly into the neural network's loss objective, the proposed
+framework enables the simultaneous reconstruction of unmeasured latent fields,
+such as polymeric stress and hydrodynamic pressure, and the identification of
+unknown rheological parameters. The framework is evaluated through both forward
+field reconstruction and inverse parameter discovery tasks across a variety of
+constitutive models, including Oldroyd-B and Giesekus fluids. Beyond parameter
+identification, inferring non-linear properties such as the Giesekus mobility
+factor enables data-driven constitutive model selection, discerning which
+mathematical formulation best represents the experimental fluid response. The
+results demonstrate the capability of the PINN solver to act as a "virtual
+rheometer," accurately recovering physical states and parameters in complex,
+recirculating flows. Finally, this work maps the fundamental limits of the
+method, characterizing the physical invariances and identifiability boundaries
+that govern the successful inversion of viscoelastic properties in closed
+kinematic systems.
 \clearpage
