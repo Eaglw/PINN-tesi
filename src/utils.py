@@ -152,7 +152,7 @@ def parse_dataset_metadata(path_or_filename):
 def resolve_dataset_path(directory, param_tag):
     """
     Risolve rigorosamente il percorso del dataset in base al tag standard.
-    Supporta sia directory base 'COMSOL/4roll' sia 'COMSOL/4roll/Datasets'.
+    Supporta sia directory base 'Datasets/4roll' sia 'Datasets/4roll/Datasets'.
     Supporta entrambe le varianti di separatore mesh (_M e -M) e tag ePTT.
     Solleva FileNotFoundError bloccante se il file non esiste (nessun fallback).
     """
@@ -326,7 +326,7 @@ def _extract_boundary_groups(
     Estrae i boundary groups e calcola le normali analizzando la topologia della mesh COMSOL.
     Non applica le BC, ma prepara i tensori per la Loss Function.
     """
-    raw_ds = dataset_path or getattr(builtins, "DATASET_PATH", globals().get("DATASET_PATH", "COMSOL/4roll/Datasets/4_roll_mill.csv"))
+    raw_ds = dataset_path or getattr(builtins, "DATASET_PATH", globals().get("DATASET_PATH", "Datasets/4roll/Datasets/4_roll_mill.csv"))
     ds_path = Path(raw_ds)
     try:
         meta = parse_dataset_metadata(ds_path)
@@ -1101,13 +1101,13 @@ def launch_tensorboard_server(log_dir):
 def update_inverse_benchmarks_database():
     """
     Sincronizza e aggiorna automaticamente i registri centralizzati
-    output_4rollmill/inverse_runs.csv e inverse_runs.md scansionando tutti i risultati.
+    output/inverse_runs.csv e inverse_runs.md scansionando tutti i risultati.
     """
     try:
         import sys
-        final_roll_dir = Path(__file__).resolve().parent.parent
-        if str(final_roll_dir) not in sys.path:
-            sys.path.insert(0, str(final_roll_dir))
+        root_dir = Path(__file__).resolve().parent.parent
+        if str(root_dir) not in sys.path:
+            sys.path.insert(0, str(root_dir))
         import sync_inverse_runs
         sync_inverse_runs.export_database()
     except Exception as e:

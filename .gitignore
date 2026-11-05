@@ -25,8 +25,8 @@ __pycache__/
 *.py[codz]
 *$py.class
 *.pth
-!final_roll/checkpoints/**/*.pth
-!final_roll/checkpoints/*.pth
+!output/checkpoints/**/*.pth
+!output/checkpoints/*.pth
 # C extensions
 *.so
 
@@ -242,7 +242,11 @@ __marimo__/
 # obsidian
 .obsidian
 .obsidian/
-final_roll/output_4rollmill/
+output/*
+!output/checkpoints/
+!output/checkpoints/**
+!output/inverse_runs.csv
+!output/inverse_runs.md
 nul
 PINN-wiki/Reference/**/*.pdf
 

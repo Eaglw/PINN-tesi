@@ -184,7 +184,7 @@ BETA_TRUE = MU_S_TRUE / MU_TOT_TRUE
 PARAM_TAG = build_dataset_tag(LAM_TRUE, MU_P_TRUE, MU_S_TRUE, ALPHA_TRUE, EPS_TRUE, MESH_TAG)
 
 BASE_DIR = Path(__file__).resolve().parent
-DATASET_PATH = resolve_dataset_path(BASE_DIR.parent / "COMSOL" / "4roll" / "Datasets", PARAM_TAG)
+DATASET_PATH = resolve_dataset_path(BASE_DIR / "Datasets" / "4roll" / "Datasets", PARAM_TAG)
 
 # Checkpoint di partenza: disattivato per training ex-novo da zero
 RESUME_CHECKPOINT = None
@@ -282,7 +282,7 @@ run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
 model_tag_str = "[ePTT]" if PTT_FORM in ("exp", "exponential", "eptt") else ""
 config_name = f"[{run_timestamp}][{mode_tag}][{PARAM_TAG}]{model_tag_str}[{budget_tag}][mauri]"
 
-OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
+OUTPUT_DIR = BASE_DIR / "output" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 global_log_path = OUTPUT_DIR / "train_log.txt"
 
@@ -340,7 +340,9 @@ def main():
         if not transfer_p.is_absolute():
             transfer_p = BASE_DIR / transfer_p
         if not transfer_p.exists():
-            ckpt_matches = list((BASE_DIR / "checkpoints").rglob(transfer_p.name))
+            transfer_p = BASE_DIR / "output" / transfer_p
+        if not transfer_p.exists():
+            ckpt_matches = list((BASE_DIR / "output" / "checkpoints").rglob(transfer_p.name))
             if ckpt_matches:
                 transfer_p = ckpt_matches[0]
         if not transfer_p.exists():
@@ -516,14 +518,14 @@ def main():
         )
         
         if is_quality_ok:
-            dest_dir = BASE_DIR / "checkpoints" / subfolder
+            dest_dir = BASE_DIR / "output" / "checkpoints" / subfolder
             dest_dir.mkdir(parents=True, exist_ok=True)
             f1_dest = dest_dir / f"checkpoint_inverso_fase1_{PARAM_TAG}_{f1_tag}.pth"
             import shutil
             shutil.copy2(f1_ckpt_in_run, f1_dest)
             print(f"[Quality Gate: SUPERATO] Checkpoint donatore archiviato in:\n  -> {f1_dest}")
         else:
-            print(f"[Quality Gate: NON SUPERATO] Checkpoint NON archiviato in checkpoints/{subfolder}:")
+            print(f"[Quality Gate: NON SUPERATO] Checkpoint NON archiviato in output/checkpoints/{subfolder}:")
             print(f"  Soglie: |Err lam| <= {MAX_ERR_LAM}%, |Err mu_p| <= {MAX_ERR_MUP}%, Err tau_xy <= {MAX_ERR_TAU_XY}%, Err uv <= {MAX_ERR_UV}%")
             print(f"  Valori: |Err lam| = {abs(err_lam_pct):.2f}%, |Err mu_p| = {abs(err_mup_pct):.2f}%, Err tau_xy = {err_tau_xy_pct:.2f}%, Err uv = {err_uv_pct:.2f}%")
             print(f"  (Il checkpoint rimane disponibile nella cartella di run: {OUTPUT_DIR})")

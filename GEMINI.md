@@ -4,17 +4,22 @@ This project focuses on the research and application of Physics-Informed Neural 
 
 ## Project Structure
 
-- **`final_roll/`**: Active working folder containing the current viscoelastic fluid PINN implementation for the four-roll mill.
-    - `train_4roll_main.py`: Main entry point for training and running current experiments.
-    - `src/`: Core source code module:
-        - `train.py`: Implementation of the model architecture (`CombinedModel`) and the training process.
-        - `physics.py`: Viscoelastic physics definition, including losses, adimensional parameters, and boundary conditions.
-        - `utils.py`: Utility functions for loading COMSOL data and plotting fields.
-        - `debug.py`: Helper tools for debugging magnitudes and random point evaluations.
-    - `output_4rollmill/`: Directory where results, plots, logs, and models are saved.
-- **`Prep-tests/`**: Archival directory containing old tests, code drafts, and backups (e.g., Newtonian flows, 2D Heat equations, and previous Viscoelastic PINN experiments).
+- **`train_4roll_main.py`**: Main entry point for training and running current experiments (Windows personal machine).
+- **`train_4roll_main_mauri.py`**: Main entry point for training on Mauri's machine.
+- **`postprocess_run.py`**: Post-processing tool for evaluating runs and generating diagnostic plots.
+- **`sync_inverse_runs.py`**: Aggregator for database and markdown run summaries (`inverse_runs.csv` and `inverse_runs.md`).
+- **`src/`**: Core source code module:
+    - `train.py`: Implementation of the model architecture (`CombinedModel`) and the training process.
+    - `physics.py`: Viscoelastic physics definition, including losses, adimensional parameters, and boundary conditions.
+    - `utils.py`: Utility functions for loading datasets and plotting fields.
+    - `debug.py`: Helper tools for debugging magnitudes and random point evaluations.
+- **`Datasets/`**: Storage folder for reference datasets (e.g., `Datasets/4roll/Datasets/4_roll_mill_*.csv`).
+- **`output/`**: Directory where results, plots, logs, and models are saved.
+    - `checkpoints/`: Archival directory for transfer learning checkpoints organized by constitutive model (`oldroyd`, `giesekus`, `ptt`).
+    - `inverse_runs.csv` / `inverse_runs.md`: Centralized run benchmark database.
+- **`PINN-wiki/`**: Project Obsidian vault and documentation.
+- **`OLD/`**: Archival directory containing legacy components (e.g., `Latex/` thesis chapters, presentations, `Prep-tests/`, `Channel/`, `active_learning/`).
 - **`scratch/`**: Workspace folder dedicated to quick tests, exploratory scripts, and temporary experiments. Definitive and production code should not reside here.
-- **`COMSOL/`**: Storage folder for COMSOL reference datasets (e.g., `4roll/4_roll_mill.csv`).
 
 ## Setup & Installation
 
@@ -35,16 +40,9 @@ Key libraries: `torch`, `numpy`, `matplotlib`, `tqdm`, `pandas`.
 ## Running the Experiments
 
 ### Viscoelastic PINN Solver (4-Roll Mill)
-Run the main script from the `final_roll` folder or set the `PYTHONPATH` environment variable:
+Run the main script directly from the workspace root:
 ```powershell
-# Option 1: Navigate to final_roll and run the script
-cd final_roll
-..\venv\Scripts\python train_4roll_main.py
-cd ..
-
-# Option 2: Set PYTHONPATH from the root directory
-$env:PYTHONPATH="final_roll;."
-.\venv\Scripts\python final_roll/train_4roll_main.py
+.\venv\Scripts\python train_4roll_main.py
 ```
 
 ## Development Conventions
@@ -97,8 +95,8 @@ To ensure optimization stability, training is split into distinct decoupled stag
 - **Stream Function $\psi$ Mobile in Fase 2**: nella Fase 2 NON si deve MAI congelare $\psi$ (`model_psi`), perché altrimenti non può compensare per la parte irrotazionale del campo di velocità, impedendo di trovare il gradiente di pressione $\nabla p$. Solo il tensore degli sforzi $\boldsymbol{\tau}$ (`model_tau`) viene congelato. Questo principio è stato dimostrato rigorosamente sia nel problema diretto che in quello inverso.
 - **Regola Tassativa su Git**: Non eseguire MAI `git push` o  `git commit`senza che l'utente lo chieda o lo autorizzi espressamente. Salva sempre modifiche e commit solo in locale se non viene espressamente ordinato un push.
 - **Convenzione Nomenclatura Parametrica `L-P-S-A-E_M` (Tassativa e Rigorosa, Senza Fallback)**: Per identificare univocamente le configurazioni fisiche dei fluidi viscoelastici (Oldroyd-B, Giesekus, PTT) e la risoluzione di griglia, utilizzare SEMPRE lo schema standard `L{lambda}-P{eta_p}-S{eta_s}-A{alpha}-E{eps}_M{mesh}` (es. `L0.05-P0.5-S0.5-A0-E0_M125k`):
-  - Dataset COMSOL: `COMSOL/4roll/Datasets/4_roll_mill_L{lambda}-P{eta_p}-S{eta_s}-A{alpha}-E{eps}_M{mesh}.csv` (es. `4_roll_mill_L0.05-P0.5-S0.5-A0-E0_M125k.csv`).
-  - Checkpoint Fase 1: `final_roll/checkpoints/{oldroyd|giesekus|ptt}/checkpoint_inverso_fase1_L{lambda}-P{eta_p}-S{eta_s}-A{alpha}-E{eps}_M{mesh}_{budget}.pth` (archiviazione e lookup automatici organizzati per modello costitutivo).
+  - Dataset: `Datasets/4roll/Datasets/4_roll_mill_L{lambda}-P{eta_p}-S{eta_s}-A{alpha}-E{eps}_M{mesh}.csv` (es. `4_roll_mill_L0.05-P0.5-S0.5-A0-E0_M125k.csv`).
+  - Checkpoint Fase 1: `output/checkpoints/{oldroyd|giesekus|ptt}/checkpoint_inverso_fase1_L{lambda}-P{eta_p}-S{eta_s}-A{alpha}-E{eps}_M{mesh}_{budget}.pth` (archiviazione e lookup automatici organizzati per modello costitutivo).
   - Cartelle di output run: devono contenere obbligatoriamente il tag `[{PARAM_TAG}]`, ad esempio `[{timestamp}][INV][L0.05-P0.5-S0.5-A0-E0_M125k][{budget_tag}]` (il tag `[STAGED]` e la dicitura `epochs` sono esclusi/deprecati, focalizzandosi sullo standard Fase 1).
   - Questa convenzione si applica rigorosamente a `train_4roll_main.py` e `train_4roll_main_mauri.py`. È vietato qualsiasi fallback silenzioso: se un dataset o file non è presente o non rispetta lo standard, il codice solleva immediatamente un errore bloccante.
 - **Cartella Figure e Immagini LaTeX (Esclusivamente `Latex/media/`)**: tutte le figure, grafici, schemi e diagrammi della tesi risiedono e devono essere esportati esclusivamente in `Latex/media/`. È tassativamente vietato creare o salvare immagini nella cartella `Latex/images/`.

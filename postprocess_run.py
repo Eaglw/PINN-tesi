@@ -95,7 +95,7 @@ ACTIVATION = nn.SiLU
 
 def resolve_checkpoint_and_dir(target_arg=None):
     """Individua il file di checkpoint e la cartella della run da processare."""
-    output_base = BASE_DIR / "output_4rollmill"
+    output_base = BASE_DIR / "output"
 
     if target_arg:
         target_path = Path(target_arg).resolve()
@@ -137,21 +137,21 @@ def resolve_checkpoint_and_dir(target_arg=None):
     raise FileNotFoundError(f"Nessun file di checkpoint (.pth) trovato in {run_dir}")
 
 
-def find_all_available_datasets(comsol_dir):
-    """Restituisce un dizionario con i dataset .csv disponibili in COMSOL."""
+def find_all_available_datasets(datasets_dir):
+    """Restituisce un dizionario con i dataset .csv disponibili in Datasets/."""
     datasets = {}
-    if not comsol_dir.exists():
+    if not datasets_dir.exists():
         return datasets
-    for p in comsol_dir.rglob("*.csv"):
+    for p in datasets_dir.rglob("*.csv"):
         datasets[p.stem] = p
         datasets[p.name] = p
     return datasets
 
 
 def resolve_dataset(checkpoint_path, run_dir, explicit_dataset=None):
-    """Individua in modo autonomo o esplicito il file di dataset COMSOL (.csv)."""
-    comsol_dir = BASE_DIR.parent / "COMSOL"
-    available_datasets = find_all_available_datasets(comsol_dir)
+    """Individua in modo autonomo o esplicito il file di dataset (.csv)."""
+    datasets_dir = BASE_DIR / "Datasets"
+    available_datasets = find_all_available_datasets(datasets_dir)
 
     # 1. Se fornito esplicitamente da CLI
     if explicit_dataset:
@@ -190,17 +190,17 @@ def resolve_dataset(checkpoint_path, run_dir, explicit_dataset=None):
     if matched_ds:
         return matched_ds
 
-    # 3. Fallback se c'è un solo file .csv nella cartella COMSOL
+    # 3. Fallback se c'è un solo file .csv nella cartella Datasets
     unique_csvs = list(set(available_datasets.values()))
     if len(unique_csvs) == 1:
         return unique_csvs[0]
 
     # Se non determinato, solleva errore con l'elenco dei dataset trovati
-    avail_str = "\n".join([f"  - {p.relative_to(BASE_DIR.parent)}" for p in unique_csvs])
+    avail_str = "\n".join([f"  - {p.relative_to(BASE_DIR)}" for p in unique_csvs])
     target_descr = f"{run_dir.name}/{checkpoint_path.name}"
     raise ValueError(
         f"Impossibile auto-dedurre il dataset per '{target_descr}'.\n"
-        f"Dataset trovati in COMSOL/:\n{avail_str}\n\n"
+        f"Dataset trovati in Datasets/:\n{avail_str}\n\n"
         f"Per favore specifica il dataset da riga di comando:\n"
         f"  python postprocess_run.py <run_dir_o_checkpoint> <percorso_dataset.csv>"
     )

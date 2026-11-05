@@ -216,8 +216,8 @@ def find_dataset_file(param_tag, custom_arg=None):
             return p.resolve()
         # Cerca nelle cartelle note
         search_dirs = [
-            BASE_DIR.parent / "COMSOL" / "4roll" / "Datasets",
-            BASE_DIR.parent / "COMSOL" / "4roll",
+            BASE_DIR / "Datasets" / "4roll" / "Datasets",
+            BASE_DIR / "Datasets" / "4roll",
             Path("/kaggle/input"),
             Path("/kaggle/working"),
             BASE_DIR,
@@ -231,8 +231,8 @@ def find_dataset_file(param_tag, custom_arg=None):
 
     # Lookup standard tramite PARAM_TAG
     candidate_dirs = [
-        BASE_DIR.parent / "COMSOL" / "4roll" / "Datasets",
-        BASE_DIR.parent / "COMSOL" / "4roll",
+        BASE_DIR / "Datasets" / "4roll" / "Datasets",
+        BASE_DIR / "Datasets" / "4roll",
         Path("/kaggle/input"),
         Path("/kaggle/working"),
     ]
@@ -287,7 +287,7 @@ budget_tag = f"Ph1_{_format_iters(ADAM_EPOCHS_PHASE1)}+{_format_iters(LBFGS_MAX_
 run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
 config_name = f"[{run_timestamp}][DIR][{PARAM_TAG}][{budget_tag}]"
 
-OUTPUT_DIR = BASE_DIR / "output_4rollmill" / config_name
+OUTPUT_DIR = BASE_DIR / "output" / config_name
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 global_log_path = OUTPUT_DIR / "train_log.txt"
 

@@ -12,7 +12,7 @@ import pandas as pd
 
 
 # Cartella principale dei risultati
-OUTPUT_BASE = Path(__file__).resolve().parent / "output_4rollmill"
+OUTPUT_BASE = Path(__file__).resolve().parent / "output"
 CSV_OUT = OUTPUT_BASE / "inverse_runs.csv"
 MD_OUT = OUTPUT_BASE / "inverse_runs.md"
 
